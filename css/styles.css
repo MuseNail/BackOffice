@@ -71,6 +71,14 @@ h2{font-size:19px;margin:0 0 2px}
 .login-input{padding:10px 12px;border:1.5px solid var(--line);border-radius:9px;font:inherit}
 .login-err{color:var(--red);font-weight:600;min-height:16px}
 
+/* ── topbar user ── */
+.userchip{display:flex;align-items:center;gap:8px;font-weight:700}
+.iconbtn{border:none;background:#f1f3f7;border-radius:8px;padding:6px 8px;cursor:pointer;color:#3c3f48}
+.iconbtn:hover{background:#e4e7ee}
+.rowline{display:flex;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}
+.rowline:last-of-type{border-bottom:none}
+.btn.sm{font-size:12px;padding:6px 11px;border-radius:8px}
+
 /* ── toast ── */
 .toast{position:fixed;bottom:22px;left:50%;transform:translate(-50%,12px);background:#23252c;color:#fff;font-weight:600;padding:10px 18px;border-radius:10px;opacity:0;transition:.25s;z-index:50}
 .toast.on{opacity:1;transform:translate(-50%,0)}

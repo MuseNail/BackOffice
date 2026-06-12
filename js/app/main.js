@@ -3,13 +3,14 @@
 //   #/login        sign in (M0: paste bootstrap token)
 //   #/businesses   selector + create (owner only from M2)
 //   #/b/<id>/<view>
-import { APP_VERSION } from './config.js';
-import { getToken, getActiveBiz, setActiveBiz } from './session.js';
+import { APP_VERSION, ORIGIN } from './config.js';
+import { getToken, getActiveBiz, setActiveBiz, getUser, getBusinesses, clearSession } from './session.js';
 import { openBusiness, setStatusListener } from './sync.js';
 import * as login from './views/login.js';
 import * as businesses from './views/businesses.js';
 import * as setup from './views/setup.js';
 import * as dashboard from './views/dashboard.js';
+import * as settings from './views/settings.js';
 import { stub } from './views/stubs.js';
 
 const VIEWS = {
@@ -22,7 +23,7 @@ const VIEWS = {
   reconcile: stub('Reconcile', 'M8 — statement sessions, must reach $0.00'),
   inventory: stub('Inventory', 'M10 — items, restock points, linked postings'),
   reports: stub('Reports', 'M9 — P&L, Balance Sheet, summaries, tax estimate'),
-  settings: stub('Settings', 'M2 — users/PINs/roles; M11 Muse sync; M12 IIF export'),
+  settings,
 };
 
 let current = null;
@@ -44,6 +45,9 @@ function route() {
     current = mount(VIEWS[viewName] || VIEWS.dashboard, root);
     return;
   }
+  // 3b UI shaping: single-business users have no selector — land in their books.
+  const mine = getBusinesses();
+  if (!getUser()?.isOwner && mine.length === 1) { location.hash = `#/b/${mine[0].id}/dashboard`; return; }
   setNav('businesses', '');
   current = mount(businesses, root);
 }
@@ -56,10 +60,17 @@ function mount(view, root) {
 
 function setNav(active, biz) {
   document.getElementById('sidebar').dataset.biz = biz;
+  // 3b UI shaping: the Businesses entry exists only for multi-business sessions.
+  const multi = getUser()?.isOwner || getBusinesses().length > 1;
   document.querySelectorAll('#sidebar .navitem').forEach(n => {
     n.classList.toggle('on', n.dataset.v === active);
-    if (n.dataset.v !== 'businesses') n.style.display = biz ? 'flex' : 'none';
+    if (n.dataset.v === 'businesses') n.style.display = multi ? 'flex' : 'none';
+    else n.style.display = biz ? 'flex' : 'none';
   });
+  const who = document.getElementById('userchip');
+  const u = getUser();
+  who.style.display = u ? 'flex' : 'none';
+  if (u) who.firstChild.textContent = u.name;
 }
 
 function boot() {
@@ -74,6 +85,12 @@ function boot() {
       const biz = document.getElementById('sidebar').dataset.biz;
       location.hash = n.dataset.v === 'businesses' ? '#/businesses' : `#/b/${biz}/${n.dataset.v}`;
     }));
+  document.getElementById('logoutbtn').addEventListener('click', async () => {
+    try { await fetch(ORIGIN + '/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${getToken()}` } }); } catch { /* signing out anyway */ }
+    clearSession();
+    location.hash = '';
+    location.reload();
+  });
   window.addEventListener('hashchange', route);
   route();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});

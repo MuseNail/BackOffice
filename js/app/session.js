@@ -12,3 +12,19 @@ export function deviceId() {
   if (!d) { d = 'd-' + Math.random().toString(36).slice(2, 10); localStorage.setItem(LS.device, d); }
   return d;
 }
+
+export function getUser() {
+  try { return JSON.parse(localStorage.getItem(LS.user)) || null; } catch { return null; }
+}
+export function setUser(u) { u ? localStorage.setItem(LS.user, JSON.stringify(u)) : localStorage.removeItem(LS.user); }
+
+// The businesses this session is allowed to see — exactly what the server
+// returned at login (3b: never more than the user's memberships).
+export function getBusinesses() {
+  try { return JSON.parse(localStorage.getItem(LS.businesses)) || []; } catch { return []; }
+}
+export function setBusinesses(b) { localStorage.setItem(LS.businesses, JSON.stringify(b || [])); }
+
+export function clearSession() {
+  for (const k of [LS.token, LS.user, LS.businesses, LS.activeBiz]) localStorage.removeItem(k);
+}

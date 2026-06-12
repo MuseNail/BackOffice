@@ -3,6 +3,7 @@
 // (kickoff 3b) — this view renders whatever the session is allowed to see.
 import { el, clear } from '../ui.js';
 import { api } from '../sync.js';
+import { getUser } from '../session.js';
 import { industryLabel } from '../lib/coa-templates.js';
 
 export function render(root) {
@@ -11,8 +12,10 @@ export function render(root) {
     el('h2', {}, 'Your businesses'),
     el('p', { class: 'sub' }, 'Each business keeps its own books, users, and settings — completely separate.'),
     list,
-    el('button', { class: 'btn', onclick: () => { location.hash = '#/setup'; } }, 'New business'),
   );
+  if (getUser()?.isOwner) {
+    root.append(el('button', { class: 'btn', onclick: () => { location.hash = '#/setup'; } }, 'New business'));
+  }
   load(list);
 }
 

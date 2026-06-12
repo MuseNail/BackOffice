@@ -1,4 +1,4 @@
-// ── Back Office Worker — router + auth gate ────────────────
+// ── Back Office Worker — router + session auth (kickoff 3b) ────────────────
 import { BusinessDO } from './do/business.js';
 import { RegistryDO } from './do/registry.js';
 export { BusinessDO, RegistryDO };
@@ -9,39 +9,75 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type,Authorization',
 };
 
-export const json = (data, status = 200) =>
+const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', ...CORS } });
 
-// M0 bootstrap auth: one shared bearer secret. M2 replaces this with per-user
-// sessions + RegistryDO membership resolution (kickoff 3b) — same gate position,
-// richer check. No route is ever served without passing through here.
-function authed(req, env, url) {
-  if (!env.AUTH_TOKEN) return false;
-  if ((req.headers.get('Authorization') || '') === `Bearer ${env.AUTH_TOKEN}`) return true;
-  // WS upgrades can't carry an Authorization header from the browser — accept
-  // the token as a query param on the websocket route only.
-  return url.pathname.endsWith('/ws') && url.searchParams.get('token') === env.AUTH_TOKEN;
+const withCors = (res) => {
+  const h = new Headers(res.headers);
+  for (const [k, v] of Object.entries(CORS)) h.set(k, v);
+  return new Response(res.body, { status: res.status, headers: h, webSocket: res.webSocket });
+};
+
+const registry = (env) => env.REGISTRY_DO.get(env.REGISTRY_DO.idFromName('global'));
+
+// Per-isolate session cache so every request doesn't round-trip to the
+// RegistryDO. Short TTL keeps revocations near-immediate.
+const sessCache = new Map();
+const SESS_TTL = 60_000;
+
+async function resolveSession(token, env) {
+  if (!token) return null;
+  const hit = sessCache.get(token);
+  if (hit && hit.exp > Date.now()) return hit.sess;
+  const res = await registry(env).fetch(new Request('https://do/registry/_resolve', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+    headers: { 'Content-Type': 'application/json' },
+  }));
+  if (!res.ok) { sessCache.delete(token); return null; }
+  const sess = await res.json();
+  sessCache.set(token, { sess, exp: Date.now() + SESS_TTL });
+  if (sessCache.size > 2000) sessCache.clear();
+  return sess;
 }
 
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
+    const p = url.pathname;
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    if (url.pathname === '/health') return json({ ok: true, service: 'backoffice' });
+    if (p === '/health') return json({ ok: true, service: 'backoffice' });
 
-    if (!authed(req, env, url)) return json({ error: 'unauthorized' }, 401);
-
-    if (url.pathname === '/registry' || url.pathname.startsWith('/registry/')) {
-      const stub = env.REGISTRY_DO.get(env.REGISTRY_DO.idFromName('global'));
-      return stub.fetch(req);
+    // Auth endpoints are the only other open routes — the registry rate-limits
+    // and validates them itself.
+    if (p === '/auth/status' || p === '/auth/login' || p === '/auth/bootstrap' || p === '/auth/logout') {
+      return withCors(await registry(env).fetch(req));
     }
 
-    const m = url.pathname.match(/^\/b\/([a-z0-9-]{1,40})(\/.*)$/);
+    // Everything else requires a session. WS upgrades can't set headers from
+    // the browser, so the websocket route may carry the token as ?token=.
+    const token = (req.headers.get('Authorization') || '').replace(/^Bearer /, '') ||
+      (p.endsWith('/ws') ? url.searchParams.get('token') : null);
+    const sess = await resolveSession(token, env);
+    if (!sess) return json({ error: 'unauthorized' }, 401);
+
+    if (p.startsWith('/registry/')) {
+      if (p.startsWith('/registry/_')) return json({ error: 'not found' }, 404); // internal only
+      return withCors(await registry(env).fetch(req));
+    }
+
+    const m = p.match(/^\/b\/([a-z0-9-]{1,40})(\/.*)$/);
     if (m) {
-      // 3b: per-user membership check lands HERE in M2 — before the DO is touched.
-      // Non-members must get the same 403 whether the business exists or not.
-      const stub = env.BUSINESS_DO.get(env.BUSINESS_DO.idFromName(m[1]));
-      return stub.fetch(req);
+      const bizId = m[1];
+      // 3b: non-members get the SAME 403 whether the business exists or not —
+      // no enumeration, no existence leak.
+      const role = sess.isOwner ? 'owner' : sess.memberships[bizId];
+      if (!role) return json({ error: 'forbidden' }, 403);
+      if (role === 'viewer' && req.method !== 'GET' && !m[2].endsWith('/ws')) return json({ error: 'read only' }, 403);
+      const fwd = new Request(req);
+      fwd.headers.set('X-Bo-Role', role);
+      fwd.headers.set('X-Bo-User', sess.userId);
+      return withCors(await env.BUSINESS_DO.get(env.BUSINESS_DO.idFromName(bizId)).fetch(fwd));
     }
 
     return json({ error: 'not found' }, 404);

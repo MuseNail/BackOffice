@@ -30,7 +30,12 @@ export class BusinessDO {
       // Hibernation API — the DO sleeps between messages instead of billing
       // wall-clock duration per open socket (kickoff 0; Muse outage lesson).
       this.state.acceptWebSocket(pair[1]);
-      pair[1].serializeAttachment({ device: url.searchParams.get('device') || '' });
+      // Role rides the attachment so viewer write-blocking survives hibernation
+      // (WS messages bypass the Worker middleware after the upgrade).
+      pair[1].serializeAttachment({
+        device: url.searchParams.get('device') || '',
+        role: req.headers.get('X-Bo-Role') || 'viewer',
+      });
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
 
@@ -124,6 +129,8 @@ export class BusinessDO {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type === 'op' && msg.op) {
+      const att = (() => { try { return ws.deserializeAttachment() || {}; } catch { return {}; } })();
+      if (att.role === 'viewer') { ws.send(JSON.stringify({ type: 'ack', clientId: msg.clientId, rejected: true, reason: 'read only' })); return; }
       const result = await this.apply(msg.op);
       ws.send(JSON.stringify({ type: 'ack', clientId: msg.clientId, ...result }));
     }

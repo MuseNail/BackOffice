@@ -1,6 +1,6 @@
 // ── sync — snapshot load, dispatch, offline outbox, WebSocket ────────────────
 import { ORIGIN, LS } from './config.js';
-import { getToken, deviceId, getActiveBiz } from './session.js';
+import { getToken, deviceId, getActiveBiz, clearSession } from './session.js';
 import { setSnapshot, applyChange } from './store.js';
 
 let ws = null;
@@ -12,7 +12,13 @@ const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bea
 
 export async function api(path, opts = {}) {
   const res = await fetch(ORIGIN + path, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
-  if (res.status === 401) throw new Error('unauthorized');
+  if (res.status === 401) {
+    // session expired or revoked — back to sign-in (outbox stays for next login)
+    clearSession();
+    location.hash = '';
+    location.reload();
+    throw new Error('unauthorized');
+  }
   return res;
 }
 

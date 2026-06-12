@@ -1,5 +1,5 @@
 // ── Back Office — constants ────────────────
-export const APP_VERSION = '0.2.0';
+export const APP_VERSION = '0.3.0';
 
 // Worker URL — fill in after the first `wrangler deploy` prints it.
 // When the app itself is served from localhost, target `wrangler dev` instead.
@@ -10,6 +10,8 @@ export const ORIGIN = LOCAL ? 'http://127.0.0.1:8787' : 'https://backoffice.muse
 // ORIGIN with muse/turndesk, and localStorage/CacheStorage are per-origin.
 export const LS = {
   token: 'bo_token',
+  user: 'bo_user',
+  businesses: 'bo_businesses',
   device: 'bo_device_id',
   activeBiz: 'bo_active_biz',
   outbox: 'bo_outbox',
