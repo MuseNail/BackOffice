@@ -14,6 +14,20 @@ const ENTITY_KINDS = new Set([
   'vendor', 'item', 'purchase', 'recon', 'lock',
 ]);
 
+// Structural double-entry invariants, enforced server-side no matter what the
+// client sends (full account/lock validation lives in lib/posting.js).
+function txnInvariantBreach(t) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t.date || '')) return 'bad date';
+  if (!['staged', 'posted', 'void'].includes(t.status)) return 'bad status';
+  if (!Array.isArray(t.lines) || t.lines.length < 2) return 'needs 2+ lines';
+  let sum = 0;
+  for (const l of t.lines) {
+    if (!l?.accountId || !Number.isInteger(l.amountCents) || l.amountCents === 0) return 'bad line';
+    sum += l.amountCents;
+  }
+  return sum === 0 ? null : 'unbalanced lines';
+}
+
 export class BusinessDO {
   constructor(state, env) {
     this.state = state;
@@ -74,6 +88,10 @@ export class BusinessDO {
     }
     if (op.op === 'entity.upsert') {
       if (!ENTITY_KINDS.has(op.kind) || !op.value?.id) return { rejected: true, reason: 'bad op' };
+      if (op.kind === 'txn') {
+        const bad = txnInvariantBreach(op.value);
+        if (bad) return { rejected: true, reason: bad };
+      }
       const key = `${op.kind}:${op.value.id}`;
       const existing = await this.state.storage.get(key);
       // Stale-write guard (Muse pattern): an older-stamped write never clobbers

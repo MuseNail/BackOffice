@@ -10,6 +10,8 @@ import * as login from './views/login.js';
 import * as businesses from './views/businesses.js';
 import * as setup from './views/setup.js';
 import * as dashboard from './views/dashboard.js';
+import * as accounts from './views/accounts.js';
+import * as ledger from './views/ledger.js';
 import * as settings from './views/settings.js';
 import { stub } from './views/stubs.js';
 
@@ -17,8 +19,8 @@ const VIEWS = {
   dashboard,
   banking: stub('Banking', 'M5 — bank accounts, CSV import wizard, import history'),
   review: stub('Review', 'M5–M7 — staged rows, rule/history/AI suggestions, approve to post'),
-  ledger: stub('Ledger', 'M4 — posted transactions, manual entry, journal entries'),
-  accounts: stub('Accounts', 'M3 — chart of accounts CRUD on the industry template'),
+  ledger,
+  accounts,
   rules: stub('Vendors & Rules', 'M6 — exact/keyword matchers, usage counts'),
   reconcile: stub('Reconcile', 'M8 — statement sessions, must reach $0.00'),
   inventory: stub('Inventory', 'M10 — items, restock points, linked postings'),

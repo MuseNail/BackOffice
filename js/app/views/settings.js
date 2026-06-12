@@ -3,7 +3,7 @@
 // the same rule, this is just honest UI. Muse sync + IIF export land M11/M12.
 import { el, clear, toast } from '../ui.js';
 import { api } from '../sync.js';
-import { getActiveBiz, getUser } from '../session.js';
+import { getActiveBiz, getBusinesses, roleFor } from '../session.js';
 import { getState } from '../store.js';
 
 const ROLES = ['owner', 'manager', 'bookkeeper', 'viewer'];
@@ -11,9 +11,9 @@ const ROLE_HELP = { owner: 'everything', manager: 'everything but deleting the b
 
 export function render(root) {
   const biz = getActiveBiz();
-  const me = getUser();
-  const myRole = me?.isOwner ? 'owner' : (JSON.parse(localStorage.getItem('bo_businesses') || '[]').find(b => b.id === biz)?.role);
-  root.append(el('h2', {}, `Settings — ${getState().meta?.name || biz}`));
+  const myRole = roleFor(biz);
+  const bizName = getState().meta?.name || getBusinesses().find(b => b.id === biz)?.name || biz;
+  root.append(el('h2', {}, `Settings — ${bizName}`));
   if (!['owner', 'manager'].includes(myRole)) {
     root.append(el('p', { class: 'sub' }, 'Users and devices are managed by the owner.'));
     return;

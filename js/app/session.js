@@ -28,3 +28,14 @@ export function setBusinesses(b) { localStorage.setItem(LS.businesses, JSON.stri
 export function clearSession() {
   for (const k of [LS.token, LS.user, LS.businesses, LS.activeBiz]) localStorage.removeItem(k);
 }
+
+export function roleFor(bizId) {
+  const u = getUser();
+  if (u?.isOwner) return 'owner';
+  return getBusinesses().find(b => b.id === bizId)?.role || null;
+}
+
+// Mirrors the server rule (viewer = read-only); the Worker enforces it anyway.
+export function canEdit(bizId) {
+  return ['owner', 'manager', 'bookkeeper'].includes(roleFor(bizId));
+}

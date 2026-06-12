@@ -23,6 +23,18 @@ export function toast(msg, kind = 'ok') {
   setTimeout(() => { t.classList.remove('on'); setTimeout(() => t.remove(), 300); }, 2600);
 }
 
+export function modal(title) {
+  const body = el('div');
+  const overlay = el('div', { class: 'overlay on', onclick: (e) => { if (e.target === overlay) overlay.remove(); } },
+    el('div', { class: 'modal' },
+      el('div', { class: 'mhead' },
+        el('b', {}, title),
+        el('span', { class: 'ms mclose', onclick: () => overlay.remove() }, 'close')),
+      body));
+  document.body.append(overlay);
+  return { body, close: () => overlay.remove() };
+}
+
 // Money is integer cents everywhere in stored data; format only at the edge.
 export function fmtMoney(cents, { sign = false } = {}) {
   const n = Math.abs(cents) / 100;
