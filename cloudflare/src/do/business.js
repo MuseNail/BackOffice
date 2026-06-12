@@ -79,6 +79,21 @@ export class BusinessDO {
       await this.state.storage.put(key, op.value);
       return this.commit(op);
     }
+    if (op.op === 'entity.bulkUpsert') {
+      if (!ENTITY_KINDS.has(op.kind) || !Array.isArray(op.values) || op.values.length > 500) {
+        return { rejected: true, reason: 'bad op' };
+      }
+      let applied = 0;
+      for (const v of op.values) {
+        if (!v?.id) continue;
+        const key = `${op.kind}:${v.id}`;
+        const existing = await this.state.storage.get(key);
+        if (existing?.updatedAt && v.updatedAt && v.updatedAt < existing.updatedAt) continue;
+        await this.state.storage.put(key, v);
+        applied++;
+      }
+      return this.commit(op, { applied });
+    }
     if (op.op === 'entity.delete') {
       if (!ENTITY_KINDS.has(op.kind) || !op.id) return { rejected: true, reason: 'bad op' };
       await this.state.storage.delete(`${op.kind}:${op.id}`);
@@ -87,11 +102,11 @@ export class BusinessDO {
     return { rejected: true, reason: 'unknown op' };
   }
 
-  async commit(op) {
+  async commit(op, extra = {}) {
     const seq = ((await this.state.storage.get('seq')) || 0) + 1;
     await this.state.storage.put('seq', seq);
     this.broadcast({ type: 'op', seq, op }, op.device);
-    return { ok: true, seq };
+    return { ok: true, seq, ...extra };
   }
 
   broadcast(msg, exceptDevice) {

@@ -1,8 +1,9 @@
 // ── view: businesses — selector + create ────────────────
 // From M2 the server only returns businesses the signed-in user belongs to
 // (kickoff 3b) — this view renders whatever the session is allowed to see.
-import { el, clear, toast } from '../ui.js';
+import { el, clear } from '../ui.js';
 import { api } from '../sync.js';
+import { industryLabel } from '../lib/coa-templates.js';
 
 export function render(root) {
   const list = el('div');
@@ -10,7 +11,7 @@ export function render(root) {
     el('h2', {}, 'Your businesses'),
     el('p', { class: 'sub' }, 'Each business keeps its own books, users, and settings — completely separate.'),
     list,
-    createForm(list),
+    el('button', { class: 'btn', onclick: () => { location.hash = '#/setup'; } }, 'New business'),
   );
   load(list);
 }
@@ -27,33 +28,12 @@ async function load(list) {
         el('div', { class: 'bizicon' }, '\u{1F3E2}'),
         el('div', { class: 'bizmeta' },
           el('div', { class: 'bizname' }, b.name),
-          el('div', { class: 'sub' }, b.industry)),
+          el('div', { class: 'sub' }, industryLabel(b.industry))),
       ));
     }
   } catch {
     clear(list).append(el('p', { class: 'sub' }, 'Could not load businesses — check the connection.'));
   }
-}
-
-function createForm(list) {
-  const name = el('input', { placeholder: 'Business name', class: 'field-input' });
-  const industry = el('select', { class: 'field-input' },
-    ...['salon-spa', 'retail', 'restaurant', 'rental', 'services', 'general'].map(i => el('option', { value: i }, i)));
-  return el('form', { class: 'card createform', onsubmit: async (e) => {
-    e.preventDefault();
-    const id = name.value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
-    if (!id) return;
-    const res = await api('/registry/businesses', {
-      method: 'POST',
-      body: JSON.stringify({ id, name: name.value.trim(), industry: industry.value, createdAt: Date.now() }),
-    });
-    if (res.ok) { toast('Business created'); name.value = ''; load(list); }
-    else toast((await res.json()).error || 'Could not create', 'err');
-  } },
-    el('div', { class: 'cardtitle' }, 'New business'),
-    name, industry,
-    el('button', { class: 'btn', type: 'submit' }, 'Create'),
-  );
 }
 
 export function unmount() {}

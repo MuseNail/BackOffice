@@ -37,6 +37,18 @@ export function applyChange(op) {
     } else list.push(op.value);
     bump(); return;
   }
+  if (op.op === 'entity.bulkUpsert') {
+    const list = (state.entities[op.kind] ||= []);
+    for (const v of op.values || []) {
+      if (!v?.id) continue;
+      const i = list.findIndex(e => e.id === v.id);
+      if (i >= 0) {
+        if (list[i].updatedAt && v.updatedAt && v.updatedAt < list[i].updatedAt) continue;
+        list[i] = v;
+      } else list.push(v);
+    }
+    bump(); return;
+  }
   if (op.op === 'entity.delete') {
     const list = state.entities[op.kind];
     if (list) {

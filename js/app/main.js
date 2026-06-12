@@ -8,6 +8,7 @@ import { getToken, getActiveBiz, setActiveBiz } from './session.js';
 import { openBusiness, setStatusListener } from './sync.js';
 import * as login from './views/login.js';
 import * as businesses from './views/businesses.js';
+import * as setup from './views/setup.js';
 import * as dashboard from './views/dashboard.js';
 import { stub } from './views/stubs.js';
 
@@ -32,6 +33,8 @@ function route() {
   current?.unmount?.();
 
   if (!getToken()) { current = mount(login, root); return; }
+
+  if (hash.startsWith('#/setup')) { setNav('businesses', ''); current = mount(setup, root); return; }
 
   const m = hash.match(/^#\/b\/([a-z0-9-]+)\/(\w+)/);
   if (m) {

@@ -41,6 +41,28 @@ h2{font-size:19px;margin:0 0 2px}
 .bizname{font-weight:800;font-size:15px}
 .createform{max-width:420px}
 
+/* ── setup wizard ── */
+.wizard{max-width:680px}
+.stepbar{display:flex;align-items:center;margin-bottom:18px}
+.step{display:flex;align-items:center;gap:8px;font-weight:700;color:#9a9da6}
+.step .n{width:26px;height:26px;border-radius:999px;background:#e8eaef;display:flex;align-items:center;justify-content:center;font-size:13px}
+.step.on{color:var(--brand)} .step.on .n{background:var(--brand);color:#fff}
+.step.done{color:var(--green)} .step.done .n{background:var(--green);color:#fff}
+.steplink{width:40px;height:2px;background:#e0e2e8;margin:0 12px}
+.field-label{display:block;font-weight:700;font-size:12px;margin-bottom:5px;color:#3c3f48}
+.wizbtns{display:flex;gap:9px;margin-top:14px}
+.btn.ghost{background:#f1f3f7;color:#3c3f48}
+.btn.green{background:var(--green)}
+.btn[disabled]{opacity:.5;cursor:default}
+.indgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.indopt{border:1.5px solid var(--line);border-radius:12px;padding:14px;text-align:center;cursor:pointer;font-weight:700;background:#fff}
+.indopt .ms{display:block;font-size:26px;margin-bottom:6px;color:var(--brand)}
+.indopt.on{border-color:var(--brand);background:var(--brand-soft)}
+.coapreview{border:1px solid var(--line);border-radius:10px;max-height:340px;overflow:auto}
+.coagroup{border-bottom:1px solid var(--line)} .coagroup:last-child{border-bottom:none}
+.coatype{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);padding:8px 12px 4px}
+.coaacct{padding:5px 12px 5px 26px}
+
 /* ── login ── */
 .login-wrap{display:flex;align-items:center;justify-content:center;min-height:70vh}
 .login-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:28px;width:340px;display:flex;flex-direction:column;gap:10px}
