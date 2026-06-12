@@ -2,7 +2,9 @@
 export const APP_VERSION = '0.1.0';
 
 // Worker URL — fill in after the first `wrangler deploy` prints it.
-export const ORIGIN = 'https://backoffice.musenailandspa.workers.dev';
+// When the app itself is served from localhost, target `wrangler dev` instead.
+const LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+export const ORIGIN = LOCAL ? 'http://127.0.0.1:8787' : 'https://backoffice.musenailandspa.workers.dev';
 
 // All browser storage is prefixed bo_ — this app shares the GitHub Pages
 // ORIGIN with muse/turndesk, and localStorage/CacheStorage are per-origin.
