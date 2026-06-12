@@ -14,6 +14,7 @@ import * as accounts from './views/accounts.js';
 import * as ledger from './views/ledger.js';
 import * as banking from './views/banking.js';
 import * as review from './views/review.js';
+import * as rules from './views/rules.js';
 import * as settings from './views/settings.js';
 import { subscribe } from './store.js';
 import { entities } from './store.js';
@@ -25,7 +26,7 @@ const VIEWS = {
   review,
   ledger,
   accounts,
-  rules: stub('Vendors & Rules', 'M6 — exact/keyword matchers, usage counts'),
+  rules,
   reconcile: stub('Reconcile', 'M8 — statement sessions, must reach $0.00'),
   inventory: stub('Inventory', 'M10 — items, restock points, linked postings'),
   reports: stub('Reports', 'M9 — P&L, Balance Sheet, summaries, tax estimate'),
