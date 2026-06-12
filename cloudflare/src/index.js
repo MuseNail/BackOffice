@@ -1,6 +1,7 @@
 // ── Back Office Worker — router + session auth (kickoff 3b) ────────────────
 import { BusinessDO } from './do/business.js';
 import { RegistryDO } from './do/registry.js';
+import { handleCategorize } from './routes/ai.js';
 export { BusinessDO, RegistryDO };
 
 const CORS = {
@@ -73,6 +74,8 @@ export default {
       // no enumeration, no existence leak.
       const role = sess.isOwner ? 'owner' : sess.memberships[bizId];
       if (!role) return json({ error: 'forbidden' }, 403);
+      // suggestions are read-only — any member may ask; nothing is written
+      if (m[2] === '/ai/categorize' && req.method === 'POST') return withCors(await handleCategorize(req, env));
       if (role === 'viewer' && req.method !== 'GET' && !m[2].endsWith('/ws')) return json({ error: 'read only' }, 403);
       const fwd = new Request(req);
       fwd.headers.set('X-Bo-Role', role);

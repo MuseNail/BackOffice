@@ -4,12 +4,16 @@
 // from lib/match.js (rules → history); the user always confirms.
 import { el, clear, toast, fmtMoney, modal } from '../ui.js';
 import { entities, subscribe } from '../store.js';
-import { dispatch } from '../sync.js';
+import { dispatch, api } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { validateTxn, simpleTxn } from '../lib/posting.js';
 import { suggestFor, guessVendorName } from '../lib/match.js';
 
 let unsub = null;
+// AI suggestions are transient (never persisted): rowId → {accountId, confidence}.
+// Rules and history always win — AI only fills rows they couldn't.
+let aiSuggestions = new Map();
+let aiBusy = false;
 
 export function render(root) {
   const editable = canEdit(getActiveBiz());
@@ -24,7 +28,7 @@ export function render(root) {
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; }
+export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; }
 
 const bankName = (id) => entities('bankacct').find(b => b.id === id)?.name || id;
 
@@ -43,9 +47,18 @@ function drawBody(body, editable) {
   const matchCtx = { vendors: entities('vendor'), history: entities('staged') };
 
   const suggested = [];
+  const unmatched = [];
   const rows = pending.slice(0, 100).map(row => {
     let sug = suggestFor(row, matchCtx);
     if (sug && (!accountsById.has(sug.accountId) || accountsById.get(sug.accountId).active === false)) sug = null;
+    if (!sug) {
+      const ai = aiSuggestions.get(row.id);
+      if (ai?.accountId && accountsById.has(ai.accountId) && accountsById.get(ai.accountId).active !== false) {
+        sug = { accountId: ai.accountId, by: 'ai', confidence: ai.confidence };
+      } else {
+        unmatched.push(row);
+      }
+    }
     if (sug) suggested.push({ row, sug });
 
     const sel = el('select', { class: 'field-input', style: 'margin:0;min-width:180px' },
@@ -57,7 +70,9 @@ function drawBody(body, editable) {
     const chip = sug
       ? (sug.by === 'rule'
         ? el('span', { class: 'pill blue' }, `⚡ Rule · ${sug.vendorName}`)
-        : el('span', { class: 'pill green' }, '🕘 You did this before'))
+        : sug.by === 'ai'
+          ? el('span', { class: 'pill amber' }, `✨ AI · ${sug.confidence}%`)
+          : el('span', { class: 'pill green' }, '🕘 You did this before'))
       : el('span', { class: 'pill gray' }, 'No match');
 
     return el('tr', {},
@@ -78,6 +93,8 @@ function drawBody(body, editable) {
         for (const { row, sug } of suggested) approveRow(row, sug.accountId, sug, { quiet: true });
         toast(`${suggested.length} approved`);
       } }, `Approve all suggested (${suggested.length})`) : el('span'),
+      (editable && unmatched.length && !aiBusy) ? el('button', { class: 'btn sm', onclick: () => askAI(unmatched, categories, body, editable) }, `✨ Get AI suggestions (${unmatched.length})`) : el('span'),
+      aiBusy ? el('span', { class: 'pill gray' }, '✨ Asking Claude…') : el('span'),
       el('span', { class: 'pill amber' }, `${pending.length} waiting`)),
     el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
       el('table', { class: 'data' },
@@ -112,6 +129,32 @@ function approveRow(row, categoryId, sug, { quiet = false } = {}) {
     if (vend) dispatch({ op: 'entity.upsert', kind: 'vendor', value: { ...vend, used: (vend.used || 0) + 1 } });
   }
   if (!quiet) toast('Posted to the ledger');
+}
+
+async function askAI(rows, categories, body, editable) {
+  aiBusy = true;
+  drawBody(body, editable);
+  try {
+    const res = await api(`/b/${getActiveBiz()}/ai/categorize`, {
+      method: 'POST',
+      body: JSON.stringify({
+        rows: rows.slice(0, 40).map(r => ({ id: r.id, desc: r.desc, amountCents: r.amountCents, date: r.date })),
+        categories: categories.map(c => ({ id: c.id, name: c.name, type: c.type })),
+      }),
+    });
+    if (res.status === 501) { toast('AI isn’t set up yet — the owner adds the ANTHROPIC_API_KEY secret to enable it', 'err'); return; }
+    if (!res.ok) { toast('AI suggestions failed — categorize manually for now', 'err'); return; }
+    const { suggestions } = await res.json();
+    let got = 0;
+    for (const s of suggestions) {
+      if (s.categoryId) { aiSuggestions.set(s.id, { accountId: s.categoryId, confidence: s.confidence }); got++; }
+    }
+    toast(got ? `${got} AI suggestion${got === 1 ? '' : 's'} — review and approve` : 'AI had no confident matches');
+  } catch { /* api() handles auth; network errors just leave rows unmatched */ }
+  finally {
+    aiBusy = false;
+    drawBody(body, editable);
+  }
 }
 
 function skipRow(row) {
