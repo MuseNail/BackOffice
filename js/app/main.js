@@ -17,6 +17,7 @@ import * as review from './views/review.js';
 import * as rules from './views/rules.js';
 import * as reconcile from './views/reconcile.js';
 import * as reports from './views/reports.js';
+import * as inventory from './views/inventory.js';
 import * as settings from './views/settings.js';
 import { subscribe } from './store.js';
 import { entities } from './store.js';
@@ -30,7 +31,7 @@ const VIEWS = {
   accounts,
   rules,
   reconcile,
-  inventory: stub('Inventory', 'M10 — items, restock points, linked postings'),
+  inventory,
   reports,
   settings,
 };
