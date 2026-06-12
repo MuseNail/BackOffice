@@ -69,6 +69,35 @@ export class BusinessDO {
       });
     }
 
+    // internal: Muse → Back Office inbound rows (routes/sync.js, behind SYNC_TOKEN).
+    // Idempotency lives HERE, atomically in the single writer: a row whose id
+    // already exists in ANY status is left alone — except a still-'pending' row,
+    // which takes the newer push (Muse historical edits before approval). An
+    // approved/skipped row is never reverted by a re-push.
+    if (path === '/_sync/inbound' && req.method === 'POST') {
+      const { rows } = await req.json();
+      if (!Array.isArray(rows) || rows.length > 200) return json({ error: 'bad rows' }, 400);
+      const now = Date.now();
+      const fresh = [];
+      let updated = 0, skipped = 0;
+      for (const r of rows) {
+        if (!r?.id || !ENTITY_KINDS.has('staged')) continue;
+        const existing = await this.state.storage.get(`staged:${r.id}`);
+        if (!existing) { fresh.push({ ...r, createdAt: now, updatedAt: now, updatedBy: 'sync' }); continue; }
+        if (existing.status === 'pending') {
+          if (existing.amountCents !== r.amountCents || existing.desc !== r.desc || existing.date !== r.date || existing.memo !== r.memo) {
+            fresh.push({ ...existing, ...r, updatedAt: now, updatedBy: 'sync' });
+            updated++;
+          } else skipped++;
+        } else skipped++;
+      }
+      if (fresh.length) {
+        const res = await this.apply({ op: 'entity.bulkUpsert', kind: 'staged', values: fresh, device: '' });
+        if (res.rejected) return json({ error: res.reason }, 400);
+      }
+      return json({ ok: true, created: fresh.length - updated, updated, skipped });
+    }
+
     if (path === '/state' && req.method === 'GET') return this.snapshot();
     if (path === '/state' && req.method === 'POST') {
       const op = await req.json();

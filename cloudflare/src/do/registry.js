@@ -48,6 +48,13 @@ export class RegistryDO {
       if (p === '/auth/login' && req.method === 'POST') return this.login(await req.json());
       if (p === '/auth/logout' && req.method === 'POST') return this.logout(req);
       if (p === '/registry/_resolve' && req.method === 'POST') return this.resolveRoute(await req.json());
+      // Internal (sync route only — the Worker 404s /registry/_* for browsers):
+      // lets /sync/inbound fail loudly on a typo'd businessId instead of staging
+      // rows into an orphan DO nobody ever looks at.
+      if (p === '/registry/_exists' && req.method === 'POST') {
+        const { businessId } = await req.json();
+        return json({ exists: !!(businessId && await this.state.storage.get(`business:${businessId}`)) });
+      }
 
       // everything below requires a session
       const sess = await this.resolve(bearer(req));

@@ -7,13 +7,14 @@
 //  • Fee split — a deposit where the processor kept a cut: posts gross income,
 //    the fee as its own expense, and the net into the bank, in one balanced txn.
 import { el, clear, toast, fmtMoney, modal } from '../ui.js';
-import { entities, subscribe } from '../store.js';
+import { entities, subscribe, getState } from '../store.js';
 import { dispatch, api } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { validateTxn, simpleTxn } from '../lib/posting.js';
 import { suggestFor, guessVendorName } from '../lib/match.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { parseMoney } from '../lib/money.js';
+import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 
 let unsub = null;
 let aiSuggestions = new Map();
@@ -119,7 +120,7 @@ function drawBody(body, editable) {
   // one section per bank account (1.)
   const sections = [];
   for (const bank of entities('bankacct')) {
-    const mine = pending.filter(r => r.bankacctId === bank.id).slice(0, 100);
+    const mine = pending.filter(r => r.bankacctId === bank.id && !r.syncApp).slice(0, 100);
     if (!mine.length) continue;
     sections.push(el('div', { style: 'margin-bottom:18px' },
       el('div', { class: 'cardtitle', style: 'margin-bottom:8px' }, `${bank.name} `, el('span', { class: 'pill amber' }, `${mine.length} waiting`)),
@@ -127,6 +128,45 @@ function drawBody(body, editable) {
         el('table', { class: 'data' },
           el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Bank description'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Category'), el('th', {}, 'Suggested by'), el('th', {}, '')),
           ...mine.map(rowEl)))));
+  }
+
+  // Muse-synced rows (no bankacctId — they came from the salon, not a statement).
+  // Each posts via the saved Muse mapping: the balancing side is fixed per type
+  // in Settings; the user confirms only the category. Same approval = posting
+  // rule as bank rows — sync never writes the ledger by itself.
+  const museRows = pending.filter(r => r.syncApp).slice(0, 100);
+  if (museRows.length) {
+    const mapping = getState().meta?.museMapping || {};
+    const museRowEl = (row) => {
+      const t = MUSE_SYNC_TYPES[row.syncType] || { label: row.syncType };
+      const balId = mapping.balancing?.[row.syncType];
+      const bal = balId ? accountsById.get(balId) : null;
+      const preselect = mapping.category?.[row.syncType];
+      const sel = el('select', { class: 'field-input', style: 'margin:0;min-width:190px' },
+        el('option', { value: '' }, '— pick a category —'),
+        ...TYPE_GROUPS.map(([type, label]) => {
+          const accts = categories.filter(a => a.type === type)
+            .sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)));
+          return accts.length ? el('optgroup', { label }, ...accts.map(a => el('option', { value: a.id, selected: a.id === preselect }, accountLabel(a, accountsById)))) : null;
+        }).filter(Boolean));
+      const approve = el('button', { class: 'btn sm green', disabled: !bal || !sel.value, onclick: () => approveSyncRow(row, sel.value) }, 'Approve');
+      sel.addEventListener('change', () => { approve.disabled = !bal || !sel.value; });
+      return el('tr', {},
+        el('td', {}, row.date),
+        el('td', {}, el('b', {}, (row.desc || t.label).slice(0, 55)), row.memo ? el('div', { class: 'sub', style: 'margin:0' }, row.memo.slice(0, 80)) : ''),
+        el('td', { class: 'num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
+        el('td', {}, editable ? sel : '—'),
+        el('td', {}, bal ? el('span', { class: 'pill blue' }, `↔ ${bal.name}`) : el('span', { class: 'pill red' }, 'Map in Settings')),
+        el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px' }, approve,
+          el('button', { class: 'btn sm ghost', onclick: () => skipRow(row) }, 'Skip')) : ''),
+      );
+    };
+    sections.push(el('div', { style: 'margin-bottom:18px' },
+      el('div', { class: 'cardtitle', style: 'margin-bottom:8px' }, 'Muse — synced from the salon ', el('span', { class: 'pill amber' }, `${museRows.length} waiting`)),
+      el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
+        el('table', { class: 'data' },
+          el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'From the salon'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Category'), el('th', {}, 'Balancing account'), el('th', {}, '')),
+          ...museRows.map(museRowEl)))));
   }
 
   clear(body).append(
@@ -145,6 +185,31 @@ const postCtx = () => ({
   accountsById: new Map(entities('account').map(a => [a.id, a])),
   locks: new Set(entities('lock').map(l => l.id)),
 });
+
+// Muse row → one simple txn. The balancing side comes from the saved mapping
+// (Settings), the category from the user's confirmation. Direction is carried
+// by the stored sign (− = out), same convention as bank rows.
+function approveSyncRow(row, categoryId) {
+  const mapping = getState().meta?.museMapping || {};
+  const balId = mapping.balancing?.[row.syncType];
+  if (!balId || !categoryId) { toast(balId ? 'Pick a category first' : 'Set the Muse mapping in Settings first', 'err'); return; }
+  const txn = simpleTxn({
+    id: 't-' + row.id,
+    date: row.date,
+    payee: row.desc,
+    memo: row.memo || '',
+    amountCents: Math.abs(row.amountCents),
+    direction: row.amountCents < 0 ? 'out' : 'in',
+    bankAccountId: balId,
+    categoryAccountId: categoryId,
+    source: { app: row.syncApp, sourceId: row.source?.sourceId, importId: row.importId },
+  });
+  const v = validateTxn(txn, postCtx());
+  if (!v.ok) { toast(v.error, 'err'); return; }
+  dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
+  dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'approved', txnId: txn.id, categoryId } });
+  toast('Posted');
+}
 
 function approveRow(row, categoryId, sug, { quiet = false } = {}) {
   const bankacct = entities('bankacct').find(b => b.id === row.bankacctId);

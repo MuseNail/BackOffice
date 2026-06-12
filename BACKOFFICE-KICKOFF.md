@@ -1,6 +1,6 @@
 # Back Office — Kickoff & Structure Plan
 
-> **Status: BUILT THROUGH M10 + extras — v0.12.0 LIVE** at `musenail.github.io/BackOffice/`. The Progress log at the bottom of this file is the build record. Remaining: M11 (blocked on Muse §13) · M12 · M13.
+> **Status: BUILT THROUGH M11 + extras — v0.13.0** (v0.12.0 LIVE at `musenail.github.io/BackOffice/`; v0.13.0 adds the Muse sync inbound — needs `wrangler deploy` + the `SYNC_TOKEN` secret + a Pages push). The Progress log at the bottom of this file is the build record. Remaining: M12 · M13.
 > Back Office is a standalone, multi-business financial-operations app (accounting, bank CSV import, AI categorization, vendor rules, inventory, reports, QuickBooks Desktop export). It is the THIRD product in the family: Muse (this repo, live salon app) → Back Office (this plan). It does NOT live inside Muse — Muse syncs finalized financial data INTO it, one-way.
 >
 > Source strategy doc: `BackOffice_App_Overview_and_Strategy.md` (owner's Downloads). Phase 1 repo review done 2026-06-11.
@@ -217,7 +217,7 @@ Testing gates (from the strategy doc, every milestone): business isolation, no a
 | M9 reports (P&L, BS, tax estimate) | 0.10.0 | ✅ verified | figures tie to hand-math; BS structural balance tick |
 | M10 inventory | 0.11.0 | ✅ verified | restocks post linked txns; weighted-avg cost |
 | — feedback batch: per-account Review, transfers w/ counterpart matching, fee splits, subaccounts, owner-device fix | 0.12.0 | ✅ verified | commit `aee28a0` |
-| M11 Muse → Back Office sync | — | ⛔ blocked | prerequisite: Muse §13 Worker auth (shared bearer token) |
+| M11 Muse → Back Office sync | 0.13.0 | ✅ built & locally verified | `POST /sync/inbound` (SYNC_TOKEN bearer) → BusinessDO `/_sync/inbound`; idempotent on sourceApp+sourceId (pending rows update, approved rows untouchable); Review "Muse — synced from the salon" section + Settings Muse-mapping card (`meta.museMapping`); Muse push hook = `features/backoffice-sync.js` (Muse v4.86). Verified end-to-end on the local stack: push → re-push no-op → edit-update → approve posts balanced txn. Owner setup: `wrangler secret put SYNC_TOKEN` + same token in Muse Settings → Back Office sync |
 | M12 QuickBooks Desktop IIF export | — | ⏳ next | `lib/qb-iif.js` + Settings export card |
 | M13 processor sync (Helcim + Square) | — | 🆕 planned | pull payouts via APIs, match deposits to daily sales, auto-extract processing fees as expense lines, reconcile vs the Muse app. Muse's Worker has a verified `/helcim/transactions` to borrow from (`HELCIM-MIGRATION.md`). Interim today: the `%` fee-split button in Review. |
 

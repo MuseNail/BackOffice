@@ -6,6 +6,9 @@ account_id = "7e47fe5134a4b77582cf7746bff3fb62"
 # Secrets (set with `wrangler secret put <NAME>`):
 #   ANTHROPIC_API_KEY — enables /ai/categorize (M7); without it the route returns
 #                       501 and the app simply hides nothing — the button explains.
+#   SYNC_TOKEN        — enables POST /sync/inbound (M11, Muse → Back Office). The same
+#                       value goes into Muse's Settings → Integrations → Back Office sync
+#                       card. Unset = the route answers 503 (sync off).
 # Optional vars: AI_MODEL (defaults to claude-opus-4-8; e.g. claude-haiku-4-5 for cheaper batches)
 
 [durable_objects]

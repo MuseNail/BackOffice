@@ -6,6 +6,9 @@ import { api, dispatch } from '../sync.js';
 import { getActiveBiz, getBusinesses, roleFor } from '../session.js';
 import { getState, entities, byId, subscribe } from '../store.js';
 import { parseMoney } from '../lib/money.js';
+import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
+import { accountLabel } from '../lib/coa-templates.js';
+import { ORIGIN } from '../config.js';
 
 const ROLES = ['owner', 'manager', 'bookkeeper', 'viewer'];
 const ROLE_HELP = { owner: 'everything', manager: 'everything but deleting the business', bookkeeper: 'edit the books', viewer: 'read-only' };
@@ -22,12 +25,15 @@ export function render(root) {
   const usersCard = el('div', { class: 'card', style: 'max-width:560px' });
   const devicesCard = el('div', { class: 'card', style: 'max-width:560px' });
   const aiCard = el('div', { class: 'card', style: 'max-width:560px' });
-  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, and AI spending for this business only.'), usersCard, devicesCard, aiCard);
+  const museCard = el('div', { class: 'card', style: 'max-width:640px' });
+  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, AI spending, and the Muse salon sync for this business only.'), usersCard, devicesCard, aiCard, museCard);
   drawUsers(usersCard, biz);
   drawDevices(devicesCard, biz);
   const drawAI = () => drawAICard(aiCard);
-  unsubAI = subscribe(drawAI);
+  const drawMuse = () => drawMuseCard(museCard, biz);
+  unsubAI = subscribe(() => { drawAI(); drawMuse(); });
   drawAI();
+  drawMuse();
 }
 
 let unsubAI = null;
@@ -68,6 +74,55 @@ function drawAICard(card) {
         dispatch({ op: 'entity.upsert', kind: 'aisetting', value: { ...settings, monthlyBudgetCents: cents, paused: paused.checked } });
         toast('AI settings saved');
       } }, 'Save')),
+  );
+}
+
+// ── Muse sync mapping (M11) ──
+// Where each synced salon row posts: the BALANCING side is fixed here per row
+// type; the suggested CATEGORY is just the Review screen's preselect. Stored on
+// meta.museMapping so it syncs to every device of this business.
+function drawMuseCard(card, biz) {
+  const meta = getState().meta || {};
+  const mapping = meta.museMapping || { balancing: {}, category: {} };
+  const accounts = entities('account').filter(a => a.active !== false);
+  const accountsById = new Map(accounts.map(a => [a.id, a]));
+  const acctSelect = (selected, hint) => el('select', { class: 'field-input', style: 'margin:0;min-width:180px' },
+    el('option', { value: '' }, hint ? `— e.g. ${hint} —` : '—'),
+    ...accounts
+      .slice()
+      .sort((a, b) => (a.type + accountLabel(a, accountsById)).localeCompare(b.type + accountLabel(b, accountsById)))
+      .map(a => el('option', { value: a.id, selected: a.id === selected }, `${accountLabel(a, accountsById)} (${a.type})`)));
+
+  const rows = [];
+  const sels = {};
+  for (const [type, t] of Object.entries(MUSE_SYNC_TYPES)) {
+    const bal = acctSelect(mapping.balancing?.[type], t.balHint);
+    const cat = acctSelect(mapping.category?.[type], t.catHint);
+    sels[type] = { bal, cat };
+    rows.push(el('tr', {},
+      el('td', {}, el('b', {}, t.label), el('div', { class: 'sub', style: 'margin:0' }, t.dir === 'in' ? 'money in' : 'money out')),
+      el('td', {}, bal), el('td', {}, cat)));
+  }
+
+  clear(card).append(
+    el('div', { class: 'cardtitle' }, 'Muse sync — salon → books'),
+    el('p', { class: 'sub' },
+      'The salon app pushes its finalized daily numbers here; they wait on the Review screen and post only when you approve them. ',
+      'Set where each row type lands: the balancing account is the other side of the entry, the category is what Review pre-picks. ',
+      `Muse pushes to ${ORIGIN}/sync/inbound for business “${biz}” using the SYNC_TOKEN secret (set on this Worker and in Muse's Back Office sync card).`),
+    el('table', { class: 'data' },
+      el('tr', {}, el('th', {}, 'Salon row'), el('th', {}, 'Balancing account'), el('th', {}, 'Suggested category')),
+      ...rows),
+    el('div', { style: 'margin-top:10px' },
+      el('button', { class: 'btn sm', onclick: () => {
+        const balancing = {}, category = {};
+        for (const [type, s] of Object.entries(sels)) {
+          if (s.bal.value) balancing[type] = s.bal.value;
+          if (s.cat.value) category[type] = s.cat.value;
+        }
+        dispatch({ op: 'meta.set', value: { ...getState().meta, museMapping: { balancing, category } } });
+        toast('Muse mapping saved');
+      } }, 'Save mapping')),
   );
 }
 

@@ -2,6 +2,7 @@
 import { BusinessDO } from './do/business.js';
 import { RegistryDO } from './do/registry.js';
 import { handleCategorize } from './routes/ai.js';
+import { handleSyncInbound } from './routes/sync.js';
 export { BusinessDO, RegistryDO };
 
 const CORS = {
@@ -53,6 +54,11 @@ export default {
     // and validates them itself.
     if (p === '/auth/status' || p === '/auth/login' || p === '/auth/bootstrap' || p === '/auth/logout') {
       return withCors(await registry(env).fetch(req));
+    }
+
+    // Muse → Back Office sync (machine route, SYNC_TOKEN bearer — not a session).
+    if (p === '/sync/inbound' && req.method === 'POST') {
+      return withCors(await handleSyncInbound(req, env));
     }
 
     // Everything else requires a session. WS upgrades can't set headers from
