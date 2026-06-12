@@ -3,6 +3,7 @@ import { BusinessDO } from './do/business.js';
 import { RegistryDO } from './do/registry.js';
 import { handleCategorize } from './routes/ai.js';
 import { handleSyncInbound } from './routes/sync.js';
+import { handleHelcimTransactions } from './routes/processors.js';
 export { BusinessDO, RegistryDO };
 
 const CORS = {
@@ -82,6 +83,7 @@ export default {
       if (!role) return json({ error: 'forbidden' }, 403);
       // suggestions are read-only — any member may ask; nothing is written
       if (m[2] === '/ai/categorize' && req.method === 'POST') return withCors(await handleCategorize(req, env, bizId));
+      if (m[2] === '/processor/helcim/transactions' && req.method === 'GET') return withCors(await handleHelcimTransactions(req, env));
       if (role === 'viewer' && req.method !== 'GET' && !m[2].endsWith('/ws')) return json({ error: 'read only' }, 403);
       const fwd = new Request(req);
       fwd.headers.set('X-Bo-Role', role);

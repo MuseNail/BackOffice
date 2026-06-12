@@ -15,6 +15,7 @@ import { suggestFor, guessVendorName } from '../lib/match.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
+import { helcimDayTotals, ledgerDayDebits, matchDeposit } from '../lib/processor-match.js';
 
 let unsub = null;
 let aiSuggestions = new Map();
@@ -105,6 +106,7 @@ function drawBody(body, editable) {
       el('button', { class: 'btn sm ghost', title: 'Auto-categorize this vendor from now on', onclick: () => makeRuleModal(row, sel.value, categories, accountsById) }, '⚡')];
     if (row.amountCents > 0) {
       actions.push(el('button', { class: 'btn sm ghost', title: 'Deposit with a processing fee taken out (e.g. Helcim/Square payout)', onclick: () => feeSplitModal(row, accountsById) }, '%'));
+      actions.push(el('button', { class: 'btn sm ghost', title: 'Match this deposit to the salon’s daily card sales (books first, then Helcim)', onclick: () => matchDepositModal(row, accountsById) }, '⚡$'));
     }
 
     return el('tr', {},
@@ -314,6 +316,102 @@ function feeSplitModal(row, accountsById) {
       } }, 'Post split')),
   );
   setTimeout(() => gross.focus(), 0);
+}
+
+// ── Match a bank deposit to processor daily sales (M13) ──
+// Books-first: the Muse-synced sales rows already debit the clearing account
+// per day, so the deposit usually matches the ledger exactly (Fee Saver = no
+// merchant fee) or minus a small fee. When the books can't explain it (sales
+// rows not approved yet), fall back to Helcim's card-transactions API. Posting
+// relieves the clearing account — never income, which the sales rows already
+// booked — so nothing double-counts.
+async function matchDepositModal(row, accountsById) {
+  const m = modal('Match processor deposit');
+  m.body.append(el('p', { class: 'sub' }, 'Looking for the sales days this deposit covers…'));
+
+  const mapping = getState().meta?.museMapping || {};
+  const clearingIds = [...new Set([mapping.balancing?.sales_card, mapping.balancing?.gift_sold].filter(Boolean))];
+  const dep = { date: row.date, amountCents: row.amountCents };
+
+  let match = clearingIds.length ? matchDeposit(dep, ledgerDayDebits(entities('txn'), clearingIds)) : null;
+  let source = match ? 'your books' : null;
+
+  if (!match) {
+    const back = new Date(row.date + 'T12:00:00Z'); back.setUTCDate(back.getUTCDate() - 10);
+    try {
+      const res = await api(`/b/${getActiveBiz()}/processor/helcim/transactions?dateFrom=${back.toISOString().slice(0, 10)}&dateTo=${row.date}`);
+      if (res.status === 501) { drawNoMatch(m, row, 'Helcim isn’t connected (the owner adds the HELCIM_API_TOKEN secret to the Worker) and the books have no matching clearing activity.'); return; }
+      if (res.ok) {
+        const txns = await res.json();
+        match = matchDeposit(dep, helcimDayTotals(Array.isArray(txns) ? txns : []));
+        source = match ? 'Helcim' : null;
+      }
+    } catch { /* unreachable → falls through to no-match */ }
+  }
+  if (!match) { drawNoMatch(m, row, 'No sales day (or 2–3 day run) within the past week explains this amount. Use the % button to enter the gross by hand.'); return; }
+
+  const clearingId = clearingIds[0];
+  const clearing = clearingId ? accountsById.get(clearingId) : null;
+  const feeAccts = entities('account').filter(a => a.active !== false && (a.type === 'expense' || a.type === 'cogs'));
+  const feeDefault = feeAccts.find(a => /fee|process/i.test(a.name)) || feeAccts[0];
+  const feeSel = el('select', { class: 'field-input' },
+    ...feeAccts.map(a => el('option', { value: a.id, selected: a.id === feeDefault?.id }, accountLabel(a, accountsById))));
+
+  const daysLabel = match.days.length === 1 ? match.days[0] : `${match.days[0]} – ${match.days[match.days.length - 1]}`;
+  clear(m.body).append(
+    el('p', {}, `This looks like the payout for `, el('b', {}, daysLabel), ` (from ${source}):`),
+    el('table', { class: 'data' },
+      el('tr', {}, el('td', {}, 'Gross card sales'), el('td', { class: 'num' }, fmtMoney(match.grossCents))),
+      el('tr', {}, el('td', {}, 'Deposited'), el('td', { class: 'num' }, fmtMoney(row.amountCents))),
+      el('tr', {}, el('td', {}, el('b', {}, 'Processing fee')), el('td', { class: 'num' }, el('b', {}, fmtMoney(match.feeCents))))),
+    clearing
+      ? el('p', { class: 'sub' }, `Posts against “${clearing.name}” — the synced sales rows already booked the income, so this just moves the money to the bank.`)
+      : el('p', { class: 'sub' }, 'No Muse clearing account is mapped (Settings → Muse sync), so this will post as income minus the fee — same as the % button.'),
+    match.feeCents > 0 ? el('div', {}, el('label', { class: 'field-label' }, 'Fee category'), feeSel) : el('span'),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
+      el('button', { class: 'btn green', onclick: () => {
+        const bankacct = entities('bankacct').find(b => b.id === row.bankacctId);
+        if (!bankacct) { toast('Bank account missing', 'err'); return; }
+        let lines, categoryId;
+        if (clearing) {
+          lines = [
+            { accountId: bankacct.accountId, amountCents: row.amountCents },
+            { accountId: clearing.id, amountCents: -match.grossCents },
+          ];
+          categoryId = clearing.id;
+        } else {
+          const income = entities('account').find(a => a.active !== false && a.type === 'income');
+          if (!income) { toast('Needs an income account', 'err'); return; }
+          lines = [
+            { accountId: bankacct.accountId, amountCents: row.amountCents },
+            { accountId: income.id, amountCents: -match.grossCents },
+          ];
+          categoryId = income.id;
+        }
+        if (match.feeCents > 0) lines.push({ accountId: feeSel.value, amountCents: match.feeCents });
+        const txn = {
+          id: 't-' + row.id, date: row.date, payee: row.desc,
+          memo: `Payout for ${daysLabel}: gross ${fmtMoney(match.grossCents)} − ${fmtMoney(match.feeCents)} processing fee (matched via ${source})`,
+          lines, status: 'posted',
+          source: { app: 'import', importId: row.importId, sourceId: row.id },
+        };
+        const v = validateTxn(txn, postCtx());
+        if (!v.ok) { toast(v.error, 'err'); return; }
+        dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
+        dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'approved', txnId: txn.id, categoryId } });
+        toast(match.feeCents > 0 ? `Posted — ${fmtMoney(match.feeCents)} captured as processing fees` : 'Posted — deposit matched to the penny');
+        m.close();
+      } }, match.feeCents > 0 ? 'Post with fee' : 'Post match')),
+  );
+}
+
+function drawNoMatch(m, row, why) {
+  clear(m.body).append(
+    el('p', { class: 'sub' }, why),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Close')),
+  );
 }
 
 async function askAI(rows, categories, body, editable) {
