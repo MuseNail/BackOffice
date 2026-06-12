@@ -143,6 +143,13 @@ async function askAI(rows, categories, body, editable) {
       }),
     });
     if (res.status === 501) { toast('AI isn’t set up yet — the owner adds the ANTHROPIC_API_KEY secret to enable it', 'err'); return; }
+    if (res.status === 403) {
+      const why = (await res.json()).error;
+      toast(why === 'ai_paused' ? 'AI is paused — flip it back on in Settings'
+        : why === 'ai_budget_reached' ? 'Monthly AI budget reached — raise the cap in Settings'
+        : 'AI is unavailable', 'err');
+      return;
+    }
     if (!res.ok) { toast('AI suggestions failed — categorize manually for now', 'err'); return; }
     const { suggestions } = await res.json();
     let got = 0;

@@ -12,6 +12,7 @@ const json = (data, status = 200) =>
 const ENTITY_KINDS = new Set([
   'user', 'account', 'txn', 'bankacct', 'import', 'staged',
   'vendor', 'item', 'purchase', 'recon', 'lock',
+  'aiusage', 'aisetting',
 ]);
 
 // Structural double-entry invariants, enforced server-side no matter what the
@@ -51,6 +52,21 @@ export class BusinessDO {
         role: req.headers.get('X-Bo-Role') || 'viewer',
       });
       return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+
+    // internal gate for the AI route: current month's spend + the kill switches
+    if (path === '/_ai/check' && req.method === 'GET') {
+      const settings = (await this.state.storage.get('aisetting:ai')) || {};
+      const month = new Date().toISOString().slice(0, 7);
+      let spentMicros = 0;
+      for (const v of (await this.state.storage.list({ prefix: 'aiusage:' })).values()) {
+        if (v.month === month) spentMicros += v.costMicros || 0;
+      }
+      return json({
+        paused: !!settings.paused,
+        budgetMicros: (settings.monthlyBudgetCents || 0) * 10000,
+        spentMicros,
+      });
     }
 
     if (path === '/state' && req.method === 'GET') return this.snapshot();

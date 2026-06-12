@@ -75,7 +75,7 @@ export default {
       const role = sess.isOwner ? 'owner' : sess.memberships[bizId];
       if (!role) return json({ error: 'forbidden' }, 403);
       // suggestions are read-only — any member may ask; nothing is written
-      if (m[2] === '/ai/categorize' && req.method === 'POST') return withCors(await handleCategorize(req, env));
+      if (m[2] === '/ai/categorize' && req.method === 'POST') return withCors(await handleCategorize(req, env, bizId));
       if (role === 'viewer' && req.method !== 'GET' && !m[2].endsWith('/ws')) return json({ error: 'read only' }, 403);
       const fwd = new Request(req);
       fwd.headers.set('X-Bo-Role', role);

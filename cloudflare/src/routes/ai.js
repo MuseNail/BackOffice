@@ -37,7 +37,24 @@ const SCHEMA = {
 
 const SYSTEM = `You are a bookkeeping assistant for small businesses. You receive bank-statement transactions and the business's chart of accounts. For each transaction, pick the single most appropriate category account id from the provided list, or null when genuinely unclear — never guess a stretch. Use the merchant/description, the amount sign (negative = money out, so expense/cogs/asset categories; positive = money in, so income/liability categories), and each account's type. confidence is 0-100: 90+ only for unmistakable merchants, below 60 means you are mostly guessing.`;
 
-export async function handleCategorize(req, env) {
+// $/1M tokens → microdollars per token. Stamped onto each usage record at call
+// time so history stays correct if prices change later.
+const PRICES = {
+  'claude-opus-4-8': { in: 5, out: 25 },
+  'claude-sonnet-4-6': { in: 3, out: 15 },
+  'claude-haiku-4-5': { in: 1, out: 5 },
+};
+
+export async function handleCategorize(req, env, bizId) {
+  const stub = env.BUSINESS_DO.get(env.BUSINESS_DO.idFromName(bizId));
+
+  // the kill switches live in the business's own data — checked BEFORE any money is spent
+  const gate = await (await stub.fetch('https://do/b/x/_ai/check')).json();
+  if (gate.paused) return json({ error: 'ai_paused' }, 403);
+  if (gate.budgetMicros > 0 && gate.spentMicros >= gate.budgetMicros) {
+    return json({ error: 'ai_budget_reached', spentMicros: gate.spentMicros, budgetMicros: gate.budgetMicros }, 403);
+  }
+
   if (!env.ANTHROPIC_API_KEY) return json({ error: 'ai_not_configured' }, 501);
 
   let body;
@@ -91,5 +108,22 @@ export async function handleCategorize(req, env) {
     .filter(s => rowIds.has(s.id) && (s.categoryId === null || catIds.has(s.categoryId)))
     .map(s => ({ id: s.id, categoryId: s.categoryId, confidence: Math.max(0, Math.min(100, s.confidence | 0)) }));
 
-  return json({ suggestions, usage: data.usage });
+  // record the spend in the business's own books (broadcasts live to the app)
+  const model = env.AI_MODEL || 'claude-opus-4-8';
+  const usage = data.usage || {};
+  const price = PRICES[model] || PRICES['claude-opus-4-8'];
+  const costMicros = Math.round((usage.input_tokens || 0) * price.in + (usage.output_tokens || 0) * price.out);
+  await stub.fetch('https://do/b/x/state', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ op: 'entity.upsert', kind: 'aiusage', value: {
+      id: 'ai-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      month: new Date().toISOString().slice(0, 7),
+      at: Date.now(), model, rows: payload.transactions.length,
+      inputTokens: usage.input_tokens || 0, outputTokens: usage.output_tokens || 0,
+      costMicros, updatedAt: Date.now(),
+    } }),
+  });
+
+  return json({ suggestions, usage });
 }
