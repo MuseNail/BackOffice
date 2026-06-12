@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Back Office</title>
+<meta name="theme-color" content="#2456a6">
+<link rel="manifest" href="manifest.json">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Material+Symbols+Outlined" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="topbar">
+  <div class="logo"><span class="ms">account_balance</span> Back Office <span id="ver" class="ver"></span></div>
+  <div class="spacer"></div>
+  <div id="syncpill" class="syncpill synced">Synced</div>
+</div>
+<div class="layout">
+  <nav class="side" id="sidebar" data-biz="">
+    <div class="navitem" data-v="businesses"><span class="ms">apps</span> Businesses</div>
+    <div class="navitem" data-v="dashboard"><span class="ms">space_dashboard</span> Dashboard</div>
+    <div class="navitem" data-v="banking"><span class="ms">account_balance_wallet</span> Banking</div>
+    <div class="navitem" data-v="review"><span class="ms">rule</span> Review</div>
+    <div class="navitem" data-v="ledger"><span class="ms">receipt_long</span> Ledger</div>
+    <div class="navitem" data-v="accounts"><span class="ms">account_tree</span> Accounts</div>
+    <div class="navitem" data-v="rules"><span class="ms">bolt</span> Vendors &amp; Rules</div>
+    <div class="navitem" data-v="reconcile"><span class="ms">checklist</span> Reconcile</div>
+    <div class="navitem" data-v="inventory"><span class="ms">inventory_2</span> Inventory</div>
+    <div class="navitem" data-v="reports"><span class="ms">monitoring</span> Reports</div>
+    <div class="navitem" data-v="settings"><span class="ms">settings</span> Settings</div>
+  </nav>
+  <main class="main" id="view"></main>
+</div>
+<script type="module" src="js/app/main.js"></script>
+</body>
+</html>

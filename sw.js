@@ -1,0 +1,45 @@
+// ── Back Office service worker — precache + offline fallback ──
+// CACHE_NAME must always match APP_VERSION (js/app/config.js) and version.json.
+const CACHE_NAME = 'backoffice-v0.1.0';
+const PRECACHE = [
+  './',
+  './index.html',
+  './css/styles.css',
+  './js/app/main.js',
+  './js/app/config.js',
+  './js/app/store.js',
+  './js/app/sync.js',
+  './js/app/session.js',
+  './js/app/ui.js',
+  './js/app/views/login.js',
+  './js/app/views/businesses.js',
+  './js/app/views/dashboard.js',
+  './js/app/views/stubs.js',
+];
+
+self.addEventListener('install', (e) => {
+  e.waitUntil(caches.open(CACHE_NAME).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('backoffice-') && k !== CACHE_NAME).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', (e) => {
+  if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+  if (url.origin !== location.origin) return; // never cache Worker/API calls
+  e.respondWith(
+    fetch(e.request)
+      .then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE_NAME).then((c) => c.put(e.request, copy));
+        return res;
+      })
+      .catch(() => caches.match(e.request))
+  );
+});
