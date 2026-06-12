@@ -6,7 +6,8 @@
 import { el, clear, fmtMoney } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { getActiveBiz } from '../session.js';
-import { profitAndLoss, activityByAccount, accountBalance } from '../lib/posting.js';
+import { activityByAccount, accountBalance } from '../lib/posting.js';
+import { accountLabel } from '../lib/coa-templates.js';
 
 let unsub = null;
 let s = null;
@@ -59,7 +60,7 @@ function drawBody(body) {
       if (!a || !types.includes(a.type)) continue;
       const display = a.type === 'income' ? -cents : cents;
       if (display === 0) continue;
-      rows.push({ name: a.name, cents: display });
+      rows.push({ name: accountLabel(a, accountsById), cents: display });
       total += display;
     }
     rows.sort((x, y) => y.cents - x.cents);
@@ -96,7 +97,7 @@ function drawBody(body) {
     for (const a of accounts.filter(x => x.type === type)) {
       const cents = flip ? -bal(a) : bal(a);
       if (cents === 0) continue;
-      rows.push({ name: a.name, cents });
+      rows.push({ name: accountLabel(a, accountsById), cents });
       total += cents;
     }
     rows.sort((x, y) => y.cents - x.cents);

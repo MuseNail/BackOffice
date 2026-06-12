@@ -3,6 +3,7 @@ import { el, clear, toast, modal } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
+import { accountLabel } from '../lib/coa-templates.js';
 
 let unsub = null;
 
@@ -29,7 +30,8 @@ function drawTable(body, editable) {
     clear(body).append(el('p', { class: 'sub' }, 'No rules yet — tap ⚡ on any row in Review, or add one here.'));
     return;
   }
-  const acctName = (id) => entities('account').find(a => a.id === id)?.name || '—';
+  const byId = new Map(entities('account').map(a => [a.id, a]));
+  const acctName = (id) => { const a = byId.get(id); return a ? accountLabel(a, byId) : '—'; };
   const rows = vendors.map(v => el('tr', {},
     el('td', {}, el('b', {}, v.name)),
     el('td', {},
@@ -52,9 +54,10 @@ function drawTable(body, editable) {
 
 function ruleModal(existing) {
   const m = modal(existing ? 'Edit rule' : 'New rule');
+  const byId = new Map(entities('account').map(a => [a.id, a]));
   const categories = entities('account')
     .filter(a => a.active !== false && a.qbType !== 'BANK' && a.qbType !== 'CCARD')
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)));
   const name = el('input', { class: 'field-input', value: existing?.name || '', placeholder: 'Vendor name' });
   const mode = el('select', { class: 'field-input' },
     el('option', { value: 'keyword', selected: !existing || !!existing.matchers?.keywords?.length }, 'Description contains…'),
@@ -62,7 +65,7 @@ function ruleModal(existing) {
   const text = el('input', { class: 'field-input', value: existing?.matchers?.keywords?.[0] || existing?.matchers?.exact?.[0] || '', placeholder: 'e.g. SALLY BEAUTY' });
   const cat = el('select', { class: 'field-input' },
     el('option', { value: '' }, '— category —'),
-    ...categories.map(a => el('option', { value: a.id, selected: a.id === existing?.defaultAccountId }, a.name)));
+    ...categories.map(a => el('option', { value: a.id, selected: a.id === existing?.defaultAccountId }, accountLabel(a, byId))));
   m.body.append(
     el('label', { class: 'field-label' }, 'Vendor'), name,
     el('label', { class: 'field-label' }, 'Match type'), mode,

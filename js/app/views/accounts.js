@@ -5,7 +5,7 @@ import { el, clear, toast, modal } from '../ui.js';
 import { entities, subscribe, getState } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
-import { ACCOUNT_TYPES } from '../lib/coa-templates.js';
+import { ACCOUNT_TYPES, accountLabel } from '../lib/coa-templates.js';
 
 const TYPE_LABELS = { income: 'Income', cogs: 'Cost of goods', expense: 'Expenses', asset: 'Assets', liability: 'Liabilities', equity: 'Equity' };
 const TYPE_ORDER = ['income', 'cogs', 'expense', 'asset', 'liability', 'equity'];
@@ -36,14 +36,21 @@ function drawTable(body, editable) {
   const showArchived = body.dataset.showArchived === '1';
   const rows = [];
   for (const t of TYPE_ORDER) {
-    const group = accounts
-      .filter(a => a.type === t && (showArchived || a.active !== false))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    if (!group.length) continue;
+    const inType = accounts.filter(a => a.type === t && (showArchived || a.active !== false));
+    if (!inType.length) continue;
+    // parents first (alphabetical), each followed by its children
+    const tops = inType.filter(a => !a.parentId).sort((a, b) => a.name.localeCompare(b.name));
+    const orphans = inType.filter(a => a.parentId && !tops.some(p => p.id === a.parentId));
+    const group = [];
+    for (const p of tops) {
+      group.push(p);
+      group.push(...inType.filter(a => a.parentId === p.id).sort((a, b) => a.name.localeCompare(b.name)));
+    }
+    group.push(...orphans);
     rows.push(el('tr', {}, el('td', { colspan: '4', class: 'coatype', style: 'padding-top:14px' }, TYPE_LABELS[t])));
     for (const a of group) {
       rows.push(el('tr', { style: a.active === false ? 'opacity:.5' : '' },
-        el('td', {}, el('b', {}, a.name), a.active === false ? ' (archived)' : ''),
+        el('td', { style: a.parentId ? 'padding-left:32px' : '' }, a.parentId ? '› ' : '', el('b', {}, a.name), a.active === false ? ' (archived)' : ''),
         el('td', {}, el('span', { class: `pill ${t === 'income' ? 'green' : t === 'expense' || t === 'cogs' ? 'red' : t === 'liability' ? 'amber' : 'blue'}` }, TYPE_LABELS[t])),
         el('td', { style: 'color:var(--mut)' }, a.qbName || ''),
         el('td', {}, ...(editable ? [
@@ -70,9 +77,23 @@ function editAccount(existing) {
   const type = el('select', { class: 'field-input', disabled: !!existing },
     ...ACCOUNT_TYPES.map(t => el('option', { value: t, selected: existing?.type === t }, TYPE_LABELS[t])));
   const qbName = el('input', { class: 'field-input', placeholder: 'QuickBooks name (defaults to the name)', value: existing?.qbName || '' });
+  // one level deep: only same-type, top-level accounts can be parents
+  const parent = el('select', { class: 'field-input' });
+  const redrawParents = () => {
+    const t = existing?.type || type.value;
+    clear(parent).append(
+      el('option', { value: '' }, '— none (top level) —'),
+      ...entities('account')
+        .filter(a => a.type === t && !a.parentId && a.active !== false && a.id !== existing?.id)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(a => el('option', { value: a.id, selected: a.id === existing?.parentId }, a.name)));
+  };
+  type.addEventListener('change', redrawParents);
+  redrawParents();
   m.body.append(
     el('label', { class: 'field-label' }, 'Name'), name,
     el('label', { class: 'field-label' }, 'Type', existing ? ' — fixed once created (history depends on it)' : ''), type,
+    el('label', { class: 'field-label' }, 'Subaccount of'), parent,
     el('label', { class: 'field-label' }, 'QuickBooks export name'), qbName,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
@@ -80,8 +101,8 @@ function editAccount(existing) {
         const n = name.value.trim();
         if (!n) { toast('Name the account', 'err'); return; }
         const value = existing
-          ? { ...existing, name: n, qbName: qbName.value.trim() || n }
-          : { id: uniqueId(n), name: n, type: type.value, qbType: QB_BY_TYPE[type.value], qbName: qbName.value.trim() || n, active: true };
+          ? { ...existing, name: n, qbName: qbName.value.trim() || n, parentId: parent.value || null }
+          : { id: uniqueId(n), name: n, type: type.value, qbType: QB_BY_TYPE[type.value], qbName: qbName.value.trim() || n, parentId: parent.value || null, active: true };
         dispatch({ op: 'entity.upsert', kind: 'account', value });
         toast(existing ? 'Account updated' : 'Account added');
         m.close();

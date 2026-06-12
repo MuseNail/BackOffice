@@ -89,6 +89,13 @@ export function industryLabel(id) {
   return INDUSTRIES.find(i => i.id === id)?.label || id;
 }
 
+// "Supplies › Gel Polish" — how a subaccount reads anywhere accounts are picked
+// or reported. byIdMap: Map(accountId → account).
+export function accountLabel(a, byIdMap) {
+  const parent = a.parentId ? byIdMap.get(a.parentId) : null;
+  return parent ? `${parent.name} › ${a.name}` : a.name;
+}
+
 export function coaFor(industry) {
   return [...(BY_INDUSTRY[industry] || BY_INDUSTRY.general), ...COMMON].map(a => ({ ...a }));
 }

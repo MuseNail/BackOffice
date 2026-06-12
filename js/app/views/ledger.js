@@ -5,6 +5,7 @@ import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseMoney } from '../lib/money.js';
 import { validateTxn, simpleTxn, voidTxn } from '../lib/posting.js';
+import { accountLabel } from '../lib/coa-templates.js';
 
 let unsub = null;
 
@@ -26,7 +27,11 @@ export function render(root) {
 
 export function unmount() { unsub?.(); unsub = null; }
 
-const acctName = (id) => entities('account').find(a => a.id === id)?.name || id;
+const acctName = (id) => {
+  const byId = new Map(entities('account').map(a => [a.id, a]));
+  const a = byId.get(id);
+  return a ? accountLabel(a, byId) : id;
+};
 const bankish = (a) => a.qbType === 'BANK' || a.qbType === 'CCARD';
 
 function describe(t) {
@@ -86,10 +91,11 @@ const txnId = () => 't-' + Date.now().toString(36) + Math.random().toString(36).
 const ctx = () => ({ accountsById: new Map(entities('account').map(a => [a.id, a])), locks: new Set(entities('lock').map(l => l.id)) });
 
 function accountOptions(filter, selected) {
+  const byId = new Map(entities('account').map(a => [a.id, a]));
   return entities('account')
     .filter(a => a.active !== false && filter(a))
-    .sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name))
-    .map(a => el('option', { value: a.id, selected: a.id === selected }, `${a.name}`));
+    .sort((a, b) => a.type.localeCompare(b.type) || accountLabel(a, byId).localeCompare(accountLabel(b, byId)))
+    .map(a => el('option', { value: a.id, selected: a.id === selected }, accountLabel(a, byId)));
 }
 
 function addTxnModal() {

@@ -222,18 +222,28 @@ export class RegistryDO {
   }
 
   // ── devices ──
+  // App-owner accounts have no membership rows (they belong to everything
+  // implicitly), so their devices appear in every business's device list —
+  // but ONLY to other owner sessions: a business manager must never be able
+  // to approve a device that would carry owner powers.
   async listDevices(sess, businessId) {
     if (!businessId || !this.canManage(sess, businessId)) return json({ error: 'forbidden' }, 403);
     const members = new Map();
     for (const m of (await this.state.storage.list({ prefix: 'membership:' })).values()) {
       if (m.businessId === businessId) members.set(m.userId, m.role);
     }
+    const owners = new Set();
+    if (sess.isOwner) {
+      for (const u of (await this.state.storage.list({ prefix: 'user:' })).values()) {
+        if (u.isOwner) owners.add(u.id);
+      }
+    }
     const out = [];
     for (const [k, d] of await this.state.storage.list({ prefix: 'device:' })) {
       const [, userId, deviceId] = k.split(':');
-      if (!members.has(userId)) continue;
+      if (!members.has(userId) && !owners.has(userId)) continue;
       const u = await this.state.storage.get(`user:${userId}`);
-      out.push({ userId, userName: u?.name || '?', deviceId, ...d });
+      out.push({ userId, userName: (u?.name || '?') + (u?.isOwner ? ' (owner)' : ''), deviceId, ...d });
     }
     return json({ devices: out });
   }
@@ -241,8 +251,13 @@ export class RegistryDO {
   async setDevice(sess, body, status) {
     const { businessId, userId, deviceId } = body;
     if (!businessId || !this.canManage(sess, businessId)) return json({ error: 'forbidden' }, 403);
-    const m = await this.state.storage.get(`membership:${userId}:${businessId}`);
-    if (!m) return json({ error: 'forbidden' }, 403);
+    const target = await this.state.storage.get(`user:${userId}`);
+    if (target?.isOwner) {
+      if (!sess.isOwner) return json({ error: 'forbidden' }, 403);
+    } else {
+      const m = await this.state.storage.get(`membership:${userId}:${businessId}`);
+      if (!m) return json({ error: 'forbidden' }, 403);
+    }
     const key = `device:${userId}:${deviceId}`;
     const dev = await this.state.storage.get(key);
     if (!dev) return json({ error: 'not found' }, 404);
