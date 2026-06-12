@@ -151,6 +151,14 @@ export class BusinessDO {
       if (!ENTITY_KINDS.has(op.kind) || !Array.isArray(op.values) || op.values.length > 500) {
         return { rejected: true, reason: 'bad op' };
       }
+      // Same txn invariants as the single-upsert path — bulk writes (e.g. the
+      // M12 export stamping) must not become a side door around the ledger rules.
+      if (op.kind === 'txn') {
+        for (const v of op.values) {
+          const bad = v && txnInvariantBreach(v);
+          if (bad) return { rejected: true, reason: bad };
+        }
+      }
       let applied = 0;
       for (const v of op.values) {
         if (!v?.id) continue;

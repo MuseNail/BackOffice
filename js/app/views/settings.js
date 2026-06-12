@@ -8,6 +8,7 @@ import { getState, entities, byId, subscribe } from '../store.js';
 import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 import { accountLabel } from '../lib/coa-templates.js';
+import { buildIif } from '../lib/qb-iif.js';
 import { ORIGIN } from '../config.js';
 
 const ROLES = ['owner', 'manager', 'bookkeeper', 'viewer'];
@@ -26,14 +27,17 @@ export function render(root) {
   const devicesCard = el('div', { class: 'card', style: 'max-width:560px' });
   const aiCard = el('div', { class: 'card', style: 'max-width:560px' });
   const museCard = el('div', { class: 'card', style: 'max-width:640px' });
-  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, AI spending, and the Muse salon sync for this business only.'), usersCard, devicesCard, aiCard, museCard);
+  const qbCard = el('div', { class: 'card', style: 'max-width:560px' });
+  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, AI spending, the Muse salon sync, and the QuickBooks export for this business only.'), usersCard, devicesCard, aiCard, museCard, qbCard);
   drawUsers(usersCard, biz);
   drawDevices(devicesCard, biz);
   const drawAI = () => drawAICard(aiCard);
   const drawMuse = () => drawMuseCard(museCard, biz);
-  unsubAI = subscribe(() => { drawAI(); drawMuse(); });
+  const drawQb = () => drawQbCard(qbCard, biz);
+  unsubAI = subscribe(() => { drawAI(); drawMuse(); drawQb(); });
   drawAI();
   drawMuse();
+  drawQb();
 }
 
 let unsubAI = null;
@@ -123,6 +127,52 @@ function drawMuseCard(card, biz) {
         dispatch({ op: 'meta.set', value: { ...getState().meta, museMapping: { balancing, category } } });
         toast('Muse mapping saved');
       } }, 'Save mapping')),
+  );
+}
+
+// ── QuickBooks Desktop export (M12) ──
+// Writes an .iif of every POSTED txn in the range plus the full chart of
+// accounts (QB auto-creates any account it's missing). Exported txns are
+// stamped qbExportedAt so a later overlapping export warns — QB will happily
+// import the same journal entries twice and double the books.
+function drawQbCard(card, biz) {
+  const monthStart = new Date().toISOString().slice(0, 8) + '01';
+  const today = new Date().toISOString().slice(0, 10);
+  const from = el('input', { class: 'field-input', type: 'date', style: 'margin:0;max-width:170px', value: monthStart });
+  const to = el('input', { class: 'field-input', type: 'date', style: 'margin:0;max-width:170px', value: today });
+  const result = el('p', { class: 'sub', style: 'margin-top:8px' });
+
+  const doExport = () => {
+    if (!from.value || !to.value || from.value > to.value) { toast('Pick a valid date range', 'err'); return; }
+    const accounts = entities('account');
+    const { text, count, txns } = buildIif({ accounts, txns: entities('txn'), from: from.value, to: to.value });
+    if (!count) { toast('No posted transactions in that range', 'err'); return; }
+    const already = txns.filter(t => t.qbExportedAt).length;
+    if (already && !confirm(`${already} of these ${count} transactions were exported before — importing them into QuickBooks again will double them there. Export anyway?`)) return;
+
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    a.download = `backoffice-${biz}-${from.value}-to-${to.value}.iif`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+
+    const now = Date.now();
+    const stamped = txns.map(t => ({ ...t, qbExportedAt: now, updatedAt: now }));
+    for (let i = 0; i < stamped.length; i += 400) {
+      dispatch({ op: 'entity.bulkUpsert', kind: 'txn', values: stamped.slice(i, i + 400) });
+    }
+    result.textContent = `Exported ${count} transactions (${already} re-exports). In QuickBooks Desktop: File → Utilities → Import → IIF Files.`;
+    toast(`Exported ${count} transactions to .iif`);
+  };
+
+  clear(card).append(
+    el('div', { class: 'cardtitle' }, 'QuickBooks Desktop export'),
+    el('p', { class: 'sub' }, 'Download an .iif file of the posted ledger for a date range, including the chart of accounts. Already-exported transactions trigger a duplicate warning.'),
+    el('div', { style: 'display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap' },
+      el('div', {}, el('label', { class: 'field-label' }, 'From'), from),
+      el('div', {}, el('label', { class: 'field-label' }, 'To'), to),
+      el('button', { class: 'btn sm', onclick: doExport }, 'Export .iif')),
+    result,
   );
 }
 
