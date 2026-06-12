@@ -27,7 +27,7 @@ export function render(root) {
 export function unmount() { unsub?.(); unsub = null; }
 
 const acctName = (id) => entities('account').find(a => a.id === id)?.name || id;
-const bankish = (a) => a.type === 'asset' && (a.qbType === 'BANK' || a.qbType === 'CCARD');
+const bankish = (a) => a.qbType === 'BANK' || a.qbType === 'CCARD';
 
 function describe(t) {
   // 2-line txn → show the non-bank side as the category; anything else is a journal

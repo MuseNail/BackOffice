@@ -12,13 +12,17 @@ import * as setup from './views/setup.js';
 import * as dashboard from './views/dashboard.js';
 import * as accounts from './views/accounts.js';
 import * as ledger from './views/ledger.js';
+import * as banking from './views/banking.js';
+import * as review from './views/review.js';
 import * as settings from './views/settings.js';
+import { subscribe } from './store.js';
+import { entities } from './store.js';
 import { stub } from './views/stubs.js';
 
 const VIEWS = {
   dashboard,
-  banking: stub('Banking', 'M5 — bank accounts, CSV import wizard, import history'),
-  review: stub('Review', 'M5–M7 — staged rows, rule/history/AI suggestions, approve to post'),
+  banking,
+  review,
   ledger,
   accounts,
   rules: stub('Vendors & Rules', 'M6 — exact/keyword matchers, usage counts'),
@@ -29,6 +33,8 @@ const VIEWS = {
 };
 
 let current = null;
+let opened = ''; // in-memory — getActiveBiz() persists across reloads, but the
+                 // store does not; a fresh page must always re-open the business
 
 function route() {
   const hash = location.hash || '#/';
@@ -42,7 +48,7 @@ function route() {
   const m = hash.match(/^#\/b\/([a-z0-9-]+)\/(\w+)/);
   if (m) {
     const [, biz, viewName] = m;
-    if (getActiveBiz() !== biz) { setActiveBiz(biz); openBusiness(biz).catch(console.error); }
+    if (opened !== biz) { opened = biz; setActiveBiz(biz); openBusiness(biz).catch(console.error); }
     setNav(viewName, biz);
     current = mount(VIEWS[viewName] || VIEWS.dashboard, root);
     return;
@@ -93,9 +99,19 @@ function boot() {
     location.hash = '';
     location.reload();
   });
+  subscribe(updateReviewBadge);
   window.addEventListener('hashchange', route);
   route();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+
+function updateReviewBadge() {
+  const n = entities('staged').filter(s => s.status === 'pending').length;
+  const item = document.querySelector('#sidebar .navitem[data-v="review"]');
+  let badge = item.querySelector('.badge');
+  if (!n) { badge?.remove(); return; }
+  if (!badge) { badge = document.createElement('span'); badge.className = 'badge'; item.append(badge); }
+  badge.textContent = String(n);
 }
 
 boot();
