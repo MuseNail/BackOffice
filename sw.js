@@ -1,7 +1,8 @@
 // ── Back Office service worker — precache + offline fallback ──
 // CACHE_NAME must always match APP_VERSION (js/app/config.js) and version.json.
-const CACHE_NAME = 'backoffice-v0.7.0';
+const CACHE_NAME = 'backoffice-v0.8.0';
 const PRECACHE = [
+  './js/app/views/reconcile.js',
   './js/app/lib/coa-templates.js',
   './js/app/lib/money.js',
   './js/app/lib/posting.js',

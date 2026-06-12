@@ -1,0 +1,134 @@
+// ── view: reconcile — tie a bank account to its statement, to the penny ────────────────
+// Check off what appears on the statement. Cleared total must equal the
+// statement's ending balance before Close enables. Closing stamps each cleared
+// txn with reconciledIn (it leaves the uncleared list forever) and records a
+// recon entity for the audit trail.
+import { el, clear, toast, modal, fmtMoney } from '../ui.js';
+import { entities, subscribe } from '../store.js';
+import { dispatch } from '../sync.js';
+import { getActiveBiz, canEdit } from '../session.js';
+import { parseMoney } from '../lib/money.js';
+
+let unsub = null;
+let s = null; // { bankacctId, endDate, stmtCents, checked:Set }
+
+export function render(root) {
+  const first = entities('bankacct')[0];
+  s = { bankacctId: first?.id || '', endDate: new Date().toISOString().slice(0, 10), stmtCents: null, checked: new Set() };
+  const body = el('div');
+  root.append(
+    el('h2', {}, 'Reconcile'),
+    el('p', { class: 'sub' }, 'Check off what appears on the bank statement. The difference must reach $0.00 to close — that’s the whole point.'),
+    body,
+  );
+  const draw = () => drawBody(body);
+  unsub = subscribe(draw);
+  draw();
+}
+
+export function unmount() { unsub?.(); unsub = null; s = null; }
+
+const bankLineCents = (txn, accountId) =>
+  txn.lines.filter(l => l.accountId === accountId).reduce((sum, l) => sum + l.amountCents, 0);
+
+function drawBody(body) {
+  const editable = canEdit(getActiveBiz());
+  const bankaccts = entities('bankacct');
+  if (!bankaccts.length) {
+    clear(body).append(el('p', { class: 'sub' }, 'Add a bank account in Banking first.'));
+    return;
+  }
+  if (!bankaccts.find(b => b.id === s.bankacctId)) s.bankacctId = bankaccts[0].id;
+  const bankacct = bankaccts.find(b => b.id === s.bankacctId);
+
+  const acctSel = el('select', { class: 'field-input', style: 'max-width:240px', onchange: (e) => { s.bankacctId = e.target.value; s.checked = new Set(); drawBody(body); } },
+    ...bankaccts.map(b => el('option', { value: b.id, selected: b.id === s.bankacctId }, b.name)));
+  const dateIn = el('input', { class: 'field-input', type: 'date', value: s.endDate, style: 'max-width:170px', onchange: (e) => { s.endDate = e.target.value; drawBody(body); } });
+  const balIn = el('input', { class: 'field-input', placeholder: 'Statement ending balance', style: 'max-width:220px', inputmode: 'decimal',
+    value: s.stmtCents == null ? '' : (s.stmtCents / 100).toFixed(2),
+    onchange: (e) => { s.stmtCents = parseMoney(e.target.value); drawBody(body); } });
+
+  const txns = entities('txn').filter(t => t.status === 'posted');
+  const alreadyCents = txns.filter(t => t.reconciledIn).reduce((sum, t) => sum + bankLineCents(t, bankacct.accountId), 0);
+  const candidates = txns
+    .filter(t => !t.reconciledIn && t.date <= s.endDate && t.lines.some(l => l.accountId === bankacct.accountId))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  s.checked = new Set([...s.checked].filter(id => candidates.some(t => t.id === id)));
+
+  const checkedCents = candidates.filter(t => s.checked.has(t.id)).reduce((sum, t) => sum + bankLineCents(t, bankacct.accountId), 0);
+  const clearedCents = alreadyCents + checkedCents;
+  const diff = s.stmtCents == null ? null : s.stmtCents - clearedCents;
+  const balanced = diff === 0;
+
+  const rows = candidates.map(t => {
+    const cents = bankLineCents(t, bankacct.accountId);
+    const box = el('input', { type: 'checkbox', checked: s.checked.has(t.id), onchange: (e) => {
+      e.target.checked ? s.checked.add(t.id) : s.checked.delete(t.id);
+      drawBody(body);
+    } });
+    return el('tr', {},
+      el('td', {}, editable ? box : ''),
+      el('td', {}, t.date),
+      el('td', {}, t.payee || t.memo || '—'),
+      el('td', { class: 'num ' + (cents < 0 ? 'neg' : 'pos') }, fmtMoney(cents, { sign: cents > 0 })));
+  });
+
+  const history = entities('recon')
+    .filter(r => r.bankacctId === bankacct.id)
+    .sort((a, b) => b.statementEndDate.localeCompare(a.statementEndDate));
+
+  clear(body).append(
+    el('div', { style: 'display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px' },
+      labeled('Account', acctSel), labeled('Statement end date', dateIn), labeled('Ending balance', balIn)),
+    el('div', { class: 'row', style: 'margin-bottom:14px' },
+      kpi('Statement balance', s.stmtCents == null ? '—' : fmtMoney(s.stmtCents)),
+      kpi('Cleared so far', fmtMoney(clearedCents), alreadyCents ? `${fmtMoney(alreadyCents)} from past reconciliations` : ''),
+      el('div', { class: 'card', style: 'flex:1;min-width:190px' + (balanced ? ';border-color:var(--green);background:var(--green-soft)' : '') },
+        el('div', { class: 'kpilbl' }, 'Difference'),
+        el('div', { class: 'kpi', style: balanced ? 'color:var(--green)' : diff != null ? 'color:var(--red)' : '' }, diff == null ? 'enter the balance' : fmtMoney(diff)),
+        (editable && balanced && s.checked.size) ? el('button', { class: 'btn sm green', onclick: () => confirmClose(bankacct, body) }, 'Close & lock these in') : el('span'))),
+    candidates.length
+      ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:760px' },
+          el('table', { class: 'data' },
+            el('tr', {}, el('th', {}, ''), el('th', {}, 'Date'), el('th', {}, 'Payee'), el('th', { class: 'num' }, 'Amount')),
+            ...rows))
+      : el('p', { class: 'sub' }, 'Nothing left to reconcile on or before that date — all caught up.'),
+    history.length ? el('div', { class: 'card', style: 'max-width:760px' },
+      el('div', { class: 'cardtitle' }, 'Past reconciliations'),
+      el('table', { class: 'data' },
+        el('tr', {}, el('th', {}, 'Statement date'), el('th', { class: 'num' }, 'Ending balance'), el('th', { class: 'num' }, 'Items')),
+        ...history.map(r => el('tr', {},
+          el('td', {}, r.statementEndDate),
+          el('td', { class: 'num' }, fmtMoney(r.statementBalanceCents)),
+          el('td', { class: 'num' }, String(r.clearedTxnIds.length)))))) : el('span'),
+  );
+}
+
+function confirmClose(bankacct, body) {
+  const m = modal('Close this reconciliation?');
+  m.body.append(
+    el('p', {}, `${s.checked.size} transaction${s.checked.size === 1 ? '' : 's'} will be marked as reconciled through ${s.endDate}. Reconciled entries can still be voided, but they leave this screen for good.`),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Not yet'),
+      el('button', { class: 'btn green', onclick: () => {
+        const reconId = 'rec-' + Date.now().toString(36);
+        dispatch({ op: 'entity.upsert', kind: 'recon', value: {
+          id: reconId, bankacctId: bankacct.id, statementEndDate: s.endDate,
+          statementBalanceCents: s.stmtCents, clearedTxnIds: [...s.checked], closedAt: Date.now(),
+        } });
+        for (const id of s.checked) {
+          const t = entities('txn').find(x => x.id === id);
+          if (t) dispatch({ op: 'entity.upsert', kind: 'txn', value: { ...t, reconciledIn: reconId } });
+        }
+        s.checked = new Set();
+        toast(`Reconciled to the penny — ${s.endDate} closed`);
+        m.close();
+        drawBody(body);
+      } }, 'Close it')),
+  );
+}
+
+const labeled = (label, node) => el('div', {}, el('label', { class: 'field-label' }, label), node);
+const kpi = (label, value, note = '') => el('div', { class: 'card', style: 'flex:1;min-width:190px' },
+  el('div', { class: 'kpilbl' }, label), el('div', { class: 'kpi' }, value),
+  note ? el('div', { class: 'sub', style: 'margin:0' }, note) : el('span'));
