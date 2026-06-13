@@ -5,7 +5,8 @@
 // + net income to date.
 import { el, clear, fmtMoney } from '../ui.js';
 import { entities, subscribe } from '../store.js';
-import { getActiveBiz } from '../session.js';
+import { dispatch } from '../sync.js';
+import { getActiveBiz, canEdit } from '../session.js';
 import { activityByAccount, accountBalance } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
 
@@ -125,12 +126,25 @@ function drawBody(body) {
     el('td', {}, el('b', {}, 'Liabilities + equity')),
     el('td', { class: 'num' }, el('b', {}, fmtMoney(liabEq) + (balanced ? ' ✓' : ' ≠ assets!')))));
 
-  // ── tax estimate (device-local rate — an estimate, not advice or books data) ──
+  // ── tax estimate (a planning number, not advice or books data) ──
+  // The rate is a synced taxsetting entity so every device shares it. localStorage
+  // is the fallback (and pre-sync cache) — read entity-first, fall back to it, then
+  // 25%. NOTE: the synced path needs the Worker to know 'taxsetting' (ENTITY_KINDS);
+  // until that's deployed the rate stays device-local via localStorage (no regression).
   const rateKey = `bo_tax_rate_${getActiveBiz()}`;
-  const rate = parseFloat(localStorage.getItem(rateKey) || '25');
+  const synced = entities('taxsetting').find(t => t.id === 'tax');
+  const rate = (synced && typeof synced.rate === 'number') ? synced.rate
+    : parseFloat(localStorage.getItem(rateKey) || '25');
+  const taxEditable = canEdit(getActiveBiz());
   const setAside = net > 0 ? Math.round(net * rate / 100) : 0;
-  const rateIn = el('input', { class: 'field-input', style: 'max-width:90px;margin:0', inputmode: 'decimal', value: String(rate),
-    onchange: (e) => { const v = parseFloat(e.target.value); if (v >= 0 && v <= 99) localStorage.setItem(rateKey, String(v)); drawBody(body); } });
+  const rateIn = el('input', { class: 'field-input', style: 'max-width:90px;margin:0', inputmode: 'decimal', value: String(rate), disabled: !taxEditable,
+    onchange: (e) => {
+      const v = parseFloat(e.target.value);
+      if (!(v >= 0 && v <= 99)) { drawBody(body); return; }
+      localStorage.setItem(rateKey, String(v));
+      dispatch({ op: 'entity.upsert', kind: 'taxsetting', value: { id: 'tax', rate: v, updatedAt: Date.now() } });
+      drawBody(body);
+    } });
 
   clear(body).append(
     el('div', { style: 'display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap' },
