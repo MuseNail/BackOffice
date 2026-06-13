@@ -42,6 +42,69 @@ const addDays = (iso, n) => {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 };
+const daysBetween = (fromIso, toIso) =>
+  Math.round((new Date(toIso + 'T12:00:00Z') - new Date(fromIso + 'T12:00:00Z')) / 86400000);
+
+// Helcim dateClosed is "YYYY-MM-DD HH:MM:SS" (MT), or "0000-00-00 00:00:00" for an
+// open batch → null. Returns the YYYY-MM-DD part, or null.
+const batchClosedDate = (s) => {
+  const d = String(s || '').slice(0, 10);
+  return (/^\d{4}-\d{2}-\d{2}$/.test(d) && d !== '0000-00-00') ? d : null;
+};
+
+// Join Helcim card-transactions to their settlement batches. Transactions carry
+// cardBatchId + amount + status/type; the batches list carries dateClosed (the
+// API exposes NO batch amount — verified — so gross is summed here from APPROVED
+// txns, refunds subtract). One row per batch with activity, oldest close first:
+//   { batchId, batchNumber, dateClosed, grossCents, txnCount }
+export function helcimBatchTotals(txns, batches) {
+  const meta = new Map();
+  for (const b of batches || []) {
+    if (b && b.id != null) meta.set(String(b.id), { batchNumber: b.batchNumber ?? null, dateClosed: batchClosedDate(b.dateClosed) });
+  }
+  const byBatch = new Map();
+  for (const t of txns || []) {
+    if (String(t.status).toUpperCase() !== 'APPROVED') continue;
+    if (t.cardBatchId == null) continue;
+    const bid = String(t.cardBatchId);
+    const cents = Math.round((Number(t.amount) || 0) * 100);
+    const signed = String(t.type).toLowerCase() === 'refund' ? -cents : cents;
+    const cur = byBatch.get(bid) || { grossCents: 0, txnCount: 0 };
+    cur.grossCents += signed; cur.txnCount += 1;
+    byBatch.set(bid, cur);
+  }
+  return [...byBatch.entries()].map(([batchId, v]) => ({
+    batchId,
+    batchNumber: meta.get(batchId)?.batchNumber ?? null,
+    dateClosed: meta.get(batchId)?.dateClosed ?? null,
+    grossCents: v.grossCents,
+    txnCount: v.txnCount,
+  })).sort((a, b) => (a.dateClosed || '').localeCompare(b.dateClosed || ''));
+}
+
+// Match a bank deposit to the settlement batch that explains it. The deposit is
+// the NET; the batch gross is known; fee = gross − net must sit in
+// [0, feeCapPct% + $1 slack]. The deposit lands 0..lookbackDays after the batch
+// closed. Exact (fee 0 → Fee Saver) wins, then the smallest fee, then soonest.
+// Returns the matched batch row + { feeCents, lagDays, exact }, or null.
+export function matchDepositToBatch(deposit, batchTotals, { lookbackDays = 4, feeCapPct = 6 } = {}) {
+  if (!deposit || !Number.isInteger(deposit.amountCents) || deposit.amountCents <= 0) return null;
+  const net = deposit.amountCents;
+  const candidates = [];
+  for (const b of batchTotals || []) {
+    if (!b.dateClosed || b.grossCents <= 0) continue;
+    const lag = daysBetween(b.dateClosed, deposit.date);
+    if (lag < 0 || lag > lookbackDays) continue;
+    const fee = b.grossCents - net;
+    if (fee < 0) continue;
+    if (fee > Math.round(b.grossCents * feeCapPct / 100) + 100) continue;
+    candidates.push({ ...b, feeCents: fee, lagDays: lag, exact: fee === 0 });
+  }
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => (a.exact !== b.exact) ? (a.exact ? -1 : 1)
+    : a.feeCents - b.feeCents || a.lagDays - b.lagDays);
+  return candidates[0];
+}
 
 // Find the consecutive-day window (1..maxDays) ending 0..lookbackDays before the
 // deposit whose gross best explains it: fee = gross − net must sit in

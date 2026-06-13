@@ -1,7 +1,7 @@
 // node --test tests/processor-match.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { helcimDayTotals, ledgerDayDebits, matchDeposit } from '../js/app/lib/processor-match.js';
+import { helcimDayTotals, ledgerDayDebits, matchDeposit, helcimBatchTotals, matchDepositToBatch } from '../js/app/lib/processor-match.js';
 
 test('helcimDayTotals groups approved txns by Mountain-Time day, refunds subtract', () => {
   const txns = [
@@ -57,4 +57,51 @@ test('matchDeposit can span consecutive days and rejects implausible fees', () =
   assert.equal(matchDeposit({ date: '2026-06-11', amountCents: 42000 }, days), null);
   // deposits larger than any window's gross never match
   assert.equal(matchDeposit({ date: '2026-06-11', amountCents: 500000 }, days), null);
+});
+
+test('helcimBatchTotals: gross per batch from APPROVED txns by cardBatchId, dateClosed from batches', () => {
+  // verified shapes: batches carry NO amount; txns carry cardBatchId/amount/status/type
+  const batches = [
+    { id: 6642574, dateClosed: '2026-06-13 17:01:19', batchNumber: 4 },
+    { id: 6645892, dateClosed: '0000-00-00 00:00:00', batchNumber: 5 },   // open → null close date
+  ];
+  const txns = [
+    { transactionId: 1, cardBatchId: 6642574, status: 'APPROVED', type: 'purchase', amount: 94 },
+    { transactionId: 2, cardBatchId: 6642574, status: 'DECLINED', type: 'purchase', amount: 94 },   // ignored
+    { transactionId: 3, cardBatchId: 6642574, status: 'APPROVED', type: 'purchase', amount: 101 },
+    { transactionId: 4, cardBatchId: 6642574, status: 'APPROVED', type: 'refund',   amount: 20 },   // subtracts
+    { transactionId: 5, cardBatchId: 6645892, status: 'APPROVED', type: 'purchase', amount: 50 },
+  ];
+  const totals = helcimBatchTotals(txns, batches);
+  const b4 = totals.find(t => t.batchId === '6642574');
+  assert.equal(b4.grossCents, 17500);            // (94 + 101 − 20) * 100
+  assert.equal(b4.txnCount, 3);                  // declined not counted
+  assert.equal(b4.dateClosed, '2026-06-13');
+  assert.equal(b4.batchNumber, 4);
+  const b5 = totals.find(t => t.batchId === '6645892');
+  assert.equal(b5.grossCents, 5000);
+  assert.equal(b5.dateClosed, null);             // open batch
+});
+
+test('matchDepositToBatch: net deposit → batch, fee = gross − net; exact (Fee Saver) wins', () => {
+  const totals = [
+    { batchId: '1', batchNumber: 1, dateClosed: '2026-06-10', grossCents: 197300, txnCount: 8 },
+    { batchId: '2', batchNumber: 2, dateClosed: '2026-06-11', grossCents: 150000, txnCount: 6 },
+  ];
+  // exact: deposit equals batch 1 gross, lands 1 day after close
+  const exact = matchDepositToBatch({ date: '2026-06-11', amountCents: 197300 }, totals);
+  assert.equal(exact.batchId, '1');
+  assert.equal(exact.feeCents, 0);
+  assert.equal(exact.exact, true);
+  assert.equal(exact.lagDays, 1);
+  // fee case: deposit = batch 2 gross − 2.5%, 2 days later
+  const fee = matchDepositToBatch({ date: '2026-06-13', amountCents: 146250 }, totals);
+  assert.equal(fee.batchId, '2');
+  assert.equal(fee.feeCents, 3750);
+  // deposit BEFORE the batch closed never matches that batch
+  assert.equal(matchDepositToBatch({ date: '2026-06-09', amountCents: 197300 }, totals), null);
+  // an implausible 40% "fee" is not a match
+  assert.equal(matchDepositToBatch({ date: '2026-06-11', amountCents: 118380 }, totals), null);
+  // open batch (no dateClosed) is never matched
+  assert.equal(matchDepositToBatch({ date: '2026-06-12', amountCents: 5000 }, [{ batchId: '9', dateClosed: null, grossCents: 5000 }]), null);
 });
