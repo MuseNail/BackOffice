@@ -9,7 +9,7 @@ import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { buildIif } from '../lib/qb-iif.js';
-import { ORIGIN } from '../config.js';
+import { ORIGIN, LS } from '../config.js';
 
 const ROLES = ['owner', 'manager', 'bookkeeper', 'viewer'];
 const ROLE_HELP = { owner: 'everything', manager: 'everything but deleting the business', bookkeeper: 'edit the books', viewer: 'read-only' };
@@ -28,16 +28,55 @@ export function render(root) {
   const aiCard = el('div', { class: 'card', style: 'max-width:560px' });
   const museCard = el('div', { class: 'card', style: 'max-width:640px' });
   const qbCard = el('div', { class: 'card', style: 'max-width:560px' });
-  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, AI spending, the Muse salon sync, and the QuickBooks export for this business only.'), usersCard, devicesCard, aiCard, museCard, qbCard);
+  const failedCard = el('div', { class: 'card', style: 'max-width:560px' });
+  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, AI spending, the Muse salon sync, and the QuickBooks export for this business only.'), usersCard, devicesCard, aiCard, museCard, qbCard, failedCard);
   drawUsers(usersCard, biz);
   drawDevices(devicesCard, biz);
   const drawAI = () => drawAICard(aiCard);
   const drawMuse = () => drawMuseCard(museCard, biz);
   const drawQb = () => drawQbCard(qbCard, biz);
-  unsubAI = subscribe(() => { drawAI(); drawMuse(); drawQb(); });
+  const drawFailed = () => drawFailedOps(failedCard, biz);
+  unsubAI = subscribe(() => { drawAI(); drawMuse(); drawQb(); drawFailed(); });
   drawAI();
   drawMuse();
   drawQb();
+  drawFailed();
+}
+
+// ── Rejected writes (dead-letter log) ──
+// sync.js records writes the server turned down (409 stale/blocked) to the
+// LS.failed log so they're never silently lost. This card surfaces them for the
+// owner; there's no retry — a rejection is the server deciding the write is
+// stale or not allowed (e.g. editing a reconciled txn). Device-local.
+function drawFailedOps(card, biz) {
+  let log = [];
+  try { log = JSON.parse(localStorage.getItem(LS.failed) || '[]'); } catch { /* corrupt → empty */ }
+  const mine = log.filter(e => !e.biz || e.biz === biz);
+  const header = el('div', { class: 'cardtitle' }, `Rejected writes${mine.length ? ` (${mine.length})` : ''}`);
+  if (!mine.length) {
+    clear(card).append(header, el('p', { class: 'sub' }, 'None. If the server ever turns down a write (a stale or blocked edit), it’s logged here instead of being lost.'));
+    return;
+  }
+  const fmtWhen = ts => { try { return new Date(ts).toLocaleString(); } catch { return '—'; } };
+  const fmtWhat = op => `${op?.op || '?'} ${op?.kind || ''} ${op?.value?.id || op?.id || ''}`.trim();
+  const rows = mine.map(e => el('tr', {},
+    el('td', {}, fmtWhen(e.rejectedAt)),
+    el('td', {}, fmtWhat(e.op)),
+    el('td', {}, String(e.reason || 'rejected'))));
+  clear(card).append(
+    header,
+    el('p', { class: 'sub' }, 'Writes the server turned down — kept so nothing is silently lost. There’s no retry: a rejection means the server considered the write stale or not allowed.'),
+    el('div', { style: 'overflow-x:auto' }, el('table', { class: 'data' },
+      el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Write'), el('th', {}, 'Reason')),
+      ...rows)),
+    el('div', { style: 'margin-top:12px' },
+      el('button', { class: 'btn sm ghost', onclick: () => {
+        if (!confirm(`Clear ${mine.length} rejected-write log entr${mine.length === 1 ? 'y' : 'ies'} from this device? This only removes the diagnostic log — it doesn’t change any books data.`)) return;
+        const kept = log.filter(e => e.biz && e.biz !== biz);   // keep other businesses' entries
+        localStorage.setItem(LS.failed, JSON.stringify(kept));
+        toast('Cleared');
+        drawFailedOps(card, biz);
+      } }, 'Clear all')));
 }
 
 let unsubAI = null;
