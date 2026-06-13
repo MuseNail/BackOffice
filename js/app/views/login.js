@@ -60,12 +60,12 @@ async function submit(path, body, err, btn) {
     const data = await res.json();
     if (!res.ok) {
       err.textContent =
-        data.error === ‘locked’ ? `Too many tries — locked for ${data.retryInMin} min.` :
-        data.error === ‘device_pending’ ? ‘New device — approve it from Settings → Devices on a device where you’re already signed in, then sign in here again.’ :
-        data.error === ‘invalid login’ ? ‘Wrong login name or PIN.’ :
-        data.error === ‘bad request’ ? ‘Check the fields — login name is letters/numbers, PIN is 4–8 digits.’ :
-        ‘Sign-in failed.’;
-      if (btn) { btn.disabled = false; btn.textContent = ‘Sign in’; }
+        data.error === 'locked' ? `Too many tries — locked for ${data.retryInMin} min.` :
+        data.error === 'device_pending' ? 'New device — approve it from Settings → Devices on a device where you’re already signed in, then sign in here again.' :
+        data.error === 'invalid login' ? 'Wrong login name or PIN.' :
+        data.error === 'bad request' ? 'Check the fields — login name is letters/numbers, PIN is 4–8 digits.' :
+        'Sign-in failed.';
+      if (btn) { btn.disabled = false; btn.textContent = 'Sign in'; }
       return;
     }
     setToken(data.token);
@@ -74,7 +74,7 @@ async function submit(path, body, err, btn) {
     // 3b UI shaping: one business → straight in, no selector.
     location.hash = data.businesses.length === 1 ? `#/b/${data.businesses[0].id}/dashboard` : '#/businesses';
   } catch {
-    err.textContent = ‘Can’t reach the server.’;
-    if (btn) { btn.disabled = false; btn.textContent = ‘Sign in’; }
+    err.textContent = 'Can’t reach the server.';
+    if (btn) { btn.disabled = false; btn.textContent = 'Sign in'; }
   }
 }
