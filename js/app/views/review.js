@@ -63,7 +63,9 @@ function categorySelect(row, categories, accountsById, preselect) {
       .sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)));
     if (!accts.length) continue;
     groups.push(el('optgroup', { label },
-      ...accts.map(a => el('option', { value: a.id, selected: a.id === preselect }, accountLabel(a, accountsById)))));
+      // Subaccounts get a leading indent (figure-spaces) so they read as a child
+      // of the account above them, not a peer category.
+      ...accts.map(a => el('option', { value: a.id, selected: a.id === preselect }, (a.parentId ? '   ' : '') + accountLabel(a, accountsById)))));
   }
   const sel = el('select', { class: 'field-input', style: 'margin:0;min-width:190px' },
     el('option', { value: '' }, '— pick a category —'), ...groups,
@@ -238,12 +240,19 @@ function drawBody(body, editable) {
           ...museRows.map(museRowEl)))));
   }
 
+  // "Approve all" covers both rule/AI/history suggestions (memorized) AND rows the
+  // user has manually categorized (typed in) — anything with a resolved category.
+  // A manual pick (lastCategory) overrides the suggestion for that row.
+  const categorized = [
+    ...suggested.map(({ row, sug }) => ({ row, accountId: lastCategory.get(row.id) || sug.accountId, sug })),
+    ...unmatched.filter(row => lastCategory.get(row.id)).map(row => ({ row, accountId: lastCategory.get(row.id), sug: null })),
+  ];
   clear(body).append(
     el('div', { style: 'display:flex;gap:9px;align-items:center;margin-bottom:12px;flex-wrap:wrap' },
-      (editable && suggested.length) ? el('button', { class: 'btn sm green', onclick: () => {
-        for (const { row, sug } of suggested) { lastCategory.delete(row.id); approveRow(row, sug.accountId, sug, { quiet: true }); }
-        toast(`${suggested.length} approved`);
-      } }, `Approve all suggested (${suggested.length})`) : el('span'),
+      (editable && categorized.length) ? el('button', { class: 'btn sm green', onclick: () => {
+        for (const { row, accountId, sug } of categorized) { lastCategory.delete(row.id); approveRow(row, accountId, sug, { quiet: true }); }
+        toast(`${categorized.length} approved`);
+      } }, `Approve all categorized (${categorized.length})`) : el('span'),
       (editable && unmatched.length && !aiBusy) ? el('button', { class: 'btn sm', onclick: () => askAI(unmatched, categories, body, editable) }, `✨ Get AI suggestions (${unmatched.length})`) : el('span'),
       aiBusy ? el('span', { class: 'pill gray' }, '✨ Asking Claude…') : el('span')),
     ...sections,
