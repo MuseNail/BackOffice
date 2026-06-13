@@ -26,7 +26,7 @@ export function render(root) {
         ? `${industryLabel(s.meta.industry)} · fiscal year starts ${s.meta.fiscalYearStart || 'January'}`
         : 'Business profile not set up yet.'),
       el('div', { class: 'row' },
-        kpi('Cash position', fmtMoney(cash), `across ${bankAccts.length} bank/cash account${bankAccts.length === 1 ? '' : 's'}`),
+        kpi('Cash position', fmtMoney(cash), `Sum of all BANK-type account balances from posted transactions (${bankAccts.length} account${bankAccts.length === 1 ? '' : 's'})`),
         kpi('This month — income', fmtMoney(pl.incomeTotal), 'posted entries only'),
         kpi('This month — expenses', fmtMoney(pl.expenseTotal), 'posted entries only'),
         kpi('Net this month', fmtMoney(pl.netCents), staged ? `${staged} imported rows waiting in Review` : 'nothing waiting in Review'),

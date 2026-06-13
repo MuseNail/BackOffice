@@ -16,10 +16,14 @@ import { accountLabel } from '../lib/coa-templates.js';
 import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 import { helcimDayTotals, ledgerDayDebits, matchDeposit } from '../lib/processor-match.js';
+import { quickAddAccountModal } from './accounts.js';
 
 let unsub = null;
 let aiSuggestions = new Map();
 let aiBusy = false;
+// Preserve per-row category selection across drawBody re-renders (store changes
+// trigger a full redraw, so we save the user's pick here and restore it).
+let lastCategory = new Map();
 
 const TYPE_GROUPS = [
   ['income', 'Income'], ['asset', 'Assets'], ['liability', 'Liabilities'],
@@ -39,7 +43,7 @@ export function render(root) {
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; }
+export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; lastCategory = new Map(); }
 
 const bankish = (a) => a.qbType === 'BANK' || a.qbType === 'CCARD';
 
@@ -60,8 +64,30 @@ function categorySelect(row, categories, accountsById, preselect) {
     groups.push(el('optgroup', { label },
       ...accts.map(a => el('option', { value: a.id, selected: a.id === preselect }, accountLabel(a, accountsById)))));
   }
-  return el('select', { class: 'field-input', style: 'margin:0;min-width:190px' },
-    el('option', { value: '' }, '— pick a category —'), ...groups);
+  const sel = el('select', { class: 'field-input', style: 'margin:0;min-width:190px' },
+    el('option', { value: '' }, '— pick a category —'), ...groups,
+    el('option', { value: '__new__' }, '＋ Add category…'));
+  addNewCategoryIntercept(sel, preselect);
+  return sel;
+}
+
+// Appends a "＋ Add category…" intercept to any <select>. When __new__ is
+// chosen, the modal opens without losing the current selection; on success the
+// new option is added and auto-selected, then a synthetic change event fires so
+// any upstream listener (approve-button enable) picks it up.
+function addNewCategoryIntercept(sel, initialValue = '') {
+  let prevVal = initialValue || '';
+  sel.addEventListener('change', () => {
+    if (sel.value !== '__new__') { prevVal = sel.value; return; }
+    sel.value = prevVal; // reset so the row looks unchanged while modal is open
+    quickAddAccountModal((account) => {
+      const marker = sel.querySelector('option[value="__new__"]');
+      marker.before(el('option', { value: account.id }, account.name));
+      sel.value = account.id;
+      prevVal = account.id;
+      sel.dispatchEvent(new Event('change')); // notify upstream (approve-button etc.)
+    });
+  });
 }
 
 function drawBody(body, editable) {
@@ -91,9 +117,17 @@ function drawBody(body, editable) {
     }
     if (sug) suggested.push({ row, sug });
 
-    const sel = categorySelect(row, categories, accountsById, sug?.accountId);
-    const approve = el('button', { class: 'btn sm green', disabled: !sug, onclick: () => approveRow(row, sel.value, sug) }, 'Approve');
-    sel.addEventListener('change', () => { approve.disabled = !sel.value; });
+    const preselect = lastCategory.get(row.id) || sug?.accountId;
+    const sel = categorySelect(row, categories, accountsById, preselect);
+    const memoIn = el('input', { class: 'field-input', placeholder: 'Add a note…', style: 'margin:4px 0 0;font-size:.82em', value: row.memo || '' });
+    const approve = el('button', { class: 'btn sm green', disabled: !preselect, onclick: () => {
+      lastCategory.delete(row.id);
+      approveRow(row, sel.value, sug, { memo: memoIn.value.trim() });
+    } }, 'Approve');
+    sel.addEventListener('change', () => {
+      if (sel.value && sel.value !== '__new__') lastCategory.set(row.id, sel.value);
+      approve.disabled = !sel.value || sel.value === '__new__';
+    });
 
     const chip = sug
       ? (sug.by === 'rule' ? el('span', { class: 'pill blue' }, `⚡ Rule · ${sug.vendorName}`)
@@ -113,7 +147,7 @@ function drawBody(body, editable) {
       el('td', {}, row.date),
       el('td', {}, el('b', {}, row.desc.slice(0, 55))),
       el('td', { class: 'num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
-      el('td', {}, editable ? sel : '—'),
+      el('td', {}, editable ? el('div', {}, sel, memoIn) : '—'),
       el('td', {}, chip),
       el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px' }, ...actions) : ''),
     );
@@ -150,9 +184,11 @@ function drawBody(body, editable) {
           const accts = categories.filter(a => a.type === type)
             .sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)));
           return accts.length ? el('optgroup', { label }, ...accts.map(a => el('option', { value: a.id, selected: a.id === preselect }, accountLabel(a, accountsById)))) : null;
-        }).filter(Boolean));
-      const approve = el('button', { class: 'btn sm green', disabled: !bal || !sel.value, onclick: () => approveSyncRow(row, sel.value) }, 'Approve');
-      sel.addEventListener('change', () => { approve.disabled = !bal || !sel.value; });
+        }).filter(Boolean),
+        el('option', { value: '__new__' }, '＋ Add category…'));
+      addNewCategoryIntercept(sel, preselect);
+      const approve = el('button', { class: 'btn sm green', disabled: !bal || !sel.value || sel.value === '__new__', onclick: () => approveSyncRow(row, sel.value) }, 'Approve');
+      sel.addEventListener('change', () => { approve.disabled = !bal || !sel.value || sel.value === '__new__'; });
       return el('tr', {},
         el('td', {}, row.date),
         el('td', {}, el('b', {}, (row.desc || t.label).slice(0, 55)), row.memo ? el('div', { class: 'sub', style: 'margin:0' }, row.memo.slice(0, 80)) : ''),
@@ -164,7 +200,8 @@ function drawBody(body, editable) {
       );
     };
     sections.push(el('div', { style: 'margin-bottom:18px' },
-      el('div', { class: 'cardtitle', style: 'margin-bottom:8px' }, 'Muse — synced from the salon ', el('span', { class: 'pill amber' }, `${museRows.length} waiting`)),
+      el('div', { class: 'cardtitle', style: 'margin-bottom:4px' }, 'Muse — synced from the salon ', el('span', { class: 'pill amber' }, `${museRows.length} waiting`)),
+      el('p', { class: 'sub', style: 'margin:0 0 8px' }, 'Each row was pushed from the Muse salon app (Settings → Integrations → Back Office). Approving posts it to your ledger using the category you pick and the balancing account set in Settings. Rows marked "Map in Settings" need a balancing account first. Nothing posts automatically.'),
       el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
         el('table', { class: 'data' },
           el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'From the salon'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Category'), el('th', {}, 'Balancing account'), el('th', {}, '')),
@@ -174,7 +211,7 @@ function drawBody(body, editable) {
   clear(body).append(
     el('div', { style: 'display:flex;gap:9px;align-items:center;margin-bottom:12px;flex-wrap:wrap' },
       (editable && suggested.length) ? el('button', { class: 'btn sm green', onclick: () => {
-        for (const { row, sug } of suggested) approveRow(row, sug.accountId, sug, { quiet: true });
+        for (const { row, sug } of suggested) { lastCategory.delete(row.id); approveRow(row, sug.accountId, sug, { quiet: true }); }
         toast(`${suggested.length} approved`);
       } }, `Approve all suggested (${suggested.length})`) : el('span'),
       (editable && unmatched.length && !aiBusy) ? el('button', { class: 'btn sm', onclick: () => askAI(unmatched, categories, body, editable) }, `✨ Get AI suggestions (${unmatched.length})`) : el('span'),
@@ -213,7 +250,7 @@ function approveSyncRow(row, categoryId) {
   toast('Posted');
 }
 
-function approveRow(row, categoryId, sug, { quiet = false } = {}) {
+function approveRow(row, categoryId, sug, { quiet = false, memo = '' } = {}) {
   const bankacct = entities('bankacct').find(b => b.id === row.bankacctId);
   if (!bankacct || !categoryId) { toast('Pick a category first', 'err'); return; }
   const target = entities('account').find(a => a.id === categoryId);
@@ -222,7 +259,7 @@ function approveRow(row, categoryId, sug, { quiet = false } = {}) {
     id: 't-' + row.id,
     date: row.date,
     payee: row.desc,
-    memo: isTransfer ? 'Transfer between accounts' : '',
+    memo: isTransfer ? 'Transfer between accounts' : (memo || row.memo || ''),
     amountCents: Math.abs(row.amountCents),
     direction: row.amountCents < 0 ? 'out' : 'in',
     bankAccountId: bankacct.accountId,
@@ -273,8 +310,14 @@ function feeSplitModal(row, accountsById) {
   const defaultFee = feeAccts.find(a => /fee|process/i.test(a.name)) || feeAccts[0];
 
   const gross = el('input', { class: 'field-input', inputmode: 'decimal', placeholder: 'what you actually charged customers' });
-  const incomeSel = el('select', { class: 'field-input' }, ...incomeAccts.map(a => el('option', { value: a.id }, accountLabel(a, accountsById))));
-  const feeSel = el('select', { class: 'field-input' }, ...feeAccts.map(a => el('option', { value: a.id, selected: a.id === defaultFee.id }, accountLabel(a, accountsById))));
+  const incomeSel = el('select', { class: 'field-input' },
+    ...incomeAccts.map(a => el('option', { value: a.id }, accountLabel(a, accountsById))),
+    el('option', { value: '__new__' }, '＋ Add category…'));
+  addNewCategoryIntercept(incomeSel, incomeAccts[0]?.id);
+  const feeSel = el('select', { class: 'field-input' },
+    ...feeAccts.map(a => el('option', { value: a.id, selected: a.id === defaultFee.id }, accountLabel(a, accountsById))),
+    el('option', { value: '__new__' }, '＋ Add category…'));
+  addNewCategoryIntercept(feeSel, defaultFee.id);
   const feeLine = el('p', { style: 'font-weight:700' }, '');
   gross.addEventListener('input', () => {
     const g = parseMoney(gross.value);
@@ -294,6 +337,8 @@ function feeSplitModal(row, accountsById) {
       el('button', { class: 'btn green', onclick: () => {
         const g = parseMoney(gross.value);
         if (g == null || g < row.amountCents) { toast('Gross must be at least the deposited amount', 'err'); return; }
+        if (!incomeSel.value || incomeSel.value === '__new__') { toast('Pick an income category', 'err'); return; }
+        if (!feeSel.value || feeSel.value === '__new__') { toast('Pick a fee category', 'err'); return; }
         const feeCents = g - row.amountCents;
         const bankacct = entities('bankacct').find(b => b.id === row.bankacctId);
         const lines = [
@@ -355,7 +400,9 @@ async function matchDepositModal(row, accountsById) {
   const feeAccts = entities('account').filter(a => a.active !== false && (a.type === 'expense' || a.type === 'cogs'));
   const feeDefault = feeAccts.find(a => /fee|process/i.test(a.name)) || feeAccts[0];
   const feeSel = el('select', { class: 'field-input' },
-    ...feeAccts.map(a => el('option', { value: a.id, selected: a.id === feeDefault?.id }, accountLabel(a, accountsById))));
+    ...feeAccts.map(a => el('option', { value: a.id, selected: a.id === feeDefault?.id }, accountLabel(a, accountsById))),
+    el('option', { value: '__new__' }, '＋ Add category…'));
+  addNewCategoryIntercept(feeSel, feeDefault?.id);
 
   const daysLabel = match.days.length === 1 ? match.days[0] : `${match.days[0]} – ${match.days[match.days.length - 1]}`;
   clear(m.body).append(
@@ -455,7 +502,9 @@ function makeRuleModal(row, pickedCategoryId, categories, accountsById) {
     el('option', { value: '' }, '— category —'),
     ...categories
       .sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)))
-      .map(a => el('option', { value: a.id, selected: a.id === pickedCategoryId }, accountLabel(a, accountsById))));
+      .map(a => el('option', { value: a.id, selected: a.id === pickedCategoryId }, accountLabel(a, accountsById))),
+    el('option', { value: '__new__' }, '＋ Add category…'));
+  addNewCategoryIntercept(cat, pickedCategoryId);
   m.body.append(
     el('p', { class: 'sub' }, 'Bank descriptions containing the match text get this category suggested automatically.'),
     el('label', { class: 'field-label' }, 'Vendor name'), name,

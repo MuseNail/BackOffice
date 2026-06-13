@@ -144,6 +144,13 @@ export class BusinessDO {
       if (existing?.updatedAt && op.value.updatedAt && op.value.updatedAt < existing.updatedAt) {
         return { rejected: true, reason: 'stale', storedUpdatedAt: existing.updatedAt };
       }
+      // Reconciliation guard: if a txn is reconciled, its lines (amounts + accounts)
+      // are permanent — only metadata (payee, memo) may change.
+      if (op.kind === 'txn' && existing?.reconciledIn) {
+        const existingSig = JSON.stringify([...existing.lines].sort((a, b) => a.accountId < b.accountId ? -1 : 1).map(l => [l.accountId, l.amountCents]));
+        const newSig = JSON.stringify([...(op.value.lines || [])].sort((a, b) => a.accountId < b.accountId ? -1 : 1).map(l => [l.accountId, l.amountCents]));
+        if (existingSig !== newSig) return { rejected: true, reason: 'reconciled: amounts and accounts are locked' };
+      }
       await this.state.storage.put(key, op.value);
       return this.commit(op);
     }
@@ -172,6 +179,11 @@ export class BusinessDO {
     }
     if (op.op === 'entity.delete') {
       if (!ENTITY_KINDS.has(op.kind) || !op.id) return { rejected: true, reason: 'bad op' };
+      // Reconciled transactions are permanently locked — deletion would corrupt past statements.
+      if (op.kind === 'txn') {
+        const t = await this.state.storage.get(`txn:${op.id}`);
+        if (t?.reconciledIn) return { rejected: true, reason: 'reconciled: cannot delete a reconciled transaction' };
+      }
       await this.state.storage.delete(`${op.kind}:${op.id}`);
       return this.commit(op);
     }

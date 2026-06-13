@@ -14,7 +14,7 @@ export function render(root) {
   const body = el('div');
   root.append(
     el('h2', {}, 'Ledger'),
-    el('p', { class: 'sub' }, 'Every posted transaction. Nothing here is ever deleted — voiding keeps the record but removes it from balances and reports.'),
+    el('p', { class: 'sub' }, 'Every posted transaction. Void keeps the record but zeroes it out of balances. Delete permanently removes it (blocked once reconciled). Edit updates payee, memo, or category.'),
     editable ? el('div', { style: 'display:flex;gap:9px;margin-bottom:14px' },
       el('button', { class: 'btn sm', onclick: addTxnModal }, 'Add transaction'),
       el('button', { class: 'btn sm ghost', onclick: journalModal }, 'Journal entry')) : null,
@@ -56,14 +56,22 @@ function drawTable(body, editable) {
   const rows = txns.map(t => {
     const d = describe(t);
     const isVoid = t.status === 'void';
+    const isRecon = !!t.reconciledIn;
+    const actions = [];
+    if (editable && !isVoid) {
+      actions.push(el('button', { class: 'linklike', onclick: () => editTxnModal(t) }, 'Edit'));
+      if (!isRecon) actions.push(el('button', { class: 'linklike', onclick: () => confirmDelete(t) }, 'Delete'));
+      actions.push(el('button', { class: 'linklike', onclick: () => confirmVoid(t) }, 'Void'));
+    }
     return el('tr', { style: isVoid ? 'opacity:.45' : '' },
       el('td', {}, t.date),
       el('td', {}, el('b', {}, t.payee || '—'), t.memo ? el('span', { style: 'color:var(--mut)' }, ` · ${t.memo}`) : '', t.checkNo ? el('span', { style: 'color:var(--mut)' }, ` · #${t.checkNo}`) : ''),
       el('td', {}, d.category),
-      el('td', {}, el('span', { class: `pill ${t.source?.app === 'manual' ? 'green' : t.source?.app === 'musenail' ? 'gray' : 'blue'}` }, isVoid ? 'Void' : (t.source?.app === 'manual' ? 'Manual' : t.source?.app || 'Import'))),
+      el('td', {},
+        el('span', { class: `pill ${t.source?.app === 'manual' ? 'green' : t.source?.app === 'musenail' ? 'gray' : 'blue'}` }, isVoid ? 'Void' : (t.source?.app === 'manual' ? 'Manual' : t.source?.app || 'Import')),
+        isRecon ? el('span', { class: 'pill gray', title: 'Amounts and accounts are locked — reconciled in a closed period', style: 'margin-left:4px' }, 'Reconciled') : ''),
       el('td', { class: 'num ' + (d.amount > 0 ? 'pos' : d.amount < 0 ? 'neg' : '') }, d.amount == null ? '—' : fmtMoney(d.amount, { sign: d.amount > 0 })),
-      el('td', {}, (editable && !isVoid)
-        ? el('button', { class: 'linklike', onclick: () => confirmVoid(t) }, 'Void') : ''),
+      el('td', { style: 'white-space:nowrap' }, ...actions.flatMap((a, i) => i ? [' · ', a] : [a])),
     );
   });
   clear(body).append(el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
@@ -76,6 +84,7 @@ function confirmVoid(t) {
   const m = modal('Void this transaction?');
   m.body.append(
     el('p', {}, `${t.date} · ${t.payee || 'no payee'} — voiding keeps the record but removes it from every balance and report. This is the only way to undo a posted entry.`),
+    t.reconciledIn ? el('p', { style: 'color:var(--amber)' }, '⚠️ This transaction was reconciled. Voiding it will cause your past reconciliation to no longer balance.') : null,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Keep it'),
       el('button', { class: 'btn', style: 'background:var(--red)', onclick: () => {
@@ -84,6 +93,73 @@ function confirmVoid(t) {
         m.close();
       } }, 'Void')),
   );
+}
+
+function confirmDelete(t) {
+  if (t.reconciledIn) { toast('Reconciled transactions cannot be deleted', 'err'); return; }
+  const m = modal('Delete this transaction?');
+  m.body.append(
+    el('p', {}, `${t.date} · ${t.payee || 'no payee'} — this permanently removes the entry. Use Void instead if you want to keep a record.`),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
+      el('button', { class: 'btn', style: 'background:var(--red)', onclick: () => {
+        dispatch({ op: 'entity.delete', kind: 'txn', id: t.id });
+        // Revert the associated staged row (if any) so it can be re-approved
+        const staged = entities('staged').find(s => s.txnId === t.id);
+        if (staged) dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...staged, status: 'pending', txnId: null, categoryId: null } });
+        toast('Transaction deleted');
+        m.close();
+      } }, 'Delete permanently')),
+  );
+}
+
+// Edit payee, memo, date; category (non-bank line) for non-reconciled simple txns.
+function editTxnModal(t) {
+  const isRecon = !!t.reconciledIn;
+  const m = modal(isRecon ? 'Edit transaction (reconciled)' : 'Edit transaction');
+  const byId = new Map(entities('account').map(a => [a.id, a]));
+
+  // Identify lines for a simple 2-line txn
+  const isSimple = t.lines.length === 2;
+  const bankLine = isSimple ? t.lines.find(l => { const a = byId.get(l.accountId); return a && bankish(a); }) : null;
+  const catLine = isSimple && bankLine ? t.lines.find(l => l !== bankLine) : null;
+
+  const date = el('input', { class: 'field-input', type: 'date', value: t.date, disabled: isRecon });
+  const payee = el('input', { class: 'field-input', value: t.payee || '', placeholder: 'Who?' });
+  const memo = el('input', { class: 'field-input', value: t.memo || '', placeholder: 'Notes (optional)' });
+
+  const catSel = (!isRecon && catLine)
+    ? el('select', { class: 'field-input' },
+        ...entities('account')
+          .filter(a => a.active !== false && !bankish(a))
+          .sort((a, b) => (a.type + accountLabel(a, byId)).localeCompare(b.type + accountLabel(b, byId)))
+          .map(a => el('option', { value: a.id, selected: a.id === catLine.accountId }, accountLabel(a, byId))))
+    : null;
+
+  m.body.append(
+    isRecon ? el('p', { class: 'sub' }, '⚠️ This transaction is reconciled — the date, accounts, and amounts are locked. You can still update the payee and memo.') : null,
+    el('label', { class: 'field-label' }, 'Date'), date,
+    el('label', { class: 'field-label' }, 'Payee'), payee,
+    el('label', { class: 'field-label' }, 'Memo / notes'), memo,
+    catSel ? el('label', { class: 'field-label' }, 'Category') : null,
+    catSel || null,
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
+      el('button', { class: 'btn', onclick: () => {
+        const newDate = isRecon ? t.date : date.value;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) { toast('Bad date', 'err'); return; }
+        const newLines = (!isRecon && catSel && catLine)
+          ? t.lines.map(l => l === catLine ? { ...l, accountId: catSel.value } : l)
+          : t.lines;
+        const updated = { ...t, date: newDate, payee: payee.value.trim(), memo: memo.value.trim(), lines: newLines };
+        const v = validateTxn(updated, ctx());
+        if (!v.ok) { toast(v.error, 'err'); return; }
+        dispatch({ op: 'entity.upsert', kind: 'txn', value: updated });
+        toast('Transaction updated');
+        m.close();
+      } }, 'Save')),
+  );
+  setTimeout(() => payee.focus(), 0);
 }
 
 const today = () => new Date().toISOString().slice(0, 10);

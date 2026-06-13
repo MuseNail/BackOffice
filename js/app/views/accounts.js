@@ -71,6 +71,45 @@ function drawTable(body, editable) {
   );
 }
 
+// Exported so other views (review) can open a quick "add category" modal inline
+// without navigating away. Only creates — the full edit lives in editAccount().
+export function quickAddAccountModal(oncreate, defaultType = 'expense') {
+  const m = modal('Add category');
+  const name = el('input', { class: 'field-input', placeholder: 'Account name' });
+  const type = el('select', { class: 'field-input' },
+    ...['income', 'cogs', 'expense', 'asset', 'liability', 'equity'].map(t =>
+      el('option', { value: t, selected: t === defaultType }, TYPE_LABELS[t])));
+  const parent = el('select', { class: 'field-input' });
+  const redrawParents = () => {
+    clear(parent).append(
+      el('option', { value: '' }, '— none (top level) —'),
+      ...entities('account')
+        .filter(a => a.type === type.value && !a.parentId && a.active !== false)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(a => el('option', { value: a.id }, a.name)));
+  };
+  type.addEventListener('change', redrawParents);
+  redrawParents();
+  m.body.append(
+    el('label', { class: 'field-label' }, 'Name'), name,
+    el('label', { class: 'field-label' }, 'Type'), type,
+    el('label', { class: 'field-label' }, 'Subaccount of (optional)'), parent,
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
+      el('button', { class: 'btn', onclick: () => {
+        const n = name.value.trim();
+        if (!n) { toast('Name the account', 'err'); return; }
+        const value = { id: uniqueId(n), name: n, type: type.value,
+          qbType: QB_BY_TYPE[type.value], qbName: n, parentId: parent.value || null, active: true };
+        dispatch({ op: 'entity.upsert', kind: 'account', value });
+        toast('Category added');
+        m.close();
+        oncreate(value);
+      } }, 'Add category')),
+  );
+  setTimeout(() => name.focus(), 0);
+}
+
 function editAccount(existing) {
   const m = modal(existing ? 'Edit account' : 'Add account');
   const name = el('input', { class: 'field-input', placeholder: 'Account name', value: existing?.name || '' });
@@ -112,8 +151,24 @@ function editAccount(existing) {
 }
 
 function archive(a) {
-  dispatch({ op: 'entity.upsert', kind: 'account', value: { ...a, active: a.active === false } });
-  toast(a.active === false ? 'Account restored' : 'Account archived');
+  if (a.active !== false) {
+    // Confirm before archiving — explain the effect clearly
+    const m = modal('Archive this account?');
+    m.body.append(
+      el('p', {}, `Archiving "${a.name}" hides it from all category pickers — you won't be able to post new transactions to it. Every existing transaction that references it is preserved and unaffected.`),
+      el('p', { class: 'sub' }, 'You can restore it at any time from this screen.'),
+      el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' },
+        el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
+        el('button', { class: 'btn', onclick: () => {
+          dispatch({ op: 'entity.upsert', kind: 'account', value: { ...a, active: false } });
+          toast('Account archived — existing transactions are unchanged');
+          m.close();
+        } }, 'Archive')),
+    );
+  } else {
+    dispatch({ op: 'entity.upsert', kind: 'account', value: { ...a, active: true } });
+    toast('Account restored — it will appear in pickers again');
+  }
 }
 
 function uniqueId(name) {
