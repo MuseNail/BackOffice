@@ -85,7 +85,8 @@ export async function handleCategorize(req, env, bizId) {
       model: env.AI_MODEL || 'claude-opus-4-8',
       max_tokens: 4000,
       system: SYSTEM,
-      output_config: { format: { type: 'json_schema', schema: SCHEMA } },
+      tools: [{ name: 'suggest_categories', description: 'Return category suggestions for the provided transactions', input_schema: SCHEMA }],
+      tool_choice: { type: 'tool', name: 'suggest_categories' },
       messages: [{ role: 'user', content: JSON.stringify(payload) }],
     }),
   });
@@ -98,7 +99,8 @@ export async function handleCategorize(req, env, bizId) {
   const data = await res.json();
   let parsed;
   try {
-    parsed = JSON.parse(data.content?.find(b => b.type === 'text')?.text || '');
+    parsed = data.content?.find(b => b.type === 'tool_use')?.input;
+    if (!parsed) throw new Error('no tool_use block');
   } catch { return json({ error: 'ai_failed' }, 502); }
 
   // Trust nothing: only known row ids, only known category ids, clamped confidence.
@@ -111,6 +113,7 @@ export async function handleCategorize(req, env, bizId) {
   // record the spend in the business's own books (broadcasts live to the app)
   const model = env.AI_MODEL || 'claude-opus-4-8';
   const usage = data.usage || {};
+  if (!PRICES[model]) console.warn('[ai] unknown model for pricing, defaulting to opus rates:', model);
   const price = PRICES[model] || PRICES['claude-opus-4-8'];
   const costMicros = Math.round((usage.input_tokens || 0) * price.in + (usage.output_tokens || 0) * price.out);
   await stub.fetch('https://do/b/x/state', {

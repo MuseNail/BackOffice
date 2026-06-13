@@ -4,7 +4,7 @@ import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseMoney } from '../lib/money.js';
-import { validateTxn, simpleTxn, voidTxn } from '../lib/posting.js';
+import { validateTxn, simpleTxn, voidTxn, periodKey } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
 
 let unsub = null;
@@ -45,12 +45,10 @@ function describe(t) {
 }
 
 function drawTable(body, editable) {
-  const txns = entities('txn')
-    .filter(t => t.status === 'posted' || t.status === 'void')
-    .sort((a, b) => b.date.localeCompare(a.date) || (b.updatedAt || 0) - (a.updatedAt || 0))
-    .slice(0, 200);
+  const allTxns = entities('txn').filter(t => t.status === 'posted' || t.status === 'void');
+  const txns = allTxns.sort((a, b) => b.date.localeCompare(a.date) || (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 200);
   if (!txns.length) {
-    clear(body).append(el('p', { class: 'sub' }, 'No transactions yet — add one above, or wait for M5 to import your bank CSV.'));
+    clear(body).append(el('p', { class: 'sub' }, 'No transactions yet — add one above, or import a CSV from Banking.'));
     return;
   }
   const rows = txns.map(t => {
@@ -74,17 +72,21 @@ function drawTable(body, editable) {
       el('td', { style: 'white-space:nowrap' }, ...actions.flatMap((a, i) => i ? [' · ', a] : [a])),
     );
   });
-  clear(body).append(el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
-    el('table', { class: 'data' },
-      el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Payee / memo'), el('th', {}, 'Category'), el('th', {}, 'Source'), el('th', { class: 'num' }, 'Amount'), el('th', {}, '')),
-      ...rows)));
+  clear(body).append(
+    allTxns.length > 200 ? el('p', { class: 'sub' }, `Showing the 200 most recent of ${allTxns.length} transactions — use Reports for date-range views.`) : el('span'),
+    el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
+      el('table', { class: 'data' },
+        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Payee / memo'), el('th', {}, 'Category'), el('th', {}, 'Source'), el('th', { class: 'num' }, 'Amount'), el('th', {}, '')),
+        ...rows)));
 }
 
 function confirmVoid(t) {
+  if (t.reconciledIn) { toast('Reconciled transactions cannot be voided — the period is closed. Use a correcting journal entry instead.', 'err'); return; }
+  const locks = new Set(entities('lock').map(l => l.id));
+  if (locks.has(periodKey(t.date))) { toast(`Period ${periodKey(t.date)} is locked — unlock it in Settings first`, 'err'); return; }
   const m = modal('Void this transaction?');
   m.body.append(
     el('p', {}, `${t.date} · ${t.payee || 'no payee'} — voiding keeps the record but removes it from every balance and report. This is the only way to undo a posted entry.`),
-    t.reconciledIn ? el('p', { style: 'color:var(--amber)' }, '⚠️ This transaction was reconciled. Voiding it will cause your past reconciliation to no longer balance.') : null,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Keep it'),
       el('button', { class: 'btn', style: 'background:var(--red)', onclick: () => {

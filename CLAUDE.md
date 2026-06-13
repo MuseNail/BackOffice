@@ -22,7 +22,7 @@ Owner + clients use it: the owner belongs to every business; **client users see 
 
 1. **Money is integer cents.** No floats in stored data, ever. Format only at the display edge (`ui.js fmtMoney`).
 2. **Double-entry under the hood:** every posted `txn` has `lines[]` summing to exactly 0. Single-entry UX on top.
-3. **The ledger is append-only.** Void (reversal) — never delete or mutate a posted amount. Period `lock:` keys reject postings into closed periods.
+3. **The ledger is append-only.** Void (reversal) — never delete or mutate a posted amount. Period `lock:` keys reject postings into closed periods. **Reconciled txns (v0.17.0):** once `reconciledIn` is set, the server permanently rejects status changes (void) AND line-signature changes via both `entity.upsert` AND `entity.bulkUpsert`; metadata-only edits (payee, memo, `qbExportedAt`) are still allowed.
 4. **Imported/synced rows ALWAYS land staged.** Only explicit user approval posts. AI suggests, never posts.
 5. **Provenance everywhere:** imports carry `import:<id>`; synced records carry `sourceApp`+`sourceId` (idempotent upsert).
 6. Every entity write stamps `updatedAt`/`updatedBy`; the stale-write guard (client `store.js` + DO `apply`) must stay symmetric.

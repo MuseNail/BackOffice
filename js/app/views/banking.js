@@ -127,6 +127,7 @@ function importWizard(bankacct) {
         if (!parsed.rows.length) { toast('That file has no data rows', 'err'); return; }
         step2();
       };
+      reader.onerror = () => { toast('Failed to read the file — try again', 'err'); };
       reader.readAsText(f);
     });
     clear(m.body).append(

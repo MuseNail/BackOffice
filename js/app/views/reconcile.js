@@ -49,7 +49,8 @@ function drawBody(body) {
     onchange: (e) => { s.stmtCents = parseMoney(e.target.value); drawBody(body); } });
 
   const txns = entities('txn').filter(t => t.status === 'posted');
-  const alreadyCents = txns.filter(t => t.reconciledIn).reduce((sum, t) => sum + bankLineCents(t, bankacct.accountId), 0);
+  // Bound to endDate: a future reconciliation shouldn't inflate this period's cleared balance.
+  const alreadyCents = txns.filter(t => t.reconciledIn && t.date <= s.endDate).reduce((sum, t) => sum + bankLineCents(t, bankacct.accountId), 0);
   const candidates = txns
     .filter(t => !t.reconciledIn && t.date <= s.endDate && t.lines.some(l => l.accountId === bankacct.accountId))
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -106,11 +107,14 @@ function drawBody(body) {
 
 function confirmClose(bankacct, body) {
   const m = modal('Close this reconciliation?');
+  // Re-check for concurrent reconciliation before dispatching (RECON-003).
+  const alreadyRecon = [...s.checked].filter(id => entities('txn').find(t => t.id === id)?.reconciledIn);
   m.body.append(
-    el('p', {}, `${s.checked.size} transaction${s.checked.size === 1 ? '' : 's'} will be marked as reconciled through ${s.endDate}. Reconciled entries can still be voided, but they leave this screen for good.`),
+    alreadyRecon.length ? el('p', { style: 'color:var(--red)' }, `⚠️ ${alreadyRecon.length} of the checked transactions were already reconciled by another session. Reload to see the current state.`) : null,
+    el('p', {}, `${s.checked.size} transaction${s.checked.size === 1 ? '' : 's'} will be marked as reconciled through ${s.endDate}. Reconciled entries cannot be voided or deleted — they leave this screen for good.`),
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Not yet'),
-      el('button', { class: 'btn green', onclick: () => {
+      el('button', { class: 'btn green', disabled: alreadyRecon.length > 0, onclick: () => {
         const reconId = 'rec-' + Date.now().toString(36);
         dispatch({ op: 'entity.upsert', kind: 'recon', value: {
           id: reconId, bankacctId: bankacct.id, statementEndDate: s.endDate,
@@ -124,7 +128,7 @@ function confirmClose(bankacct, body) {
         toast(`Reconciled to the penny — ${s.endDate} closed`);
         m.close();
         drawBody(body);
-      } }, 'Close it')),
+      } }, alreadyRecon.length ? 'Fix conflicts first' : 'Close it')),
   );
 }
 

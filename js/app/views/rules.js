@@ -32,24 +32,39 @@ function drawTable(body, editable) {
   }
   const byId = new Map(entities('account').map(a => [a.id, a]));
   const acctName = (id) => { const a = byId.get(id); return a ? accountLabel(a, byId) : '—'; };
-  const rows = vendors.map(v => el('tr', {},
-    el('td', {}, el('b', {}, v.name)),
-    el('td', {},
-      ...(v.matchers?.exact || []).map(x => el('span', { class: 'pill blue', style: 'margin-right:4px' }, `exact: ${x}`)),
-      ...(v.matchers?.keywords || []).map(k => el('span', { class: 'pill gray', style: 'margin-right:4px' }, `contains: ${k}`))),
-    el('td', {}, acctName(v.defaultAccountId)),
-    el('td', { class: 'num' }, `${v.used || 0}×`),
-    el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px' },
-      el('button', { class: 'linklike', onclick: () => ruleModal(v) }, 'Edit'),
-      el('button', { class: 'linklike', style: 'color:var(--red)', onclick: () => {
-        dispatch({ op: 'entity.delete', kind: 'vendor', id: v.id });
-        toast('Rule deleted');
-      } }, 'Delete')) : ''),
-  ));
+  const rows = vendors.map(v => {
+    const targetAcct = byId.get(v.defaultAccountId);
+    const isBroken = !targetAcct || targetAcct.active === false;
+    return el('tr', { style: isBroken ? 'background:var(--amber-soft,#fff8f0)' : '' },
+      el('td', {}, el('b', {}, v.name), isBroken ? el('span', { class: 'pill amber', style: 'margin-left:6px' }, 'Category archived') : ''),
+      el('td', {},
+        ...(v.matchers?.exact || []).map(x => el('span', { class: 'pill blue', style: 'margin-right:4px' }, `exact: ${x}`)),
+        ...(v.matchers?.keywords || []).map(k => el('span', { class: 'pill gray', style: 'margin-right:4px' }, `contains: ${k}`))),
+      el('td', {}, acctName(v.defaultAccountId)),
+      el('td', { class: 'num' }, `${v.used || 0}×`),
+      el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px' },
+        el('button', { class: 'linklike', onclick: () => ruleModal(v) }, 'Edit'),
+        el('button', { class: 'linklike', style: 'color:var(--red)', onclick: () => confirmDeleteRule(v) }, 'Delete')) : ''),
+    );
+  });
   clear(body).append(el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:880px' },
     el('table', { class: 'data' },
       el('tr', {}, el('th', {}, 'Vendor'), el('th', {}, 'Matches when'), el('th', {}, 'Category'), el('th', { class: 'num' }, 'Used'), el('th', {}, '')),
       ...rows)));
+}
+
+function confirmDeleteRule(v) {
+  const m = modal('Delete this rule?');
+  m.body.append(
+    el('p', {}, `"${v.name}" — the rule will stop suggesting this category on new imports. Already-posted transactions are not affected.`),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Keep it'),
+      el('button', { class: 'btn', style: 'background:var(--red)', onclick: () => {
+        dispatch({ op: 'entity.delete', kind: 'vendor', id: v.id });
+        toast('Rule deleted');
+        m.close();
+      } }, 'Delete')),
+  );
 }
 
 function ruleModal(existing) {

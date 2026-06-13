@@ -21,6 +21,7 @@ import { quickAddAccountModal } from './accounts.js';
 let unsub = null;
 let aiSuggestions = new Map();
 let aiBusy = false;
+let showSkipped = false;
 // Preserve per-row category selection across drawBody re-renders (store changes
 // trigger a full redraw, so we save the user's pick here and restore it).
 let lastCategory = new Map();
@@ -43,7 +44,7 @@ export function render(root) {
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; lastCategory = new Map(); }
+export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); }
 
 const bankish = (a) => a.qbType === 'BANK' || a.qbType === 'CCARD';
 
@@ -156,14 +157,43 @@ function drawBody(body, editable) {
   // one section per bank account (1.)
   const sections = [];
   for (const bank of entities('bankacct')) {
-    const mine = pending.filter(r => r.bankacctId === bank.id && !r.syncApp).slice(0, 100);
+    const allMine = entities('staged').filter(r => r.bankacctId === bank.id && !r.syncApp && r.status === 'pending');
+    const mine = allMine.slice(0, 100);
     if (!mine.length) continue;
     sections.push(el('div', { style: 'margin-bottom:18px' },
-      el('div', { class: 'cardtitle', style: 'margin-bottom:8px' }, `${bank.name} `, el('span', { class: 'pill amber' }, `${mine.length} waiting`)),
+      el('div', { class: 'cardtitle', style: 'margin-bottom:8px' }, `${bank.name} `, el('span', { class: 'pill amber' }, `${mine.length} waiting`),
+        allMine.length > 100 ? el('span', { class: 'pill gray', style: 'margin-left:6px' }, `showing 100 of ${allMine.length}`) : ''),
       el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
         el('table', { class: 'data' },
           el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Bank description'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Category'), el('th', {}, 'Suggested by'), el('th', {}, '')),
           ...mine.map(rowEl)))));
+  }
+
+  // Skipped rows section
+  const skippedAll = entities('staged').filter(r => r.status === 'skipped');
+  if (skippedAll.length) {
+    const toggleLabel = showSkipped ? `Hide skipped (${skippedAll.length})` : `Show skipped (${skippedAll.length})`;
+    const skippedSection = el('div', { style: 'margin-bottom:18px' },
+      el('button', { class: 'btn sm ghost', style: 'margin-bottom:8px', onclick: () => { showSkipped = !showSkipped; drawBody(body, editable); } }, toggleLabel),
+    );
+    if (showSkipped) {
+      const skippedRows = skippedAll.slice(0, 50).map(row => el('tr', {},
+        el('td', {}, row.date),
+        el('td', {}, row.desc?.slice(0, 55) || ''),
+        el('td', { class: 'num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
+        el('td', {}, el('span', { class: 'pill gray' }, 'Skipped')),
+        el('td', {}, editable ? el('button', { class: 'btn sm ghost', onclick: () => {
+          dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'pending' } });
+          toast('Restored to pending');
+        } }, 'Restore') : ''),
+      ));
+      skippedSection.append(
+        el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
+          el('table', { class: 'data' },
+            el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Status'), el('th', {}, '')),
+            ...skippedRows)));
+    }
+    sections.push(skippedSection);
   }
 
   // Muse-synced rows (no bankacctId — they came from the salon, not a statement).
@@ -399,6 +429,10 @@ async function matchDepositModal(row, accountsById) {
   const clearing = clearingId ? accountsById.get(clearingId) : null;
   const feeAccts = entities('account').filter(a => a.active !== false && (a.type === 'expense' || a.type === 'cogs'));
   const feeDefault = feeAccts.find(a => /fee|process/i.test(a.name)) || feeAccts[0];
+  if (match.feeCents > 0 && !feeAccts.length) {
+    drawNoMatch(m, row, 'A processing fee of ' + fmtMoney(match.feeCents) + ' needs to be posted, but there are no expense categories. Add one in Accounts first.');
+    return;
+  }
   const feeSel = el('select', { class: 'field-input' },
     ...feeAccts.map(a => el('option', { value: a.id, selected: a.id === feeDefault?.id }, accountLabel(a, accountsById))),
     el('option', { value: '__new__' }, '＋ Add category…'));

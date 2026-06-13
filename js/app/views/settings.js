@@ -145,7 +145,7 @@ function drawQbCard(card, biz) {
   const doExport = () => {
     if (!from.value || !to.value || from.value > to.value) { toast('Pick a valid date range', 'err'); return; }
     const accounts = entities('account');
-    const { text, count, txns } = buildIif({ accounts, txns: entities('txn'), from: from.value, to: to.value });
+    const { text, count, txns } = buildIif({ accounts: accounts.filter(a => a.active !== false), txns: entities('txn'), from: from.value, to: to.value });
     if (!count) { toast('No posted transactions in that range', 'err'); return; }
     const already = txns.filter(t => t.qbExportedAt).length;
     if (already && !confirm(`${already} of these ${count} transactions were exported before — importing them into QuickBooks again will double them there. Export anyway?`)) return;
@@ -215,10 +215,12 @@ async function drawDevices(card, biz) {
       if (d.status === 'pending') line.append(el('button', { class: 'btn sm', style: 'margin-left:10px', onclick: async () => {
         const res = await api('/registry/devices/approve', { method: 'POST', body: JSON.stringify({ businessId: biz, userId: d.userId, deviceId: d.deviceId }) });
         if (res.ok) { toast('Device approved'); drawDevices(card, biz); }
+        else toast('Could not approve device — check your role or reload', 'err');
       } }, 'Approve'));
       line.append(el('button', { class: 'btn sm ghost', style: 'margin-left:6px', onclick: async () => {
         const res = await api('/registry/devices/revoke', { method: 'POST', body: JSON.stringify({ businessId: biz, userId: d.userId, deviceId: d.deviceId }) });
         if (res.ok) { toast('Device removed'); drawDevices(card, biz); }
+        else toast('Could not remove device — check your role or reload', 'err');
       } }, 'Remove'));
       card.append(line);
     }

@@ -57,7 +57,19 @@ async function flushOutbox(biz) {
     const item = outbox[0];
     try {
       const res = await api(`/b/${item.biz}/state`, { method: 'POST', body: JSON.stringify(item.op) });
-      if (!res.ok && res.status !== 409) throw new Error('send failed'); // 409 stale = server wins, drop it
+      if (!res.ok) {
+        if (res.status === 409) {
+          // Server rejected as stale/reconciled — save to dead-letter log so the user can inspect.
+          try {
+            const reason = (await res.json()).reason || 'rejected';
+            const log = JSON.parse(localStorage.getItem(LS.failed) || '[]');
+            log.unshift({ biz: item.biz, op: item.op, reason, rejectedAt: Date.now() });
+            localStorage.setItem(LS.failed, JSON.stringify(log.slice(0, 100)));
+          } catch { /* best-effort */ }
+        } else {
+          throw new Error('send failed');
+        }
+      }
     } catch {
       onStatus('offline');
       return; // keep the outbox; retry on next dispatch/reconnect

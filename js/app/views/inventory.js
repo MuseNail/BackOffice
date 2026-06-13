@@ -21,7 +21,7 @@ export function render(root) {
     el('p', { class: 'sub' }, 'What’s on the shelf, what it cost, and when to reorder. Recording a restock posts the payment to your books automatically.'),
     editable ? el('div', { style: 'display:flex;gap:9px;margin-bottom:14px' },
       el('button', { class: 'btn sm', onclick: itemModal }, 'Add item'),
-      el('button', { class: 'btn sm outline', onclick: restockModal }, 'Record restock')) : null,
+      el('button', { class: 'btn sm ghost', onclick: restockModal }, 'Record restock')) : null,
     body,
   );
   const draw = () => drawBody(body, editable);
@@ -137,10 +137,10 @@ function restockModal() {
   const unitCost = el('input', { class: 'field-input', inputmode: 'decimal', placeholder: 'per unit, e.g. 8.40' });
   const date = el('input', { class: 'field-input', type: 'date', value: new Date().toISOString().slice(0, 10) });
   const bank = el('select', { class: 'field-input' }, ...bankish.map(a => el('option', { value: a.id }, a.name)));
-  const byId = new Map(accounts.map(a => [a.id, a]));
+  const accountsMap = new Map(accounts.map(a => [a.id, a]));
   const cat = el('select', { class: 'field-input' }, ...postable
-    .sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)))
-    .map(a => el('option', { value: a.id, selected: a.id === defaultCat?.id }, accountLabel(a, byId))));
+    .sort((a, b) => accountLabel(a, accountsMap).localeCompare(accountLabel(b, accountsMap)))
+    .map(a => el('option', { value: a.id, selected: a.id === defaultCat?.id }, accountLabel(a, accountsMap))));
   m.body.append(
     el('label', { class: 'field-label' }, 'Item'), itemSel,
     el('div', { class: 'f2' },

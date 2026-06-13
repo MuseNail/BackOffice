@@ -1,5 +1,5 @@
 // ── Back Office — constants ────────────────
-export const APP_VERSION = '0.16.0';
+export const APP_VERSION = '0.17.0';
 
 // Worker URL — fill in after the first `wrangler deploy` prints it.
 // When the app itself is served from localhost, target `wrangler dev` instead.
@@ -15,5 +15,6 @@ export const LS = {
   device: 'bo_device_id',
   activeBiz: 'bo_active_biz',
   outbox: 'bo_outbox',
+  failed: 'bo_failed_ops',
   cache: (biz) => `bo_state_cache_${biz}`,
 };

@@ -40,7 +40,11 @@ async function resolveSession(token, env) {
   if (!res.ok) { sessCache.delete(token); return null; }
   const sess = await res.json();
   sessCache.set(token, { sess, exp: Date.now() + SESS_TTL });
-  if (sessCache.size > 2000) sessCache.clear();
+  // Evict oldest 20% instead of clearing everything — keeps most sessions warm.
+  if (sessCache.size > 1000) {
+    const evict = [...sessCache.keys()].slice(0, 200);
+    for (const k of evict) sessCache.delete(k);
+  }
   return sess;
 }
 
@@ -49,7 +53,7 @@ export default {
     const url = new URL(req.url);
     const p = url.pathname;
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    if (p === '/health') return json({ ok: true, service: 'backoffice' });
+    if (p === '/health') return json({ ok: true });
 
     // Auth endpoints are the only other open routes — the registry rate-limits
     // and validates them itself.

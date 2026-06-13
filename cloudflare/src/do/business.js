@@ -81,7 +81,7 @@ export class BusinessDO {
       const fresh = [];
       let updated = 0, skipped = 0;
       for (const r of rows) {
-        if (!r?.id || !ENTITY_KINDS.has('staged')) continue;
+        if (!r?.id) continue;
         const existing = await this.state.storage.get(`staged:${r.id}`);
         if (!existing) { fresh.push({ ...r, createdAt: now, updatedAt: now, updatedBy: 'sync' }); continue; }
         if (existing.status === 'pending') {
@@ -109,18 +109,24 @@ export class BusinessDO {
 
   async snapshot() {
     const out = { meta: null, entities: {}, seq: 0, schema_version: 1 };
-    const all = await this.state.storage.list();
-    for (const [k, v] of all) {
-      if (k === 'meta') out.meta = v;
-      else if (k === 'seq') out.seq = v;
-      else if (k === 'schema_version') out.schema_version = v;
-      else {
-        const i = k.indexOf(':');
-        if (i > 0) {
-          const kind = k.slice(0, i);
-          if (ENTITY_KINDS.has(kind)) (out.entities[kind] ||= []).push(v);
+    // Paginate: DO storage.list() default limit is 128 — loop until exhausted.
+    let cursor;
+    while (true) {
+      const batch = await this.state.storage.list({ limit: 1000, ...(cursor ? { startAfter: cursor } : {}) });
+      for (const [k, v] of batch) {
+        if (k === 'meta') out.meta = v;
+        else if (k === 'seq') out.seq = v;
+        else if (k === 'schema_version') out.schema_version = v;
+        else {
+          const i = k.indexOf(':');
+          if (i > 0) {
+            const kind = k.slice(0, i);
+            if (ENTITY_KINDS.has(kind)) (out.entities[kind] ||= []).push(v);
+          }
         }
       }
+      if (batch.size < 1000) break;
+      cursor = [...batch.keys()].at(-1);
     }
     return json(out);
   }
@@ -145,8 +151,9 @@ export class BusinessDO {
         return { rejected: true, reason: 'stale', storedUpdatedAt: existing.updatedAt };
       }
       // Reconciliation guard: if a txn is reconciled, its lines (amounts + accounts)
-      // are permanent — only metadata (payee, memo) may change.
+      // and status are permanent — only metadata (payee, memo) may change.
       if (op.kind === 'txn' && existing?.reconciledIn) {
+        if (op.value.status !== existing.status) return { rejected: true, reason: 'reconciled: status is locked — voiding a reconciled transaction is not allowed' };
         const existingSig = JSON.stringify([...existing.lines].sort((a, b) => a.accountId < b.accountId ? -1 : 1).map(l => [l.accountId, l.amountCents]));
         const newSig = JSON.stringify([...(op.value.lines || [])].sort((a, b) => a.accountId < b.accountId ? -1 : 1).map(l => [l.accountId, l.amountCents]));
         if (existingSig !== newSig) return { rejected: true, reason: 'reconciled: amounts and accounts are locked' };
@@ -172,6 +179,14 @@ export class BusinessDO {
         const key = `${op.kind}:${v.id}`;
         const existing = await this.state.storage.get(key);
         if (existing?.updatedAt && v.updatedAt && v.updatedAt < existing.updatedAt) continue;
+        // Reconciliation guard: metadata-only changes (e.g. QB export stamping) go
+        // through; line/status changes on reconciled txns are silently skipped.
+        if (op.kind === 'txn' && existing?.reconciledIn) {
+          if (v.status !== existing.status) continue;
+          const eSig = JSON.stringify([...existing.lines].sort((a, b) => a.accountId < b.accountId ? -1 : 1).map(l => [l.accountId, l.amountCents]));
+          const nSig = JSON.stringify([...(v.lines || [])].sort((a, b) => a.accountId < b.accountId ? -1 : 1).map(l => [l.accountId, l.amountCents]));
+          if (eSig !== nSig) continue;
+        }
         await this.state.storage.put(key, v);
         applied++;
       }
@@ -209,6 +224,7 @@ export class BusinessDO {
   }
 
   async webSocketMessage(ws, raw) {
+    if (typeof raw === 'string' && raw.length > 500_000) return;
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type === 'op' && msg.op) {

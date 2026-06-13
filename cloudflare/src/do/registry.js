@@ -186,7 +186,7 @@ export class RegistryDO {
     const id = String(b.id || '').toLowerCase();
     if (!/^[a-z0-9-]{2,40}$/.test(id) || !b.name) return json({ error: 'bad business' }, 400);
     if (await this.state.storage.get(`business:${id}`)) return json({ error: 'exists' }, 409);
-    const record = { id, name: b.name, industry: b.industry || 'general', createdAt: b.createdAt || Date.now() };
+    const record = { id, name: b.name, industry: b.industry || 'general', createdAt: Date.now() };
     await this.state.storage.put(`business:${id}`, record);
     return json({ ok: true, business: record });
   }
@@ -209,7 +209,7 @@ export class RegistryDO {
   async listUsers(sess, businessId) {
     if (!businessId || !this.canManage(sess, businessId)) return json({ error: 'forbidden' }, 403);
     const out = [];
-    for (const m of (await this.state.storage.list({ prefix: 'membership:' })).values()) {
+    for (const m of (await this.state.storage.list({ prefix: 'membership:', limit: 10000 })).values()) {
       if (m.businessId !== businessId) continue;
       const u = await this.state.storage.get(`user:${m.userId}`);
       if (u) out.push({ id: u.id, name: u.name, identifier: u.identifier, role: m.role });
