@@ -66,7 +66,19 @@ function route() {
 
 function mount(view, root) {
   root.replaceChildren();
-  view.render(root);
+  try {
+    view.render(root);
+  } catch (e) {
+    console.error('[mount] render error', e);
+    const pre = document.createElement('pre');
+    pre.textContent = (e?.stack || e?.message || String(e));
+    pre.style.cssText = 'white-space:pre-wrap;font-size:12px;margin:8px 0 0';
+    const box = document.createElement('div');
+    box.style.cssText = 'margin:40px;padding:20px;background:#fbe9e9;border:2px solid #c43a3a;border-radius:14px;font-family:monospace';
+    box.innerHTML = '<b style="color:#c43a3a;font-size:14px">View render error</b><br><small style="color:#888">Report this to support — or reload the page.</small>';
+    box.append(pre);
+    root.append(box);
+  }
   return view;
 }
 

@@ -14,7 +14,7 @@ export function render(root) {
     el('h2', {}, 'Vendors & rules'),
     el('p', { class: 'sub' }, 'Rules categorize imports automatically: exact matches win, then keywords, then your history. You still approve every row.'),
     editable ? el('div', { style: 'margin-bottom:14px' },
-      el('button', { class: 'btn sm', onclick: () => ruleModal(null) }, 'New rule')) : null,
+      el('button', { class: 'btn sm', onclick: () => ruleModal(null) }, 'New rule')) : el('span'),
     body,
   );
   const draw = () => drawTable(body, editable);

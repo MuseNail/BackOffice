@@ -17,7 +17,7 @@ export function render(root) {
     el('p', { class: 'sub' }, 'Every posted transaction. Void keeps the record but zeroes it out of balances. Delete permanently removes it (blocked once reconciled). Edit updates payee, memo, or category.'),
     editable ? el('div', { style: 'display:flex;gap:9px;margin-bottom:14px' },
       el('button', { class: 'btn sm', onclick: addTxnModal }, 'Add transaction'),
-      el('button', { class: 'btn sm ghost', onclick: journalModal }, 'Journal entry')) : null,
+      el('button', { class: 'btn sm ghost', onclick: journalModal }, 'Journal entry')) : el('span'),
     body,
   );
   const draw = () => drawTable(body, editable);

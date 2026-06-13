@@ -110,7 +110,7 @@ function confirmClose(bankacct, body) {
   // Re-check for concurrent reconciliation before dispatching (RECON-003).
   const alreadyRecon = [...s.checked].filter(id => entities('txn').find(t => t.id === id)?.reconciledIn);
   m.body.append(
-    alreadyRecon.length ? el('p', { style: 'color:var(--red)' }, `⚠️ ${alreadyRecon.length} of the checked transactions were already reconciled by another session. Reload to see the current state.`) : null,
+    alreadyRecon.length ? el('p', { style: 'color:var(--red)' }, `⚠️ ${alreadyRecon.length} of the checked transactions were already reconciled by another session. Reload to see the current state.`) : el('span'),
     el('p', {}, `${s.checked.size} transaction${s.checked.size === 1 ? '' : 's'} will be marked as reconciled through ${s.endDate}. Reconciled entries cannot be voided or deleted — they leave this screen for good.`),
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Not yet'),
