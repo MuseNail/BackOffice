@@ -22,6 +22,9 @@ let unsub = null;
 let aiSuggestions = new Map();
 let aiBusy = false;
 let showSkipped = false;
+// Review filter/sort (bank-row sections only). dir: all|in|out · status: all|needs|ready
+// · bank: all|<bankId> · sort: date-desc|date-asc|amount-desc|amount-asc.
+let reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc' };
 // Preserve per-row category selection across drawBody re-renders (store changes
 // trigger a full redraw, so we save the user's pick here and restore it).
 let lastCategory = new Map();
@@ -45,7 +48,32 @@ export function render(root) {
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); }
+export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc' }; }
+
+// A row is "ready" if it has a resolved category — a valid rule/history suggestion,
+// an AI suggestion, or a manual pick (lastCategory). Drives the needs/ready filter.
+function rowReady(row, matchCtx, accountsById) {
+  if (lastCategory.get(row.id)) return true;
+  const sug = suggestFor(row, matchCtx);
+  if (sug && accountsById.has(sug.accountId) && accountsById.get(sug.accountId).active !== false) return true;
+  const ai = aiSuggestions.get(row.id);
+  return !!(ai?.accountId && accountsById.has(ai.accountId) && accountsById.get(ai.accountId).active !== false);
+}
+function applyReviewFilter(rows, matchCtx, accountsById) {
+  const filtered = rows.filter(r => {
+    if (reviewFilter.dir === 'in' && !(r.amountCents > 0)) return false;
+    if (reviewFilter.dir === 'out' && !(r.amountCents < 0)) return false;
+    if (reviewFilter.status === 'ready' && !rowReady(r, matchCtx, accountsById)) return false;
+    if (reviewFilter.status === 'needs' && rowReady(r, matchCtx, accountsById)) return false;
+    return true;
+  });
+  const [key, dir] = reviewFilter.sort.split('-');
+  filtered.sort((a, b) => {
+    const c = key === 'amount' ? (a.amountCents - b.amountCents) : a.date.localeCompare(b.date);
+    return dir === 'desc' ? -c : c;
+  });
+  return filtered;
+}
 
 const bankish = (a) => a.qbType === 'BANK' || a.qbType === 'CCARD';
 
@@ -157,10 +185,13 @@ function drawBody(body, editable) {
     );
   };
 
-  // one section per bank account (1.)
+  // one section per bank account (1.), after the filter/sort bar is applied
   const sections = [];
   for (const bank of entities('bankacct')) {
-    const allMine = entities('staged').filter(r => r.bankacctId === bank.id && !r.syncApp && r.status === 'pending');
+    if (reviewFilter.bank !== 'all' && reviewFilter.bank !== bank.id) continue;
+    const allMine = applyReviewFilter(
+      entities('staged').filter(r => r.bankacctId === bank.id && !r.syncApp && r.status === 'pending'),
+      matchCtx, accountsById);
     const mine = allMine.slice(0, 100);
     if (!mine.length) continue;
     sections.push(el('div', { style: 'margin-bottom:18px' },
@@ -248,7 +279,18 @@ function drawBody(body, editable) {
     ...suggested.map(({ row, sug }) => ({ row, accountId: lastCategory.get(row.id) || sug.accountId, sug })),
     ...unmatched.filter(row => lastCategory.get(row.id)).map(row => ({ row, accountId: lastCategory.get(row.id), sug: null })),
   ];
+  const fsel = (key, opts) => el('select', { class: 'field-input', style: 'margin:0;width:auto;min-width:120px', onchange: (e) => { reviewFilter[key] = e.target.value; drawBody(body, editable); } },
+    ...opts.map(([v, l]) => el('option', { value: v, selected: reviewFilter[key] === v }, l)));
+  const filtersOn = reviewFilter.dir !== 'all' || reviewFilter.status !== 'all' || reviewFilter.bank !== 'all' || reviewFilter.sort !== 'date-desc';
+  const filterBar = el('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px' },
+    el('span', { class: 'sub', style: 'margin:0' }, 'Filter'),
+    fsel('dir', [['all', 'All'], ['in', 'Money in'], ['out', 'Money out']]),
+    fsel('status', [['all', 'Any status'], ['needs', 'Needs a category'], ['ready', 'Ready']]),
+    fsel('bank', [['all', 'All accounts'], ...entities('bankacct').map(b => [b.id, b.name])]),
+    fsel('sort', [['date-desc', 'Newest first'], ['date-asc', 'Oldest first'], ['amount-desc', 'Largest first'], ['amount-asc', 'Smallest first']]),
+    filtersOn ? el('button', { class: 'btn sm ghost', onclick: () => { reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc' }; drawBody(body, editable); } }, 'Reset') : el('span'));
   clear(body).append(
+    filterBar,
     el('div', { style: 'display:flex;gap:9px;align-items:center;margin-bottom:12px;flex-wrap:wrap' },
       (editable && categorized.length) ? el('button', { class: 'btn sm green', onclick: () => {
         for (const { row, accountId, sug } of categorized) { lastCategory.delete(row.id); approveRow(row, accountId, sug, { quiet: true }); }
@@ -257,6 +299,7 @@ function drawBody(body, editable) {
       (editable && unmatched.length && !aiBusy) ? el('button', { class: 'btn sm', onclick: () => askAI(unmatched, categories, body, editable) }, `✨ Get AI suggestions (${unmatched.length})`) : el('span'),
       aiBusy ? el('span', { class: 'pill gray' }, '✨ Asking Claude…') : el('span')),
     ...sections,
+    sections.length ? el('span') : el('p', { class: 'sub' }, 'No transactions match these filters.'),
   );
 }
 
