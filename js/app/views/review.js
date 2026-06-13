@@ -29,6 +29,7 @@ let lastCategory = new Map();
 const TYPE_GROUPS = [
   ['income', 'Income'], ['asset', 'Assets'], ['liability', 'Liabilities'],
   ['equity', 'Equity'], ['cogs', 'Cost of goods'], ['expense', 'Expenses'],
+  ['other-expense', 'Other expenses'], ['personal-expense', 'Personal expenses'],
 ];
 
 export function render(root) {

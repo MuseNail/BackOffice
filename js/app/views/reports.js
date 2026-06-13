@@ -70,8 +70,10 @@ function drawBody(body) {
   const income = group(['income']);
   const cogs = group(['cogs']);
   const expenses = group(['expense']);
+  const otherExp = group(['other-expense', 'personal-expense']);
   const gross = income.total - cogs.total;
-  const net = gross - expenses.total;
+  const netOrdinary = gross - expenses.total;          // before below-the-line items
+  const net = netOrdinary - otherExp.total;            // adjusted net income
 
   const plRows = [];
   const section = (title, g, totalLabel) => {
@@ -80,15 +82,24 @@ function drawBody(body) {
     for (const r of g.rows) plRows.push(el('tr', {}, el('td', { style: 'padding-left:24px' }, r.name), el('td', { class: 'num' }, fmtMoney(r.cents))));
     plRows.push(el('tr', {}, el('td', {}, el('b', {}, totalLabel)), el('td', { class: 'num' }, el('b', {}, fmtMoney(g.total)))));
   };
+  const netRow = (label, value, soft) => plRows.push(el('tr', { style: soft },
+    el('td', {}, el('b', {}, label)),
+    el('td', { class: 'num' }, el('b', { style: value >= 0 ? 'color:var(--green)' : 'color:var(--red)' }, fmtMoney(value)))));
   section('Income', income, 'Total income');
   if (cogs.rows.length) {
     section('Cost of goods', cogs, 'Total cost of goods');
     plRows.push(el('tr', { style: 'background:var(--brand-soft)' }, el('td', {}, el('b', {}, 'Gross profit')), el('td', { class: 'num' }, el('b', {}, fmtMoney(gross)))));
   }
   section('Expenses', expenses, 'Total expenses');
-  plRows.push(el('tr', { style: net >= 0 ? 'background:var(--green-soft)' : 'background:var(--red-soft)' },
-    el('td', {}, el('b', {}, 'Net profit')),
-    el('td', { class: 'num' }, el('b', { style: net >= 0 ? 'color:var(--green)' : 'color:var(--red)' }, fmtMoney(net)))));
+  if (otherExp.rows.length) {
+    // Below-the-line: net ordinary income first, then other/personal expenses,
+    // then the adjusted net income.
+    netRow('Net ordinary income', netOrdinary, 'background:var(--brand-soft)');
+    section('Other expenses', otherExp, 'Total other expenses');
+    netRow('Net income', net, net >= 0 ? 'background:var(--green-soft)' : 'background:var(--red-soft)');
+  } else {
+    netRow('Net profit', net, net >= 0 ? 'background:var(--green-soft)' : 'background:var(--red-soft)');
+  }
 
   // ── Balance Sheet (as of s.asOf) ──
   const bal = (a) => accountBalance(txns, a.id, { to: s.asOf });
@@ -108,7 +119,7 @@ function drawBody(body) {
   const liabilities = bsGroup('liability', true);
   const equity = bsGroup('equity', true);
   let netToDate = 0;
-  for (const a of accounts.filter(x => ['income', 'cogs', 'expense'].includes(x.type))) netToDate += -bal(a);
+  for (const a of accounts.filter(x => ['income', 'cogs', 'expense', 'other-expense', 'personal-expense'].includes(x.type))) netToDate += -bal(a);
 
   const bsRows = [];
   const bsSection = (title, g, totalLabel, extra = null) => {

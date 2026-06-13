@@ -12,7 +12,9 @@ export const INDUSTRIES = [
   { id: 'general', label: 'General', icon: 'category' },
 ];
 
-export const ACCOUNT_TYPES = ['asset', 'liability', 'equity', 'income', 'cogs', 'expense'];
+// other-expense / personal-expense are below-the-line on the P&L (after net
+// ordinary income) — they still reduce the final adjusted net income.
+export const ACCOUNT_TYPES = ['asset', 'liability', 'equity', 'income', 'cogs', 'expense', 'other-expense', 'personal-expense'];
 export const QB_TYPES = ['BANK', 'OCASSET', 'FIXASSET', 'OCLIAB', 'LTLIAB', 'CCARD', 'EQUITY', 'INC', 'COGS', 'EXP'];
 
 const A = (id, name, type, qbType, qbName = name) => ({ id, name, type, qbType, qbName, active: true });

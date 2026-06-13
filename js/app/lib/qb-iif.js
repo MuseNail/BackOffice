@@ -12,6 +12,8 @@
 const QB_TYPE_FALLBACK = {
   asset: 'OCASSET', liability: 'OCLIAB', equity: 'EQUITY',
   income: 'INC', cogs: 'COGS', expense: 'EXP',
+  // QB Desktop has no separate below-the-line type in IIF; export both as EXP.
+  'other-expense': 'EXP', 'personal-expense': 'EXP',
 };
 
 const clean = (s) => String(s == null ? '' : s).replace(/[\t\r\n]+/g, ' ').trim();

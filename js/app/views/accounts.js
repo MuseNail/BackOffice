@@ -7,9 +7,9 @@ import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { ACCOUNT_TYPES, accountLabel } from '../lib/coa-templates.js';
 
-const TYPE_LABELS = { income: 'Income', cogs: 'Cost of goods', expense: 'Expenses', asset: 'Assets', liability: 'Liabilities', equity: 'Equity' };
-const TYPE_ORDER = ['income', 'cogs', 'expense', 'asset', 'liability', 'equity'];
-const QB_BY_TYPE = { income: 'INC', cogs: 'COGS', expense: 'EXP', asset: 'OCASSET', liability: 'OCLIAB', equity: 'EQUITY' };
+const TYPE_LABELS = { income: 'Income', cogs: 'Cost of goods', expense: 'Expenses', 'other-expense': 'Other expense', 'personal-expense': 'Personal expense', asset: 'Assets', liability: 'Liabilities', equity: 'Equity' };
+const TYPE_ORDER = ['income', 'cogs', 'expense', 'other-expense', 'personal-expense', 'asset', 'liability', 'equity'];
+const QB_BY_TYPE = { income: 'INC', cogs: 'COGS', expense: 'EXP', 'other-expense': 'EXP', 'personal-expense': 'EXP', asset: 'OCASSET', liability: 'OCLIAB', equity: 'EQUITY' };
 
 let unsub = null;
 
@@ -51,7 +51,7 @@ function drawTable(body, editable) {
     for (const a of group) {
       rows.push(el('tr', { style: a.active === false ? 'opacity:.5' : '' },
         el('td', { style: a.parentId ? 'padding-left:32px' : '' }, a.parentId ? '› ' : '', el('b', {}, a.name), a.active === false ? ' (archived)' : ''),
-        el('td', {}, el('span', { class: `pill ${t === 'income' ? 'green' : t === 'expense' || t === 'cogs' ? 'red' : t === 'liability' ? 'amber' : 'blue'}` }, TYPE_LABELS[t])),
+        el('td', {}, el('span', { class: `pill ${t === 'income' ? 'green' : ['expense', 'cogs', 'other-expense', 'personal-expense'].includes(t) ? 'red' : t === 'liability' ? 'amber' : 'blue'}` }, TYPE_LABELS[t])),
         el('td', { style: 'color:var(--mut)' }, a.qbName || ''),
         el('td', {}, ...(editable ? [
           el('button', { class: 'linklike', onclick: () => editAccount(a) }, 'Edit'),
@@ -77,7 +77,7 @@ export function quickAddAccountModal(oncreate, defaultType = 'expense') {
   const m = modal('Add category');
   const name = el('input', { class: 'field-input', placeholder: 'Account name' });
   const type = el('select', { class: 'field-input' },
-    ...['income', 'cogs', 'expense', 'asset', 'liability', 'equity'].map(t =>
+    ...['income', 'cogs', 'expense', 'other-expense', 'personal-expense', 'asset', 'liability', 'equity'].map(t =>
       el('option', { value: t, selected: t === defaultType }, TYPE_LABELS[t])));
   const parent = el('select', { class: 'field-input' });
   const redrawParents = () => {
