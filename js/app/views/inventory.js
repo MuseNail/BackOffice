@@ -4,7 +4,7 @@
 // ways). Quantity adjustments (usage, shrinkage) change the count only — no
 // money moves without a real transaction.
 import { el, clear, toast, modal, fmtMoney } from '../ui.js';
-import { entities, byId, subscribe } from '../store.js';
+import { entities, byId, subscribe, getState } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseMoney } from '../lib/money.js';
@@ -31,10 +31,57 @@ export function render(root) {
 
 export function unmount() { unsub?.(); unsub = null; }
 
+// ── Shopping list ─────────────────────────────────────────────────────────────
+// A simple to-buy list, synced in meta.shoppingList (no new entity kind / Worker
+// deploy needed). Add ad-hoc supplies or any inventory item; print or email later.
+const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const shopList = () => getState().meta?.shoppingList || [];
+function saveShopList(list) { dispatch({ op: 'meta.set', value: { ...(getState().meta || {}), shoppingList: list } }); }
+function addToShopList(text, qty) {
+  const t = (text || '').trim(); if (!t) return;
+  saveShopList([...shopList(), { id: 'sl-' + Date.now().toString(36), text: t, qty: (qty || '').trim(), addedAt: Date.now() }]);
+  toast('Added to shopping list');
+}
+function printShopList() {
+  const list = shopList(); if (!list.length) return;
+  const biz = getState().meta?.name || '';
+  const items = list.map(x => `<li>${esc(x.text)}${x.qty ? ` — <b>${esc(x.qty)}</b>` : ''}</li>`).join('');
+  const w = window.open('', '_blank', 'width=600,height=700');
+  if (!w) { toast('Allow pop-ups to print', 'err'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Shopping list</title><style>body{font-family:Arial,sans-serif;padding:28px;color:#1c1d22}h1{font-size:20px;margin:0 0 14px}ul{font-size:16px;line-height:1.9}</style></head><body><h1>Shopping list${biz ? ' — ' + esc(biz) : ''}</h1><ul>${items}</ul></body></html>`);
+  w.document.close(); w.focus(); w.print();
+}
+function emailShopList() {
+  const list = shopList(); if (!list.length) return;
+  const body = list.map(x => `- ${x.text}${x.qty ? ` (${x.qty})` : ''}`).join('\n');
+  const a = el('a', { href: `mailto:?subject=${encodeURIComponent('Shopping list')}&body=${encodeURIComponent(body)}` });
+  document.body.append(a); a.click(); a.remove();
+}
+function shoppingCard(editable) {
+  const list = shopList();
+  const addText = el('input', { class: 'field-input', style: 'margin:0;flex:1;min-width:160px', placeholder: 'Add a supply to buy…' });
+  const addQty = el('input', { class: 'field-input', style: 'margin:0;max-width:90px', placeholder: 'Qty' });
+  const doAdd = () => { if (!addText.value.trim()) return; addToShopList(addText.value, addQty.value); addText.value = ''; addQty.value = ''; addText.focus(); };
+  addText.addEventListener('keydown', e => { if (e.key === 'Enter') doAdd(); });
+  return el('div', { class: 'card', style: 'max-width:920px' },
+    el('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px' },
+      el('div', { class: 'cardtitle', style: 'margin:0' }, `Shopping list${list.length ? ` (${list.length})` : ''}`),
+      list.length ? el('div', { style: 'display:flex;gap:6px;margin-left:auto' },
+        el('button', { class: 'btn sm ghost', onclick: printShopList }, '🖨 Print'),
+        el('button', { class: 'btn sm ghost', onclick: emailShopList }, '✉ Email'),
+        editable ? el('button', { class: 'btn sm ghost', onclick: () => { if (confirm('Clear the whole shopping list?')) saveShopList([]); } }, 'Clear') : el('span')) : el('span')),
+    editable ? el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px' }, addText, addQty, el('button', { class: 'btn sm', onclick: doAdd }, 'Add')) : el('span'),
+    list.length
+      ? el('div', {}, ...list.map(x => el('div', { class: 'rowline' },
+          el('span', {}, el('b', {}, x.text), x.qty ? el('span', { class: 'sub', style: 'margin-left:6px' }, `× ${esc(x.qty)}`) : ''),
+          editable ? el('button', { class: 'linklike', style: 'margin-left:auto', onclick: () => saveShopList(shopList().filter(i => i.id !== x.id)) }, '✓ Got it') : el('span'))))
+      : el('p', { class: 'sub', style: 'margin:0' }, 'Nothing on the list. Add supplies above, or tap “Add to list” on any item below.'));
+}
+
 function drawBody(body, editable) {
   const items = entities('item').sort((a, b) => a.name.localeCompare(b.name));
   if (!items.length) {
-    clear(body).append(el('p', { class: 'sub' }, 'No items yet — add what you keep on the shelf.'));
+    clear(body).append(shoppingCard(editable), el('p', { class: 'sub' }, 'No items yet — add what you keep on the shelf.'));
     return;
   }
   const rows = items.map(it => {
@@ -46,9 +93,10 @@ function drawBody(body, editable) {
       el('td', { class: 'num' }, it.avgUnitCostCents ? fmtMoney(it.avgUnitCostCents) : '—'),
       el('td', { class: 'num' }, fmtMoney((it.qtyOnHand || 0) * (it.avgUnitCostCents || 0))),
       el('td', {}, low ? el('span', { class: 'pill amber' }, 'Restock soon') : el('span', { class: 'pill green' }, 'OK')),
-      el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px' },
+      el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap' },
         el('button', { class: 'linklike', onclick: () => itemModal(it) }, 'Edit'),
-        el('button', { class: 'linklike', onclick: () => adjustModal(it) }, 'Adjust qty')) : ''),
+        el('button', { class: 'linklike', onclick: () => adjustModal(it) }, 'Adjust qty'),
+        el('button', { class: 'linklike', onclick: () => addToShopList(it.name, '') }, 'Add to list')) : ''),
     );
   });
 
@@ -62,6 +110,7 @@ function drawBody(body, editable) {
     el('td', {}, el('span', { class: 'pill blue' }, 'posted to ledger'))));
 
   clear(body).append(
+    shoppingCard(editable),
     el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:920px' },
       el('table', { class: 'data' },
         el('tr', {}, el('th', {}, 'Item'), el('th', { class: 'num' }, 'On hand'), el('th', { class: 'num' }, 'Restock at'),
