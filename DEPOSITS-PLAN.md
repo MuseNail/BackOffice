@@ -59,12 +59,13 @@ settlement batch — the join key for exact deposit matching.
 - **NEW** `GET /b/:biz/processor/helcim/batches` (+ optional `/batches/:id`) mirroring the transactions route (`HELCIM_API_TOKEN`, 501 if unset). ⚠️ **Best-guess `card-batches` response shape — must be verified on the live token** (same way the transactions route was), before the exact-match path is trusted.
 - Reuse the transactions route. Needs `HELCIM_API_TOKEN` on the BO worker.
 
-## Build order
-1. Worker `card-batches` endpoint (best-guess) + `lib/processor-match` batch helpers + tests.
-2. New Deposits view: per-day Muse-vs-Helcim comparison (uses transactions + staged/ledger Muse), surcharge-aware Δ, flags. Read-only.
-3. Deposit matching: deposits ↔ batches/days, fee, one-click post.
-4. Flags panel + clearing-balance trend + day drill-down.
-5. Live-verify the batches endpoint shape; tighten the exact-match path.
+## Build order / status
+1. ✅ **DONE (commit `4ffd67c`, committed NOT pushed):** Worker `GET /b/:biz/processor/helcim/batches` (`routes/processors.js` `handleHelcimBatches` + wired in `index.js`) + `lib/processor-match` helpers `helcimBatchTotals(txns, batches)` and `matchDepositToBatch(deposit, batchTotals, {lookbackDays:4, feeCapPct:6})` + 6/6 tests (`tests/processor-match.test.mjs`). **Worker route NOT deployed yet** (the live BO worker has the token + taxsetting but not this route); `git push` pending.
+2. ⏳ **NEXT — Phase 2:** new **Deposits** tab. Per-day **Muse recorded** (`sales_card`+`gift_sold` — approved clearing-account debits AND not-yet-approved staged sync rows, marked pending) **vs Helcim gross** (group `/processor/helcim/transactions` by day via `helcimDayTotals`). Surcharge-aware Δ, flags (Muse-no-Helcim, Helcim-no-Muse, off-by-more-than-surcharge). Read-only. Add the nav item + view module + router entry (`js/app/main.js` VIEWS + `index.html` sidebar + `js/app/views/deposits.js`).
+3. Deposit matching: deposits (bank rows) ↔ batches via `helcimBatchTotals` + `matchDepositToBatch`; show fee (gross−net); one-click post (reuse the existing posting from `review.js` matchDepositModal). Use `invoiceNumber` (`tkt-<id>-<cents>`) for per-ticket drill-down.
+4. Flags panel + clearing-account balance trend + day/batch drill-down.
+
+**Before Phase 3 deposit-matching is trusted live:** `wrangler deploy` the BO worker (for the batches route) — the token is already set.
 
 ## Open external dependency — RESOLVED 2026-06-13 (live token verified)
 The `card-batches` shape is now confirmed (real responses pulled). External dep closed.
