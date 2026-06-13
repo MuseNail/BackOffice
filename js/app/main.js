@@ -85,8 +85,45 @@ function setNav(active, biz) {
   if (u) who.firstChild.textContent = u.name;
 }
 
+// ── Version check ────────────────────────────────────────────────────────────
+// The ver badge becomes a hard-reload button when an update is available.
+// SW unregister + cache clear ensures the next load always fetches fresh files.
+async function checkAppVersion() {
+  const badge = document.getElementById('ver');
+  if (!badge) return;
+  try {
+    const res = await fetch('./version.json?_=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return;
+    const { version } = await res.json();
+    if (version && version !== APP_VERSION) {
+      badge.textContent = version + ' ↻';
+      badge.title = `Update ${version} available — click to reload`;
+      badge.classList.add('update');
+      badge.onclick = promptHardReload;
+    }
+  } catch { /* network unavailable — stay as-is */ }
+}
+function promptHardReload() {
+  if (confirm('Reload to the latest version?\n\nThis clears the app cache. Your data is not affected.')) hardReload();
+}
+async function hardReload() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  } catch { /* continue anyway */ }
+  location.reload();
+}
+
 function boot() {
-  document.getElementById('ver').textContent = 'v' + APP_VERSION;
+  const ver = document.getElementById('ver');
+  ver.textContent = 'v' + APP_VERSION;
+  ver.title = 'Back Office v' + APP_VERSION;
   setStatusListener(s => {
     const pill = document.getElementById('syncpill');
     pill.textContent = s === 'synced' ? 'Synced' : 'Offline';
@@ -105,7 +142,9 @@ function boot() {
   });
   subscribe(updateReviewBadge);
   window.addEventListener('hashchange', route);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkAppVersion(); });
   route();
+  checkAppVersion();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
