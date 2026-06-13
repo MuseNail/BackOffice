@@ -66,5 +66,22 @@ settlement batch — the join key for exact deposit matching.
 4. Flags panel + clearing-balance trend + day drill-down.
 5. Live-verify the batches endpoint shape; tighten the exact-match path.
 
-## Open external dependency
-- The **`card-batches` response shape** can't be confirmed without a live Helcim token. Build defensively against the documented shape; owner verifies on the live terminal (and shares the JSON) before phase 3's exact match is relied on. Until verified, deposit matching uses the existing window matcher.
+## Open external dependency — RESOLVED 2026-06-13 (live token verified)
+The `card-batches` shape is now confirmed (real responses pulled). External dep closed.
+
+## Verified Helcim API findings (2026-06-13) — CORRECTS decision #4
+- `GET /v2/card-batches` and `/v2/card-batches/{id}` return **metadata only**:
+  `{ id, dateCreated, dateUpdated, dateClosed, closed, terminalId, batchNumber }`,
+  wrapped `{ "value": [...], "Count": N }`. **No net/gross/fee amounts.** Batches
+  close ~daily (~5pm MT); `dateClosed` ≈ settlement; **one batch ≈ one business day**.
+- `GET /v2/card-transactions?cardBatchId=<id>` → the batch's transactions:
+  `{ transactionId, dateCreated, cardBatchId, status (APPROVED|DECLINED),
+  type (purchase|refund), amount ($), cardType, invoiceNumber, customerCode,
+  approvalCode, cardToken, cardNumber }`. **DECLINED rows appear — filter to APPROVED.**
+- **Revised decision #4 (Helcim does NOT expose net):**
+  - **batch gross** = Σ APPROVED `amount` grouped by `cardBatchId`.
+  - **net** = the **matched bank deposit** (not from the API).
+  - **fee = batch gross − bank deposit**, exact once matched.
+  - The batch's value = the EXACT settlement grouping + `dateClosed` (beats day-window guessing). Match deposit ↔ batch by amount≈gross (within fee band) + deposit date ≈ `dateClosed` + 1–2 days.
+- **Bonus:** `invoiceNumber` = Muse's `tkt-<id>-<cents>` → individual Helcim txns join straight back to Muse tickets (per-ticket drill-down/reconcile).
+- **Worker:** `GET /processor/helcim/batches` proxies the list (for `dateClosed` per batch). Gross-per-batch comes from grouping the existing transactions feed by `cardBatchId` — no per-batch detail call needed. `HELCIM_API_TOKEN` is now set + deployed on the BO worker.
