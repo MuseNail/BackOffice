@@ -70,9 +70,12 @@ function confirmDeleteRule(v) {
 function ruleModal(existing) {
   const m = modal(existing ? 'Edit rule' : 'New rule');
   const byId = new Map(entities('account').map(a => [a.id, a]));
-  const categories = entities('account')
-    .filter(a => a.active !== false && a.qbType !== 'BANK' && a.qbType !== 'CCARD')
-    .sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)));
+  const isBankish = (a) => a.qbType === 'BANK' || a.qbType === 'CCARD';
+  const active = entities('account').filter(a => a.active !== false);
+  // Bank/card accounts are offered as transfer destinations (a rule can auto-categorize
+  // a recurring transfer to another account), then the income/expense/etc. categories.
+  const transferTargets = active.filter(isBankish).sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)));
+  const categories = active.filter(a => !isBankish(a)).sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)));
   const name = el('input', { class: 'field-input', value: existing?.name || '', placeholder: 'Vendor name' });
   const mode = el('select', { class: 'field-input' },
     el('option', { value: 'keyword', selected: !existing || !!existing.matchers?.keywords?.length }, 'Description contains…'),
@@ -80,7 +83,10 @@ function ruleModal(existing) {
   const text = el('input', { class: 'field-input', value: existing?.matchers?.keywords?.[0] || existing?.matchers?.exact?.[0] || '', placeholder: 'e.g. SALLY BEAUTY' });
   const cat = el('select', { class: 'field-input' },
     el('option', { value: '' }, '— category —'),
-    ...categories.map(a => el('option', { value: a.id, selected: a.id === existing?.defaultAccountId }, accountLabel(a, byId))));
+    transferTargets.length ? el('optgroup', { label: '↔ Transfer to / from' },
+      ...transferTargets.map(a => el('option', { value: a.id, selected: a.id === existing?.defaultAccountId }, accountLabel(a, byId)))) : null,
+    el('optgroup', { label: 'Categories' },
+      ...categories.map(a => el('option', { value: a.id, selected: a.id === existing?.defaultAccountId }, accountLabel(a, byId)))));
   m.body.append(
     el('label', { class: 'field-label' }, 'Vendor'), name,
     el('label', { class: 'field-label' }, 'Match type'), mode,
