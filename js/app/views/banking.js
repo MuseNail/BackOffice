@@ -3,8 +3,9 @@
 // entity PLUS its linked ledger account (qbType BANK/CCARD), created together.
 import { el, clear, toast, modal, fmtMoney } from '../ui.js';
 import { entities, subscribe } from '../store.js';
-import { dispatch, api } from '../sync.js';
+import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
+import { startPlaidConnect, syncPlaid } from '../plaid-connect.js';
 import { accountBalance } from '../lib/posting.js';
 import { parseCsv, detectColumns, normalizeRows, dedupHash } from '../lib/csv.js';
 
@@ -29,76 +30,6 @@ export function render(root) {
 
 export function unmount() { unsub?.(); unsub = null; }
 
-// ── Plaid bank feed (connect + sync) ───────────────────────────────────────────
-// The Plaid Link script is loaded on first use (no build step here). The bank login
-// happens entirely inside Plaid's popup — the app only ever receives a public_token,
-// which the Worker swaps for a read-only access token it keeps server-side.
-let _plaidScript = null;
-function loadPlaid() {
-  if (window.Plaid) return Promise.resolve();
-  if (_plaidScript) return _plaidScript;
-  _plaidScript = new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js';
-    s.onload = resolve;
-    s.onerror = () => { _plaidScript = null; reject(new Error('Could not load Plaid')); };
-    document.head.appendChild(s);
-  });
-  return _plaidScript;
-}
-
-async function connectPlaid(bankacct) {
-  const biz = getActiveBiz();
-  try {
-    await loadPlaid();
-    const r = await api(`/b/${biz}/plaid/link-token`, { method: 'POST' });
-    if (r.status === 501) { toast('Bank feed isn’t set up yet — the owner adds the Plaid secret to the Worker.', 'err'); return; }
-    if (!r.ok) { toast('Could not start the bank connection', 'err'); return; }
-    const { link_token } = await r.json();
-    const handler = window.Plaid.create({
-      token: link_token,
-      onSuccess: async (publicToken, metadata) => {
-        const institution = metadata?.institution?.name || bankacct.institution || 'Bank';
-        const ex = await api(`/b/${biz}/plaid/exchange`, { method: 'POST', body: JSON.stringify({ public_token: publicToken, institution }) });
-        if (!ex.ok) { toast('Could not finish connecting', 'err'); return; }
-        const { itemId, accounts } = await ex.json();
-        if (!accounts || !accounts.length) { toast('No checking/savings account found at that bank', 'err'); return; }
-        const choose = (plaidAccountId) => mapPlaid(biz, itemId, plaidAccountId, bankacct.id);
-        if (accounts.length === 1) choose(accounts[0].plaidAccountId);
-        else pickAccountModal(accounts, bankacct, choose);
-      },
-      onExit: (err) => { if (err) toast('Bank connection cancelled', 'err'); },
-    });
-    handler.open();
-  } catch (e) { toast(e.message || 'Bank connection failed', 'err'); }
-}
-
-async function mapPlaid(biz, itemId, plaidAccountId, bankacctId) {
-  const r = await api(`/b/${biz}/plaid/map`, { method: 'POST', body: JSON.stringify({ itemId, plaidAccountId, bankacctId }) });
-  if (!r.ok) { toast('Could not link the account', 'err'); return; }
-  toast('Bank connected ✓ — pulling transactions…');
-  await syncPlaid(biz, true);
-}
-
-async function syncPlaid(biz, quiet) {
-  try {
-    const r = await api(`/b/${biz}/plaid/sync`, { method: 'POST' });
-    if (r.status === 501) { if (!quiet) toast('Bank feed not configured', 'err'); return; }
-    if (!r.ok) { if (!quiet) toast('Sync failed', 'err'); return; }
-    const { synced } = await r.json();
-    toast(synced ? `${synced} new transaction${synced === 1 ? '' : 's'} in Review` : 'No new transactions');
-  } catch { if (!quiet) toast('Sync failed', 'err'); }
-}
-
-function pickAccountModal(accounts, bankacct, choose) {
-  const m = modal(`Which account is “${bankacct.name}”?`);
-  m.body.append(
-    el('p', { class: 'sub' }, 'Pick the bank account whose transactions should feed this one.'),
-    ...accounts.map(a => el('button', { class: 'btn sm', style: 'display:block;width:100%;text-align:left;margin-bottom:6px',
-      onclick: () => { m.close(); choose(a.plaidAccountId); } }, `${a.name}${a.mask ? ' ••' + a.mask : ''} · ${a.subtype || 'account'}`)),
-  );
-}
-
 function drawBody(body, editable) {
   const bankaccts = entities('bankacct');
   const txns = entities('txn');
@@ -116,7 +47,7 @@ function drawBody(body, editable) {
         el('button', { class: 'btn sm', onclick: () => importWizard(b) }, 'Import CSV'),
         b.plaid
           ? el('button', { class: 'btn sm', onclick: () => syncPlaid(getActiveBiz()) }, 'Sync now')
-          : el('button', { class: 'btn sm', onclick: () => connectPlaid(b) }, 'Connect feed')) : el('span'),
+          : el('button', { class: 'btn sm', onclick: () => startPlaidConnect(b) }, 'Connect feed')) : el('span'),
     );
   });
 

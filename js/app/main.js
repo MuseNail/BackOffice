@@ -6,6 +6,7 @@
 import { APP_VERSION, ORIGIN } from './config.js';
 import { getToken, getActiveBiz, setActiveBiz, getUser, getBusinesses, clearSession } from './session.js';
 import { openBusiness, setStatusListener } from './sync.js';
+import { resumePlaidOAuth } from './plaid-connect.js';
 import * as login from './views/login.js';
 import * as businesses from './views/businesses.js';
 import * as setup from './views/setup.js';
@@ -159,6 +160,7 @@ function boot() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkAppVersion(); });
   route();
   checkAppVersion();
+  resumePlaidOAuth();   // finish a bank OAuth connect if we're returning from the redirect
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
