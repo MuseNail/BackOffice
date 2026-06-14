@@ -45,6 +45,46 @@ export function render(root) {
 
 export function unmount() { unsub?.(); unsub = null; s = null; }
 
+// Build a CSV of the P&L + Balance Sheet from the same grouped data the view renders.
+function buildReportsCsv(presetLabel, asOf, pl, bs) {
+  const esc = (v) => { const t = String(v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+  const d = (cents) => (cents / 100).toFixed(2);
+  const lines = [];
+  const row = (...cols) => lines.push(cols.map(esc).join(','));
+  row('Profit & Loss', presetLabel);
+  row('Section', 'Account', 'Amount');
+  const plSec = (title, g, totalLabel) => {
+    if (!g.rows.length) return;
+    for (const r of g.rows) row(title, r.name, d(r.cents));
+    row('', totalLabel, d(g.total));
+  };
+  plSec('Income', pl.income, 'Total income');
+  plSec('Cost of goods', pl.cogs, 'Total cost of goods');
+  plSec('Expenses', pl.expenses, 'Total expenses');
+  plSec('Other expenses', pl.otherExp, 'Total other expenses');
+  row('', 'Net income', d(pl.net));
+  row('');
+  row('Balance Sheet', 'as of ' + asOf);
+  row('Section', 'Account', 'Amount');
+  const bsSec = (title, g, totalLabel, extra) => {
+    for (const r of g.rows) row(title, r.name, d(r.cents));
+    if (extra) row(title, extra.name, d(extra.cents));
+    row('', totalLabel, d(g.total + (extra ? extra.cents : 0)));
+  };
+  bsSec('Assets', bs.assets, 'Total assets');
+  bsSec('Liabilities', bs.liabilities, 'Total liabilities');
+  bsSec('Equity', bs.equity, 'Total equity', { name: 'Net income to date', cents: bs.netToDate });
+  return lines.join('\n');
+}
+
+function downloadCsv(filename, csv) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = el('a', { href: url, download: filename });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function drawBody(body) {
   const txns = entities('txn');
   const accounts = entities('account');
@@ -157,12 +197,18 @@ function drawBody(body) {
       drawBody(body);
     } });
 
+  const presetLabel = PRESETS.find(p => p[0] === s.preset)[1];
   clear(body).append(
-    el('div', { style: 'display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap' },
+    el('div', { class: 'no-print', style: 'display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center' },
       ...PRESETS.map(([key, label]) => el('button', {
         class: 'btn sm ' + (s.preset === key ? '' : 'ghost'),
         onclick: () => { s.preset = key; drawBody(body); },
-      }, label))),
+      }, label)),
+      el('span', { style: 'flex:1' }),
+      el('button', { class: 'btn sm ghost', onclick: () => window.print() }, 'Print / PDF'),
+      el('button', { class: 'btn sm ghost', onclick: () => downloadCsv(
+        `${getActiveBiz()}-reports-${s.preset}.csv`,
+        buildReportsCsv(presetLabel, s.asOf, { income, cogs, expenses, otherExp, net }, { assets, liabilities, equity, netToDate })) }, 'Export CSV')),
     el('div', { class: 'row' },
       el('div', { class: 'card', style: 'flex:1;min-width:330px;max-width:460px' },
         el('div', { class: 'cardtitle' }, `Profit & Loss — ${PRESETS.find(p => p[0] === s.preset)[1]}`),
