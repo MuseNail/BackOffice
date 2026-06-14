@@ -16,6 +16,7 @@ import * as banking from './views/banking.js';
 import * as review from './views/review.js';
 import * as rules from './views/rules.js';
 import * as reconcile from './views/reconcile.js';
+import * as deposits from './views/deposits.js';
 import * as reports from './views/reports.js';
 import * as inventory from './views/inventory.js';
 import * as settings from './views/settings.js';
@@ -31,6 +32,7 @@ const VIEWS = {
   accounts,
   rules,
   reconcile,
+  deposits,
   inventory,
   reports,
   settings,
