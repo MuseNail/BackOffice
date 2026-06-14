@@ -347,7 +347,7 @@ function approveRow(row, categoryId, sug, { quiet = false, memo = '' } = {}) {
     direction: row.amountCents < 0 ? 'out' : 'in',
     bankAccountId: bankacct.accountId,
     categoryAccountId: categoryId,
-    source: { app: 'import', importId: row.importId, sourceId: row.id },
+    source: { app: row.source?.app || 'csv', importId: row.importId, sourceId: row.id },
   });
   const v = validateTxn(txn, postCtx());
   if (!v.ok) { toast(v.error, 'err'); return; }
@@ -433,7 +433,7 @@ function feeSplitModal(row, accountsById) {
           id: 't-' + row.id, date: row.date, payee: row.desc,
           memo: feeCents > 0 ? `Gross ${fmtMoney(g)} − ${fmtMoney(feeCents)} processing fee` : '',
           lines, status: 'posted',
-          source: { app: 'import', importId: row.importId, sourceId: row.id },
+          source: { app: row.source?.app || 'csv', importId: row.importId, sourceId: row.id },
         };
         const v = validateTxn(txn, postCtx());
         if (!v.ok) { toast(v.error, 'err'); return; }
@@ -528,7 +528,7 @@ async function matchDepositModal(row, accountsById) {
           id: 't-' + row.id, date: row.date, payee: row.desc,
           memo: `Payout for ${daysLabel}: gross ${fmtMoney(match.grossCents)} − ${fmtMoney(match.feeCents)} processing fee (matched via ${source})`,
           lines, status: 'posted',
-          source: { app: 'import', importId: row.importId, sourceId: row.id },
+          source: { app: row.source?.app || 'csv', importId: row.importId, sourceId: row.id },
         };
         const v = validateTxn(txn, postCtx());
         if (!v.ok) { toast(v.error, 'err'); return; }

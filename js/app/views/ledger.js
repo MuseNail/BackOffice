@@ -9,6 +9,18 @@ import { accountLabel } from '../lib/coa-templates.js';
 
 let unsub = null;
 
+// Where a transaction came from — shown as a pill so a manual entry, a direct bank
+// (Plaid) sync, a CSV import, a QuickBooks import, and a Muse sales sync are all
+// distinguishable at a glance.
+const SOURCE_TAGS = {
+  manual:   { label: 'Manual', cls: 'green' },
+  csv:      { label: 'CSV', cls: 'blue' },
+  plaid:    { label: 'Bank', cls: 'blue' },
+  'qb-iif': { label: 'QuickBooks', cls: 'blue' },
+  musenail: { label: 'Muse', cls: 'gray' },
+};
+const sourceTag = (app) => SOURCE_TAGS[app] || { label: 'Import', cls: 'blue' };
+
 export function render(root) {
   const editable = canEdit(getActiveBiz());
   const body = el('div');
@@ -66,7 +78,7 @@ function drawTable(body, editable) {
       el('td', {}, el('b', {}, t.payee || '—'), t.memo ? el('span', { style: 'color:var(--mut)' }, ` · ${t.memo}`) : '', t.checkNo ? el('span', { style: 'color:var(--mut)' }, ` · #${t.checkNo}`) : ''),
       el('td', {}, d.category),
       el('td', {},
-        el('span', { class: `pill ${t.source?.app === 'manual' ? 'green' : t.source?.app === 'musenail' ? 'gray' : 'blue'}` }, isVoid ? 'Void' : (t.source?.app === 'manual' ? 'Manual' : t.source?.app || 'Import')),
+        el('span', { class: `pill ${isVoid ? 'gray' : sourceTag(t.source?.app).cls}` }, isVoid ? 'Void' : sourceTag(t.source?.app).label),
         isRecon ? el('span', { class: 'pill gray', title: 'Amounts and accounts are locked — reconciled in a closed period', style: 'margin-left:4px' }, 'Reconciled') : ''),
       el('td', { class: 'num ' + (d.amount > 0 ? 'pos' : d.amount < 0 ? 'neg' : '') }, d.amount == null ? '—' : fmtMoney(d.amount, { sign: d.amount > 0 })),
       el('td', { style: 'white-space:nowrap' }, ...actions.flatMap((a, i) => i ? [' · ', a] : [a])),

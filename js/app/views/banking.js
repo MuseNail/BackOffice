@@ -297,6 +297,7 @@ function importWizard(bankacct) {
             id: `${importId}-r${i}`, importId, bankacctId: bankacct.id,
             date: r.date, desc: r.desc, amountCents: r.amountCents,
             dedupHash: dedupHash(r), status: 'pending',
+            source: { app: 'csv', importId },
           }));
           for (let i = 0; i < values.length; i += 400) {
             dispatch({ op: 'entity.bulkUpsert', kind: 'staged', values: values.slice(i, i + 400) });
