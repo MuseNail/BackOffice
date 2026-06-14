@@ -25,6 +25,13 @@ export const MUSE_SYNC_TYPES = {
   sales_other:   { label: 'Sales — other / untracked',   dir: 'in',  balHint: 'Cash on hand',           catHint: 'Sales income' },
   gift_sold:     { label: 'Gift cards sold',             dir: 'in',  balHint: 'Card clearing (Helcim)', catHint: 'Gift card liability' },
   gift_redeemed: { label: 'Gift cards redeemed',         dir: 'in',  balHint: 'Gift card liability',    catHint: 'Sales income' },
+  // Cash drawer over/short (counted − expected at close). Booked against the cash
+  // account so it reflects what was ACTUALLY in the drawer, with the difference
+  // landing in a Cash over/short account. Over = more cash than sales explain (cash
+  // debited, over/short credited); short = less (cash credited, over/short debited).
+  // Map BOTH to the same "Cash over/short" account and they net over the period.
+  cash_over:     { label: 'Cash drawer — over',          dir: 'in',  balHint: 'Cash on hand',           catHint: 'Cash over/short' },
+  cash_short:    { label: 'Cash drawer — short',         dir: 'out', balHint: 'Cash on hand',           catHint: 'Cash over/short' },
   payroll:       { label: 'Payroll (period total)',      dir: 'out', balHint: 'Bank account',           catHint: 'Payroll expense' },
 };
 
