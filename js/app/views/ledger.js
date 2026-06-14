@@ -6,6 +6,7 @@ import { getActiveBiz, canEdit } from '../session.js';
 import { parseMoney } from '../lib/money.js';
 import { validateTxn, simpleTxn, voidTxn, periodKey } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
+import { vendorMatches } from './vendors.js';
 
 let unsub = null;
 
@@ -21,23 +22,82 @@ const SOURCE_TAGS = {
 };
 const sourceTag = (app) => SOURCE_TAGS[app] || { label: 'Import', cls: 'blue' };
 
+const flt = { q: '', from: '', to: '', accountId: '', vendorId: '', source: '' };
+const sort = { key: 'date', dir: 'desc' };
+const resetFilters = () => { Object.assign(flt, { q: '', from: '', to: '', accountId: '', vendorId: '', source: '' }); sort.key = 'date'; sort.dir = 'desc'; };
+
 export function render(root) {
   const editable = canEdit(getActiveBiz());
-  const body = el('div');
+  const tableHost = el('div');
+  const redraw = () => drawTable(tableHost, editable);
   root.append(
     el('h2', {}, 'Ledger'),
-    el('p', { class: 'sub' }, 'Every posted transaction. Void keeps the record but zeroes it out of balances. Delete permanently removes it (blocked once reconciled). Edit updates payee, memo, or category.'),
-    editable ? el('div', { style: 'display:flex;gap:9px;margin-bottom:14px' },
+    el('p', { class: 'sub' }, 'Every posted transaction. Search and filter below; click a column heading to sort. Void zeroes an entry out of balances; Delete removes it (blocked once reconciled).'),
+    editable ? el('div', { class: 'no-print', style: 'display:flex;gap:9px;margin-bottom:12px' },
       el('button', { class: 'btn sm', onclick: addTxnModal }, 'Add transaction'),
       el('button', { class: 'btn sm ghost', onclick: journalModal }, 'Journal entry')) : el('span'),
-    body,
+    filterBar(redraw),   // built once → the search box keeps focus while you type
+    tableHost,
   );
-  const draw = () => drawTable(body, editable);
-  unsub = subscribe(draw);
-  draw();
+  unsub = subscribe(redraw);
+  redraw();
 }
 
-export function unmount() { unsub?.(); unsub = null; }
+export function unmount() { unsub?.(); unsub = null; resetFilters(); }
+
+// The filter bar is rendered ONCE and persists; only the table re-renders on change.
+function filterBar(redraw) {
+  const byId = new Map(entities('account').map(a => [a.id, a]));
+  const accts = entities('account').filter(a => a.active !== false).sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)));
+  const vendors = entities('vendor').slice().sort((a, b) => a.name.localeCompare(b.name));
+  const search = el('input', { class: 'field-input', placeholder: 'Search payee / memo…', value: flt.q, style: 'max-width:190px', oninput: (e) => { flt.q = e.target.value; redraw(); } });
+  const from = el('input', { class: 'field-input', type: 'date', value: flt.from, style: 'max-width:150px', title: 'From date', onchange: (e) => { flt.from = e.target.value; redraw(); } });
+  const to = el('input', { class: 'field-input', type: 'date', value: flt.to, style: 'max-width:150px', title: 'To date', onchange: (e) => { flt.to = e.target.value; redraw(); } });
+  const acct = el('select', { class: 'field-input', style: 'max-width:175px', onchange: (e) => { flt.accountId = e.target.value; redraw(); } },
+    el('option', { value: '' }, 'All accounts'), ...accts.map(a => el('option', { value: a.id, selected: a.id === flt.accountId }, accountLabel(a, byId))));
+  const vend = el('select', { class: 'field-input', style: 'max-width:160px', onchange: (e) => { flt.vendorId = e.target.value; redraw(); } },
+    el('option', { value: '' }, 'All vendors'), ...vendors.map(v => el('option', { value: v.id, selected: v.id === flt.vendorId }, v.name)));
+  const src = el('select', { class: 'field-input', style: 'max-width:140px', onchange: (e) => { flt.source = e.target.value; redraw(); } },
+    el('option', { value: '' }, 'All sources'), ...Object.keys(SOURCE_TAGS).map(k => el('option', { value: k, selected: k === flt.source }, SOURCE_TAGS[k].label)));
+  const clear = el('button', { class: 'btn sm ghost', onclick: () => {
+    resetFilters();
+    search.value = ''; from.value = ''; to.value = ''; acct.value = ''; vend.value = ''; src.value = '';
+    redraw();
+  } }, 'Clear');
+  return el('div', { class: 'no-print', style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px' },
+    search, from, to, acct, vend, src, clear);
+}
+
+function applyFilters(txns) {
+  const q = flt.q.trim().toLowerCase();
+  const vendor = flt.vendorId ? entities('vendor').find(v => v.id === flt.vendorId) : null;
+  return txns.filter(t => {
+    if (flt.from && t.date < flt.from) return false;
+    if (flt.to && t.date > flt.to) return false;
+    if (flt.accountId && !(t.lines || []).some(l => l.accountId === flt.accountId)) return false;
+    if (flt.source && (t.source?.app || '') !== flt.source) return false;
+    if (vendor && !(t.vendorId === vendor.id || (!t.vendorId && vendorMatches(vendor, t.payee)))) return false;
+    if (q && !`${t.payee || ''} ${t.memo || ''} ${t.checkNo || ''}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
+const sortAmt = (t) => { const d = describe(t); return d.amount == null ? 0 : d.amount; };
+function applySort(txns) {
+  const dir = sort.dir === 'asc' ? 1 : -1;
+  const cmp = ({
+    date: (a, b) => a.date.localeCompare(b.date),
+    payee: (a, b) => (a.payee || '').localeCompare(b.payee || ''),
+    category: (a, b) => describe(a).category.localeCompare(describe(b).category),
+    amount: (a, b) => sortAmt(a) - sortAmt(b),
+  })[sort.key] || ((a, b) => a.date.localeCompare(b.date));
+  return [...txns].sort((a, b) => dir * cmp(a, b) || ((b.updatedAt || 0) - (a.updatedAt || 0)));
+}
+function setSort(key) {
+  if (sort.key === key) sort.dir = sort.dir === 'asc' ? 'desc' : 'asc';
+  else { sort.key = key; sort.dir = key === 'date' ? 'desc' : 'asc'; }
+}
+const arrow = (key) => sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
 
 const acctName = (id) => {
   const byId = new Map(entities('account').map(a => [a.id, a]));
@@ -56,13 +116,14 @@ function describe(t) {
   return { category: 'Journal — ' + t.lines.map(l => acctName(l.accountId)).join(', '), amount: null };
 }
 
-function drawTable(body, editable) {
+function drawTable(host, editable) {
   const allTxns = entities('txn').filter(t => t.status === 'posted' || t.status === 'void');
-  const txns = allTxns.sort((a, b) => b.date.localeCompare(a.date) || (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 200);
-  if (!txns.length) {
-    clear(body).append(el('p', { class: 'sub' }, 'No transactions yet — add one above, or import a CSV from Banking.'));
+  if (!allTxns.length) {
+    clear(host).append(el('p', { class: 'sub' }, 'No transactions yet — add one above, or import a CSV from Banking.'));
     return;
   }
+  const filtered = applySort(applyFilters(allTxns));
+  const txns = filtered.slice(0, 200);
   const rows = txns.map(t => {
     const d = describe(t);
     const isVoid = t.status === 'void';
@@ -84,12 +145,17 @@ function drawTable(body, editable) {
       el('td', { style: 'white-space:nowrap' }, ...actions.flatMap((a, i) => i ? [' · ', a] : [a])),
     );
   });
-  clear(body).append(
-    allTxns.length > 200 ? el('p', { class: 'sub' }, `Showing the 200 most recent of ${allTxns.length} transactions — use Reports for date-range views.`) : el('span'),
-    el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
-      el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Payee / memo'), el('th', {}, 'Category'), el('th', {}, 'Source'), el('th', { class: 'num' }, 'Amount'), el('th', {}, '')),
-        ...rows)));
+  const th = (key, label, cls) => el('th', { class: cls || '', style: 'cursor:pointer;user-select:none', title: 'Click to sort', onclick: () => { setSort(key); drawTable(host, editable); } }, label + arrow(key));
+  clear(host).append(
+    el('p', { class: 'sub', style: 'margin:0 0 8px' },
+      `${filtered.length} of ${allTxns.length} transaction${allTxns.length === 1 ? '' : 's'}${filtered.length > 200 ? ' · showing the first 200 — narrow the filters to see the rest' : ''}`),
+    filtered.length
+      ? el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
+          el('table', { class: 'data' },
+            el('tr', {}, th('date', 'Date'), th('payee', 'Payee / memo'), th('category', 'Category'), el('th', {}, 'Source'), th('amount', 'Amount', 'num'), el('th', {}, '')),
+            ...rows))
+      : el('p', { class: 'sub' }, 'No transactions match these filters.'),
+  );
 }
 
 function confirmVoid(t) {
@@ -150,6 +216,12 @@ function editTxnModal(t) {
           .map(a => el('option', { value: a.id, selected: a.id === catLine.accountId }, accountLabel(a, byId))))
     : null;
 
+  // Manual vendor assignment (Option B) — metadata only, so allowed even when reconciled.
+  const vendors = entities('vendor').slice().sort((a, b) => a.name.localeCompare(b.name));
+  const vendSel = el('select', { class: 'field-input' },
+    el('option', { value: '' }, '— none —'),
+    ...vendors.map(v => el('option', { value: v.id, selected: v.id === t.vendorId }, v.name)));
+
   m.body.append(
     isRecon ? el('p', { class: 'sub' }, '⚠️ This transaction is reconciled — the date, accounts, and amounts are locked. You can still update the payee and memo.') : null,
     el('label', { class: 'field-label' }, 'Date'), date,
@@ -157,6 +229,8 @@ function editTxnModal(t) {
     el('label', { class: 'field-label' }, 'Memo / notes'), memo,
     catSel ? el('label', { class: 'field-label' }, 'Category') : null,
     catSel || null,
+    vendors.length ? el('label', { class: 'field-label' }, 'Vendor') : null,
+    vendors.length ? vendSel : null,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', onclick: () => {
@@ -165,7 +239,7 @@ function editTxnModal(t) {
         const newLines = (!isRecon && catSel && catLine)
           ? t.lines.map(l => l === catLine ? { ...l, accountId: catSel.value } : l)
           : t.lines;
-        const updated = { ...t, date: newDate, payee: payee.value.trim(), memo: memo.value.trim(), lines: newLines };
+        const updated = { ...t, date: newDate, payee: payee.value.trim(), memo: memo.value.trim(), lines: newLines, vendorId: vendSel.value || undefined };
         const v = validateTxn(updated, ctx());
         if (!v.ok) { toast(v.error, 'err'); return; }
         dispatch({ op: 'entity.upsert', kind: 'txn', value: updated });

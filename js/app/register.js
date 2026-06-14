@@ -19,7 +19,7 @@ const inRange = (date, from, to) => (!from || date >= from) && (!to || date <= t
 // getTxns() is re-evaluated on every store change; the date filter persists. Returns
 // an unsubscribe the host should call on unmount.
 export function renderRegister(opts) {
-  const state = { from: '', to: '' };
+  const state = { from: '', to: '', sortKey: 'date', sortDir: 'asc' };
   const body = el('div');
   opts.root.append(body);
   const draw = () => drawRegister(body, opts, state);
@@ -32,23 +32,42 @@ function drawRegister(body, opts, state) {
   const { title, subtitle, backHash, backLabel, getTxns, focusAccountId, filename } = opts;
   const isAcct = !!focusAccountId;
   const byId = new Map(entities('account').map(a => [a.id, a]));
-  const rows = (getTxns() || [])
-    .filter(t => inRange(t.date, state.from, state.to))
-    .sort((a, b) => a.date.localeCompare(b.date) || (a.id < b.id ? -1 : 1));
+  const filtered = (getTxns() || []).filter(t => inRange(t.date, state.from, state.to));
+  const amtOf = (t) => isAcct ? lineOn(t, focusAccountId) : magnitude(t);
 
-  let running = 0, total = 0;
+  // Running balance is computed CHRONOLOGICALLY so it stays correct no matter how
+  // the table is sorted for display.
+  let run = 0; const balAfter = new Map();
+  for (const t of [...filtered].sort((a, b) => a.date.localeCompare(b.date) || (a.id < b.id ? -1 : 1))) {
+    if (isAcct) run += amtOf(t);
+    balAfter.set(t.id, run);
+  }
+
+  const dir = state.sortDir === 'desc' ? -1 : 1;
+  const cmp = ({
+    date: (a, b) => a.date.localeCompare(b.date),
+    payee: (a, b) => (a.payee || '').localeCompare(b.payee || ''),
+    amount: (a, b) => amtOf(a) - amtOf(b),
+  })[state.sortKey] || ((a, b) => a.date.localeCompare(b.date));
+  const rows = [...filtered].sort((a, b) => dir * cmp(a, b) || (a.id < b.id ? -1 : 1));
+
+  let total = 0;
   const trs = rows.map(t => {
-    const amt = isAcct ? lineOn(t, focusAccountId) : magnitude(t);
+    const amt = amtOf(t);
     total += amt;
-    if (isAcct) running += amt;
     return el('tr', {},
       el('td', {}, t.date),
       el('td', {}, t.payee || '—'),
       el('td', {}, otherSide(t, focusAccountId || '', byId)),
       el('td', {}, t.memo || ''),
       el('td', { class: 'num ' + (amt < 0 ? 'neg' : amt > 0 ? 'pos' : '') }, fmtMoney(amt, { sign: isAcct })),
-      isAcct ? el('td', { class: 'num' }, fmtMoney(running)) : null);
+      isAcct ? el('td', { class: 'num' }, fmtMoney(balAfter.get(t.id) || 0)) : null);
   });
+
+  const arrow = (key) => state.sortKey === key ? (state.sortDir === 'desc' ? ' ▼' : ' ▲') : '';
+  const th = (key, label, cls) => el('th', { class: cls || '', style: 'cursor:pointer;user-select:none', title: 'Click to sort',
+    onclick: () => { if (state.sortKey === key) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc'; else { state.sortKey = key; state.sortDir = key === 'amount' ? 'desc' : 'asc'; } drawRegister(body, opts, state); } },
+    label + arrow(key));
 
   const dateIn = (key) => el('input', { class: 'field-input', type: 'date', value: state[key], style: 'max-width:155px',
     onchange: (e) => { state[key] = e.target.value; drawRegister(body, opts, state); } });
@@ -67,9 +86,9 @@ function drawRegister(body, opts, state) {
       rows.length
         ? el('table', { class: 'data' },
             el('tr', {},
-              el('th', {}, 'Date'), el('th', {}, 'Payee'),
+              th('date', 'Date'), th('payee', 'Payee'),
               el('th', {}, isAcct ? 'Category / account' : 'Category'), el('th', {}, 'Memo'),
-              el('th', { class: 'num' }, isAcct ? 'Amount' : 'Spent'),
+              th('amount', isAcct ? 'Amount' : 'Spent', 'num'),
               isAcct ? el('th', { class: 'num' }, 'Balance') : null),
             ...trs,
             el('tr', { style: 'background:var(--brand-soft)' },
