@@ -98,6 +98,78 @@ export class BusinessDO {
       return json({ ok: true, created: fresh.length - updated, updated, skipped });
     }
 
+    // ── Plaid bank feed (server-only token; never in the client snapshot) ───────
+    // The access token + sync cursor live under `plaid:<itemId>`. Kind 'plaid' is
+    // NOT in ENTITY_KINDS, so snapshot() skips it and it never reaches a browser.
+    // internal: store/refresh the token blob for a connected Plaid item.
+    if (path === '/_plaid/save-item' && req.method === 'POST') {
+      const { accessToken, itemId, institution, accounts } = await req.json();
+      if (!accessToken || !itemId) return json({ error: 'bad' }, 400);
+      const existing = await this.state.storage.get('plaid:' + itemId);
+      await this.state.storage.put('plaid:' + itemId, {
+        accessToken, itemId, institution: institution || 'Bank',
+        accounts: Array.isArray(accounts) ? accounts : [],
+        cursor: existing?.cursor || null,
+        bankacctByPlaidAcct: existing?.bankacctByPlaidAcct || {},
+        createdAt: existing?.createdAt || Date.now(),
+        lastSyncAt: existing?.lastSyncAt || null,
+      });
+      return json({ ok: true, itemId });
+    }
+
+    // internal: link one Plaid account → a bank account the owner already created,
+    // and stamp NON-secret connection info on that bankacct so the UI can show it.
+    if (path === '/_plaid/map' && req.method === 'POST') {
+      const { itemId, plaidAccountId, bankacctId } = await req.json();
+      const item = await this.state.storage.get('plaid:' + itemId);
+      const bankacct = await this.state.storage.get('bankacct:' + bankacctId);
+      if (!item || !bankacct) return json({ error: 'not found' }, 404);
+      item.bankacctByPlaidAcct = { ...(item.bankacctByPlaidAcct || {}), [plaidAccountId]: bankacctId };
+      await this.state.storage.put('plaid:' + itemId, item);
+      const acct = (item.accounts || []).find(a => a.plaidAccountId === plaidAccountId) || {};
+      bankacct.plaid = { itemId, plaidAccountId, institution: item.institution, mask: acct.mask || '', subtype: acct.subtype || '', connectedAt: Date.now(), lastSyncAt: item.lastSyncAt || null };
+      bankacct.updatedAt = Date.now();
+      await this.apply({ op: 'entity.upsert', kind: 'bankacct', value: bankacct, device: '' });
+      return json({ ok: true });
+    }
+
+    // internal: the sync orchestrator (routes/plaid.js) reads every item + token
+    // here. Only reachable DO-internally; never proxied to a client.
+    if (path === '/_plaid/items' && req.method === 'GET') {
+      const items = [];
+      for (const v of (await this.state.storage.list({ prefix: 'plaid:' })).values()) items.push(v);
+      return json({ items });
+    }
+
+    // internal: write a sync batch. Idempotent like _sync/inbound — an already-
+    // approved staged row is never reverted to pending. Advances the cursor and
+    // stamps lastSyncAt on the item + its mapped bank accounts.
+    if (path === '/_plaid/apply-sync' && req.method === 'POST') {
+      const { itemId, values, cursor } = await req.json();
+      const now = Date.now();
+      const fresh = [];
+      for (const r of (values || [])) {
+        if (!r?.id) continue;
+        const existing = await this.state.storage.get('staged:' + r.id);
+        if (!existing) { fresh.push({ ...r, createdAt: now, updatedAt: now, updatedBy: 'plaid' }); continue; }
+        if (existing.status === 'pending' && (existing.amountCents !== r.amountCents || existing.desc !== r.desc || existing.date !== r.date)) {
+          fresh.push({ ...existing, ...r, updatedAt: now, updatedBy: 'plaid' });
+        }
+      }
+      if (fresh.length) await this.apply({ op: 'entity.bulkUpsert', kind: 'staged', values: fresh, device: '' });
+      const item = await this.state.storage.get('plaid:' + itemId);
+      if (item) {
+        if (cursor != null) item.cursor = cursor;
+        item.lastSyncAt = now;
+        await this.state.storage.put('plaid:' + itemId, item);
+        for (const baId of Object.values(item.bankacctByPlaidAcct || {})) {
+          const ba = await this.state.storage.get('bankacct:' + baId);
+          if (ba) { ba.plaid = { ...(ba.plaid || {}), lastSyncAt: now }; ba.updatedAt = now; await this.apply({ op: 'entity.upsert', kind: 'bankacct', value: ba, device: '' }); }
+        }
+      }
+      return json({ ok: true, created: fresh.length });
+    }
+
     if (path === '/state' && req.method === 'GET') return this.snapshot();
     if (path === '/state' && req.method === 'POST') {
       const op = await req.json();

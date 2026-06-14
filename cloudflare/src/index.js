@@ -4,6 +4,7 @@ import { RegistryDO } from './do/registry.js';
 import { handleCategorize } from './routes/ai.js';
 import { handleSyncInbound } from './routes/sync.js';
 import { handleHelcimTransactions, handleHelcimBatches } from './routes/processors.js';
+import { handlePlaidLinkToken, handlePlaidExchange, handlePlaidMap, handlePlaidSync } from './routes/plaid.js';
 export { BusinessDO, RegistryDO };
 
 const CORS = {
@@ -89,6 +90,14 @@ export default {
       if (m[2] === '/ai/categorize' && req.method === 'POST') return withCors(await handleCategorize(req, env, bizId));
       if (m[2] === '/processor/helcim/transactions' && req.method === 'GET') return withCors(await handleHelcimTransactions(req, env));
       if (m[2] === '/processor/helcim/batches' && req.method === 'GET') return withCors(await handleHelcimBatches(req, env));
+      // Plaid bank feed — connecting/syncing changes state, so owner/manager only.
+      if (m[2].startsWith('/plaid/') && req.method === 'POST') {
+        if (role !== 'owner' && role !== 'manager') return json({ error: 'forbidden' }, 403);
+        if (m[2] === '/plaid/link-token') return withCors(await handlePlaidLinkToken(req, env, bizId));
+        if (m[2] === '/plaid/exchange')   return withCors(await handlePlaidExchange(req, env, bizId));
+        if (m[2] === '/plaid/map')        return withCors(await handlePlaidMap(req, env, bizId));
+        if (m[2] === '/plaid/sync')       return withCors(await handlePlaidSync(req, env, bizId));
+      }
       if (role === 'viewer' && req.method !== 'GET' && !m[2].endsWith('/ws')) return json({ error: 'read only' }, 403);
       const fwd = new Request(req);
       fwd.headers.set('X-Bo-Role', role);

@@ -12,7 +12,16 @@ account_id = "7e47fe5134a4b77582cf7746bff3fb62"
 #   HELCIM_API_TOKEN  — enables GET /b/:biz/processor/helcim/transactions (M13 deposit
 #                       matching, Helcim API fallback). Same token the Muse Worker uses.
 #                       Unset = the route answers 501; books-first matching still works.
+#   PLAID_SECRET      — enables /b/:biz/plaid/* (bank feed). The Plaid Sandbox secret
+#                       while testing, then the Production secret to go live. Unset =
+#                       the routes answer 501. Set the matching PLAID_ENV var below.
 # Optional vars: AI_MODEL (defaults to claude-opus-4-8; e.g. claude-haiku-4-5 for cheaper batches)
+
+[vars]
+# Plaid bank feed (the secret is PLAID_SECRET, set via `wrangler secret put`).
+PLAID_CLIENT_ID = "6a2eb9669d3c7c000eacc5e0"
+PLAID_ENV = "sandbox"   # flip to "production" to go live (with the Production secret)
+# PLAID_REDIRECT_URI / PLAID_WEBHOOK_URL — add when wiring OAuth redirect + auto-sync.
 
 [durable_objects]
 bindings = [
