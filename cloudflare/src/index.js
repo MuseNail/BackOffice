@@ -4,7 +4,7 @@ import { RegistryDO } from './do/registry.js';
 import { handleCategorize } from './routes/ai.js';
 import { handleSyncInbound } from './routes/sync.js';
 import { handleHelcimTransactions, handleHelcimBatches } from './routes/processors.js';
-import { handlePlaidLinkToken, handlePlaidExchange, handlePlaidMap, handlePlaidSync } from './routes/plaid.js';
+import { handlePlaidLinkToken, handlePlaidExchange, handlePlaidMap, handlePlaidSync, handlePlaidDisconnect } from './routes/plaid.js';
 export { BusinessDO, RegistryDO };
 
 const CORS = {
@@ -97,6 +97,7 @@ export default {
         if (m[2] === '/plaid/exchange')   return withCors(await handlePlaidExchange(req, env, bizId));
         if (m[2] === '/plaid/map')        return withCors(await handlePlaidMap(req, env, bizId));
         if (m[2] === '/plaid/sync')       return withCors(await handlePlaidSync(req, env, bizId));
+        if (m[2] === '/plaid/disconnect') return withCors(await handlePlaidDisconnect(req, env, bizId));
       }
       if (role === 'viewer' && req.method !== 'GET' && !m[2].endsWith('/ws')) return json({ error: 'read only' }, 403);
       const fwd = new Request(req);

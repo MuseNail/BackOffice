@@ -87,6 +87,19 @@ export async function handlePlaidMap(req, env, bizId) {
   return json(await res.json(), res.status);
 }
 
+// POST /b/:biz/plaid/disconnect { bankacctId } → drop the feed from that account.
+export async function handlePlaidDisconnect(req, env, bizId) {
+  if (!configured(env)) return json({ error: 'plaid_not_configured' }, 501);
+  let b = {}; try { b = await req.json(); } catch {}
+  if (!b.bankacctId) return json({ error: 'bankacctId required' }, 400);
+  const res = await toDO(env, bizId, '/_plaid/disconnect', { bankacctId: b.bankacctId });
+  const out = await res.json().catch(() => ({}));
+  // Best-effort: tell Plaid to drop the item too (stops refresh/billing). A leftover
+  // sandbox token under production env just errors here — fine, the local feed is gone.
+  if (out.accessToken) { try { await plaid(env, '/item/remove', { access_token: out.accessToken }); } catch { /* best-effort */ } }
+  return json({ ok: true });
+}
+
 // POST /b/:biz/plaid/sync → { synced, items } — pull new settled rows into Review.
 export async function handlePlaidSync(req, env, bizId) {
   if (!configured(env)) return json({ error: 'plaid_not_configured' }, 501);

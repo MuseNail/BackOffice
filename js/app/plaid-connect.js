@@ -69,6 +69,22 @@ function pickAccountModal(accounts, bankacct, choose) {
   );
 }
 
+// Remove the bank feed from an account (e.g. to swap a sandbox test for the real
+// bank). Transactions already in Review stay; you can reconnect anytime.
+export function disconnectPlaid(bankacct) {
+  const m = modal('Disconnect bank feed?');
+  m.body.append(
+    el('p', {}, `Stop syncing from “${bankacct.name}”. Transactions already in Review stay — you can reconnect anytime.`),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
+      el('button', { class: 'btn', onclick: async () => {
+        m.close();
+        const r = await api(`/b/${getActiveBiz()}/plaid/disconnect`, { method: 'POST', body: JSON.stringify({ bankacctId: bankacct.id }) });
+        toast(r.ok ? 'Bank feed disconnected' : 'Could not disconnect', r.ok ? 'ok' : 'err');
+      } }, 'Disconnect')),
+  );
+}
+
 // Open Plaid Link to connect a feed onto an existing bank account.
 export async function startPlaidConnect(bankacct) {
   const biz = getActiveBiz();

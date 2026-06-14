@@ -170,6 +170,30 @@ export class BusinessDO {
       return json({ ok: true, created: fresh.length });
     }
 
+    // internal: remove a Plaid feed from one bank account. Drops that account's
+    // mapping; deletes the whole token blob once no accounts reference it; clears the
+    // non-secret plaid info off the bankacct. Returns the token so the route can ask
+    // Plaid to remove the item too. Transactions already in Review are left untouched.
+    if (path === '/_plaid/disconnect' && req.method === 'POST') {
+      const { bankacctId } = await req.json();
+      const bankacct = await this.state.storage.get('bankacct:' + bankacctId);
+      if (!bankacct || !bankacct.plaid) return json({ ok: true });
+      const itemId = bankacct.plaid.itemId;
+      let accessToken = null;
+      const item = itemId && (await this.state.storage.get('plaid:' + itemId));
+      if (item) {
+        accessToken = item.accessToken;
+        const map = { ...(item.bankacctByPlaidAcct || {}) };
+        for (const [pa, ba] of Object.entries(map)) if (ba === bankacctId) delete map[pa];
+        if (Object.keys(map).length === 0) await this.state.storage.delete('plaid:' + itemId);
+        else { item.bankacctByPlaidAcct = map; await this.state.storage.put('plaid:' + itemId, item); }
+      }
+      delete bankacct.plaid;
+      bankacct.updatedAt = Date.now();
+      await this.apply({ op: 'entity.upsert', kind: 'bankacct', value: bankacct, device: '' });
+      return json({ ok: true, accessToken });
+    }
+
     if (path === '/state' && req.method === 'GET') return this.snapshot();
     if (path === '/state' && req.method === 'POST') {
       const op = await req.json();

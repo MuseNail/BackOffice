@@ -5,7 +5,7 @@ import { el, clear, toast, modal, fmtMoney } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
-import { startPlaidConnect, syncPlaid } from '../plaid-connect.js';
+import { startPlaidConnect, syncPlaid, disconnectPlaid } from '../plaid-connect.js';
 import { accountBalance } from '../lib/posting.js';
 import { parseCsv, detectColumns, normalizeRows, dedupHash } from '../lib/csv.js';
 
@@ -47,7 +47,8 @@ function drawBody(body, editable) {
         el('button', { class: 'btn sm', onclick: () => importWizard(b) }, 'Import CSV'),
         b.plaid
           ? el('button', { class: 'btn sm', onclick: () => syncPlaid(getActiveBiz()) }, 'Sync now')
-          : el('button', { class: 'btn sm', onclick: () => startPlaidConnect(b) }, 'Connect feed')) : el('span'),
+          : el('button', { class: 'btn sm', onclick: () => startPlaidConnect(b) }, 'Connect feed'),
+        b.plaid ? el('button', { class: 'btn sm ghost', onclick: () => disconnectPlaid(b) }, 'Disconnect') : null) : el('span'),
     );
   });
 
