@@ -349,6 +349,9 @@ function approveRow(row, categoryId, sug, { quiet = false, memo = '' } = {}) {
     categoryAccountId: categoryId,
     source: { app: row.source?.app || 'csv', importId: row.importId, sourceId: row.id },
   });
+  // Stamp the vendor (Option B) when this row matched a vendor rule and was approved
+  // to that vendor's category — so the vendor's register is exact going forward.
+  if (sug?.vendorId && sug.accountId === categoryId) txn.vendorId = sug.vendorId;
   const v = validateTxn(txn, postCtx());
   if (!v.ok) { toast(v.error, 'err'); return; }
   dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });

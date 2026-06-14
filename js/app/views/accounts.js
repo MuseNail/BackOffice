@@ -6,6 +6,9 @@ import { entities, subscribe, getState } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { ACCOUNT_TYPES, accountLabel } from '../lib/coa-templates.js';
+import { renderRegister } from '../register.js';
+
+const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 const TYPE_LABELS = { income: 'Income', cogs: 'Cost of goods', expense: 'Expenses', 'other-expense': 'Other expense', 'personal-expense': 'Personal expense', asset: 'Assets', liability: 'Liabilities', equity: 'Equity' };
 const TYPE_ORDER = ['income', 'cogs', 'expense', 'other-expense', 'personal-expense', 'asset', 'liability', 'equity'];
@@ -13,7 +16,8 @@ const QB_BY_TYPE = { income: 'INC', cogs: 'COGS', expense: 'EXP', 'other-expense
 
 let unsub = null;
 
-export function render(root) {
+export function render(root, detail) {
+  if (detail) { renderAccountRegister(root, detail); return; }
   const editable = canEdit(getActiveBiz());
   const body = el('div');
   root.append(
@@ -29,6 +33,28 @@ export function render(root) {
 }
 
 export function unmount() { unsub?.(); unsub = null; }
+
+// Account register (drill-down): every posted transaction hitting this account,
+// with a running balance. Reached via #/b/<biz>/accounts/<accountId>.
+function renderAccountRegister(root, accountId) {
+  const biz = getActiveBiz();
+  const acct = entities('account').find(a => a.id === accountId);
+  if (!acct) {
+    root.append(el('p', { class: 'sub' }, 'That account no longer exists.'),
+      el('a', { class: 'btn sm ghost', href: `#/b/${biz}/accounts` }, '← Back to accounts'));
+    return;
+  }
+  unsub = renderRegister({
+    root,
+    title: acct.name,
+    subtitle: `${TYPE_LABELS[acct.type] || acct.type} register`,
+    backHash: `/b/${biz}/accounts`,
+    backLabel: 'Accounts',
+    focusAccountId: accountId,
+    filename: `${biz}-${slug(acct.name)}-register.csv`,
+    getTxns: () => entities('txn').filter(t => t.status === 'posted' && (t.lines || []).some(l => l.accountId === accountId)),
+  });
+}
 
 function drawTable(body, editable) {
   const accounts = entities('account');
@@ -50,7 +76,9 @@ function drawTable(body, editable) {
     rows.push(el('tr', {}, el('td', { colspan: '4', class: 'coatype', style: 'padding-top:14px' }, TYPE_LABELS[t])));
     for (const a of group) {
       rows.push(el('tr', { style: a.active === false ? 'opacity:.5' : '' },
-        el('td', { style: a.parentId ? 'padding-left:32px' : '' }, a.parentId ? '› ' : '', el('b', {}, a.name), a.active === false ? ' (archived)' : ''),
+        el('td', { style: a.parentId ? 'padding-left:32px' : '' }, a.parentId ? '› ' : '',
+          el('a', { class: 'linklike', style: 'font-weight:700', href: `#/b/${getActiveBiz()}/accounts/${a.id}`, title: 'View this account’s register' }, a.name),
+          a.active === false ? ' (archived)' : ''),
         el('td', {}, el('span', { class: `pill ${t === 'income' ? 'green' : ['expense', 'cogs', 'other-expense', 'personal-expense'].includes(t) ? 'red' : t === 'liability' ? 'amber' : 'blue'}` }, TYPE_LABELS[t])),
         el('td', { style: 'color:var(--mut)' }, a.qbName || ''),
         el('td', {}, ...(editable ? [

@@ -1,20 +1,36 @@
-// ── view: rules — vendors and their auto-categorization matchers ────────────────
+// ── view: vendors — vendors, their auto-categorize rules, and per-vendor register ─
 import { el, clear, toast, modal } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { accountLabel } from '../lib/coa-templates.js';
+import { normalizeDesc } from '../lib/match.js';
+import { renderRegister } from '../register.js';
 
 let unsub = null;
+const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
-export function render(root) {
+// A transaction belongs to a vendor if it was stamped at approval (exact, going
+// forward) OR — for older/unstamped ones — its description matches the vendor's rule.
+export function vendorMatches(vendor, desc) {
+  const d = normalizeDesc(desc);
+  if (!d) return false;
+  for (const m of vendor.matchers?.exact || []) if (d === normalizeDesc(m)) return true;
+  for (const k of vendor.matchers?.keywords || []) { const kk = normalizeDesc(k); if (kk && d.includes(kk)) return true; }
+  return false;
+}
+export const txnsForVendor = (vendor) => entities('txn').filter(t =>
+  t.status === 'posted' && (t.vendorId === vendor.id || (!t.vendorId && vendorMatches(vendor, t.payee))));
+
+export function render(root, detail) {
+  if (detail) { renderVendorRegister(root, detail); return; }
   const editable = canEdit(getActiveBiz());
   const body = el('div');
   root.append(
-    el('h2', {}, 'Vendors & rules'),
-    el('p', { class: 'sub' }, 'Rules categorize imports automatically: exact matches win, then keywords, then your history. You still approve every row.'),
+    el('h2', {}, 'Vendors'),
+    el('p', { class: 'sub' }, 'Each vendor categorizes its imports automatically (exact matches win, then keywords, then your history) — you still approve every row. Click a vendor to see all its transactions.'),
     editable ? el('div', { style: 'margin-bottom:14px' },
-      el('button', { class: 'btn sm', onclick: () => ruleModal(null) }, 'New rule')) : el('span'),
+      el('button', { class: 'btn sm', onclick: () => ruleModal(null) }, 'New vendor / rule')) : el('span'),
     body,
   );
   const draw = () => drawTable(body, editable);
@@ -23,6 +39,27 @@ export function render(root) {
 }
 
 export function unmount() { unsub?.(); unsub = null; }
+
+// Vendor register (drill-down): every posted transaction from this vendor, total
+// spent + export. Reached via #/b/<biz>/vendors/<vendorId>.
+function renderVendorRegister(root, vendorId) {
+  const biz = getActiveBiz();
+  const vendor = entities('vendor').find(v => v.id === vendorId);
+  if (!vendor) {
+    root.append(el('p', { class: 'sub' }, 'That vendor no longer exists.'),
+      el('a', { class: 'btn sm ghost', href: `#/b/${biz}/vendors` }, '← Back to vendors'));
+    return;
+  }
+  unsub = renderRegister({
+    root,
+    title: vendor.name,
+    subtitle: 'Vendor transactions',
+    backHash: `/b/${biz}/vendors`,
+    backLabel: 'Vendors',
+    filename: `${biz}-${slug(vendor.name)}-transactions.csv`,
+    getTxns: () => txnsForVendor(vendor),
+  });
+}
 
 function drawTable(body, editable) {
   const vendors = entities('vendor').sort((a, b) => (b.used || 0) - (a.used || 0) || a.name.localeCompare(b.name));
@@ -36,7 +73,7 @@ function drawTable(body, editable) {
     const targetAcct = byId.get(v.defaultAccountId);
     const isBroken = !targetAcct || targetAcct.active === false;
     return el('tr', { style: isBroken ? 'background:var(--amber-soft,#fff8f0)' : '' },
-      el('td', {}, el('b', {}, v.name), isBroken ? el('span', { class: 'pill amber', style: 'margin-left:6px' }, 'Category archived') : ''),
+      el('td', {}, el('a', { class: 'linklike', style: 'font-weight:700', href: `#/b/${getActiveBiz()}/vendors/${v.id}`, title: 'View this vendor’s transactions' }, v.name), isBroken ? el('span', { class: 'pill amber', style: 'margin-left:6px' }, 'Category archived') : ''),
       el('td', {},
         ...(v.matchers?.exact || []).map(x => el('span', { class: 'pill blue', style: 'margin-right:4px' }, `exact: ${x}`)),
         ...(v.matchers?.keywords || []).map(k => el('span', { class: 'pill gray', style: 'margin-right:4px' }, `contains: ${k}`))),

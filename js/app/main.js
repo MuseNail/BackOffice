@@ -15,7 +15,7 @@ import * as accounts from './views/accounts.js';
 import * as ledger from './views/ledger.js';
 import * as banking from './views/banking.js';
 import * as review from './views/review.js';
-import * as rules from './views/rules.js';
+import * as vendors from './views/vendors.js';
 import * as reconcile from './views/reconcile.js';
 import * as deposits from './views/deposits.js';
 import * as reports from './views/reports.js';
@@ -31,7 +31,8 @@ const VIEWS = {
   review,
   ledger,
   accounts,
-  rules,
+  vendors,
+  rules: vendors,   // back-compat for any old #/b/<biz>/rules links
   reconcile,
   deposits,
   inventory,
@@ -52,12 +53,12 @@ function route() {
 
   if (hash.startsWith('#/setup')) { setNav('businesses', ''); current = mount(setup, root); return; }
 
-  const m = hash.match(/^#\/b\/([a-z0-9-]+)\/(\w+)/);
+  const m = hash.match(/^#\/b\/([a-z0-9-]+)\/(\w+)(?:\/(.+))?$/);
   if (m) {
-    const [, biz, viewName] = m;
+    const [, biz, viewName, detail] = m;
     if (opened !== biz) { opened = biz; setActiveBiz(biz); openBusiness(biz).catch(console.error); }
     setNav(viewName, biz);
-    current = mount(VIEWS[viewName] || VIEWS.dashboard, root);
+    current = mount(VIEWS[viewName] || VIEWS.dashboard, root, detail);   // detail = a drill-down target id (register views)
     return;
   }
   // 3b UI shaping: single-business users have no selector — land in their books.
@@ -67,10 +68,10 @@ function route() {
   current = mount(businesses, root);
 }
 
-function mount(view, root) {
+function mount(view, root, detail) {
   root.replaceChildren();
   try {
-    view.render(root);
+    view.render(root, detail);
   } catch (e) {
     console.error('[mount] render error', e);
     const pre = document.createElement('pre');
