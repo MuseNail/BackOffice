@@ -103,13 +103,17 @@ export class BusinessDO {
     // NOT in ENTITY_KINDS, so snapshot() skips it and it never reaches a browser.
     // internal: store/refresh the token blob for a connected Plaid item.
     if (path === '/_plaid/save-item' && req.method === 'POST') {
-      const { accessToken, itemId, institution, accounts } = await req.json();
+      const { accessToken, itemId, institution, accounts, startDate } = await req.json();
       if (!accessToken || !itemId) return json({ error: 'bad' }, 400);
       const existing = await this.state.storage.get('plaid:' + itemId);
+      // Cutoff for what gets staged — keep an existing one; else the passed date; else
+      // today (never re-pull an account's whole history as duplicates by default).
+      const sd = existing?.startDate || (/^\d{4}-\d{2}-\d{2}$/.test(startDate || '') ? startDate : new Date().toISOString().slice(0, 10));
       await this.state.storage.put('plaid:' + itemId, {
         accessToken, itemId, institution: institution || 'Bank',
         accounts: Array.isArray(accounts) ? accounts : [],
         cursor: existing?.cursor || null,
+        startDate: sd,
         bankacctByPlaidAcct: existing?.bankacctByPlaidAcct || {},
         createdAt: existing?.createdAt || Date.now(),
         lastSyncAt: existing?.lastSyncAt || null,

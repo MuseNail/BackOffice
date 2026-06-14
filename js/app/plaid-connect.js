@@ -31,10 +31,12 @@ function loadPlaid() {
 const clearOAuth = () => { try { sessionStorage.removeItem(OAUTH_KEY); } catch { /* private mode */ } };
 
 // Shared success path: swap the public_token for a stored access token, then map
-// the chosen Plaid account to the bank account being connected.
-async function onConnected(biz, bankacct, publicToken, metadata) {
+// the chosen Plaid account to the bank account being connected. startDate is the
+// cutoff — only transactions on/after it are staged, so history already imported by
+// CSV isn't re-pulled as duplicates.
+async function onConnected(biz, bankacct, startDate, publicToken, metadata) {
   const institution = metadata?.institution?.name || bankacct.institution || 'Bank';
-  const ex = await api(`/b/${biz}/plaid/exchange`, { method: 'POST', body: JSON.stringify({ public_token: publicToken, institution }) });
+  const ex = await api(`/b/${biz}/plaid/exchange`, { method: 'POST', body: JSON.stringify({ public_token: publicToken, institution, startDate }) });
   if (!ex.ok) { toast('Could not finish connecting', 'err'); return; }
   const { itemId, accounts } = await ex.json();
   if (!accounts || !accounts.length) { toast('No checking/savings account found at that bank', 'err'); return; }
@@ -85,8 +87,23 @@ export function disconnectPlaid(bankacct) {
   );
 }
 
-// Open Plaid Link to connect a feed onto an existing bank account.
-export async function startPlaidConnect(bankacct) {
+// Connect a feed onto an existing bank account. First ask for a cutoff date so the
+// account's history (already imported by CSV) isn't re-pulled as duplicates.
+export function startPlaidConnect(bankacct) {
+  const today = new Date().toISOString().slice(0, 10);
+  const m = modal('Connect bank feed');
+  const dateIn = el('input', { class: 'field-input', type: 'date', value: today, max: today, style: 'max-width:175px' });
+  m.body.append(
+    el('p', {}, 'Your books already have transactions you imported. To avoid duplicates, only pull bank transactions dated on or after:'),
+    el('div', { style: 'margin:8px 0' }, dateIn),
+    el('p', { class: 'sub' }, 'Tip: pick the day after your last import — no gap, no overlap. Older transactions stay in your books from the import; new ones sync automatically from here.'),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
+      el('button', { class: 'btn', onclick: () => { const sd = dateIn.value || today; m.close(); openPlaidLink(bankacct, sd); } }, 'Continue')),
+  );
+}
+
+async function openPlaidLink(bankacct, startDate) {
   const biz = getActiveBiz();
   try {
     await loadPlaid();
@@ -95,10 +112,10 @@ export async function startPlaidConnect(bankacct) {
     if (!r.ok) { toast('Could not start the bank connection', 'err'); return; }
     const { link_token } = await r.json();
     // Persist for the OAuth round-trip (a big bank redirects the whole tab away).
-    try { sessionStorage.setItem(OAUTH_KEY, JSON.stringify({ linkToken: link_token, bankacctId: bankacct.id, biz })); } catch { /* private mode */ }
+    try { sessionStorage.setItem(OAUTH_KEY, JSON.stringify({ linkToken: link_token, bankacctId: bankacct.id, biz, startDate })); } catch { /* private mode */ }
     const handler = window.Plaid.create({
       token: link_token,
-      onSuccess: (pt, md) => { clearOAuth(); onConnected(biz, bankacct, pt, md); },
+      onSuccess: (pt, md) => { clearOAuth(); onConnected(biz, bankacct, startDate, pt, md); },
       onExit: (err) => { clearOAuth(); if (err) toast('Bank connection cancelled', 'err'); },
     });
     handler.open();
@@ -119,7 +136,7 @@ export async function resumePlaidOAuth() {
     const handler = window.Plaid.create({
       token: saved.linkToken,
       receivedRedirectUri: window.location.href,
-      onSuccess: (pt, md) => { clearOAuth(); history.replaceState(null, '', clean); onConnected(saved.biz, bankacct, pt, md); },
+      onSuccess: (pt, md) => { clearOAuth(); history.replaceState(null, '', clean); onConnected(saved.biz, bankacct, saved.startDate, pt, md); },
       onExit: () => { clearOAuth(); history.replaceState(null, '', clean); },
     });
     handler.open();

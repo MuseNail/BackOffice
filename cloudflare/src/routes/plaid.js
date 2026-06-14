@@ -62,6 +62,8 @@ export async function handlePlaidExchange(req, env, bizId) {
   if (!publicToken) return json({ error: 'public_token required' }, 400);
   const institution = String(b.institution || 'Bank').slice(0, 80);
 
+  const startDate = /^\d{4}-\d{2}-\d{2}$/.test(b.startDate || '') ? b.startDate : null;
+
   const ex = await plaid(env, '/item/public_token/exchange', { public_token: publicToken });
   if (!ex.ok) return json({ error: 'exchange_failed', detail: ex.data.error_message || '' }, 502);
   const accessToken = ex.data.access_token, itemId = ex.data.item_id;
@@ -72,7 +74,7 @@ export async function handlePlaidExchange(req, env, bizId) {
     .filter(a => a.type === 'depository')
     .map(a => ({ plaidAccountId: a.account_id, name: a.name || a.official_name || 'Account', mask: a.mask || '', subtype: a.subtype || '' }));
 
-  const res = await toDO(env, bizId, '/_plaid/save-item', { accessToken, itemId, institution, accounts });
+  const res = await toDO(env, bizId, '/_plaid/save-item', { accessToken, itemId, institution, accounts, startDate });
   if (!res.ok) return json({ error: 'store_failed' }, 502);
   return json({ itemId, accounts });
 }
@@ -120,8 +122,12 @@ export async function handlePlaidSync(req, env, bizId) {
       hasMore = !!r.data.has_more;
     }
     // Group new rows by their Plaid account, map each to its bank account, shape.
+    // The cursor still advanced past ALL history above; we just don't STAGE anything
+    // before the cutoff, so transactions already imported by CSV aren't duplicated.
+    const since = item.startDate || '0000-00-00';
     const byAcct = new Map();
     for (const t of added) {
+      if (t.date && t.date < since) continue;          // history already in the books
       const bankacctId = item.bankacctByPlaidAcct && item.bankacctByPlaidAcct[t.account_id];
       if (!bankacctId) continue;                       // account the owner didn't map
       if (!byAcct.has(t.account_id)) byAcct.set(t.account_id, { bankacctId, txns: [] });
