@@ -62,6 +62,7 @@ export class RegistryDO {
 
       if (p === '/registry/businesses' && req.method === 'GET') return this.listBusinesses(sess);
       if (p === '/registry/businesses' && req.method === 'POST') return this.createBusiness(sess, await req.json());
+      if (p === '/registry/businesses/delete' && req.method === 'POST') return this.deleteBusiness(sess, await req.json());
       if (p === '/registry/users' && req.method === 'GET') return this.listUsers(sess, url.searchParams.get('businessId'));
       if (p === '/registry/users' && req.method === 'POST') return this.createUser(sess, await req.json());
       if (p === '/registry/devices' && req.method === 'GET') return this.listDevices(sess, url.searchParams.get('businessId'));
@@ -189,6 +190,21 @@ export class RegistryDO {
     const record = { id, name: b.name, industry: b.industry || 'general', createdAt: Date.now() };
     await this.state.storage.put(`business:${id}`, record);
     return json({ ok: true, business: record });
+  }
+
+  // Owner-only. Removes a business from the directory (+ its membership rows) so it
+  // disappears from the switcher. The business's own BusinessDO data is NOT wiped here
+  // — a future "Delete business" UI (Settings) will add a confirmation step and an
+  // optional data wipe. Used now to clear test/abandoned businesses.
+  async deleteBusiness(sess, b) {
+    if (!sess.isOwner) return json({ error: 'forbidden' }, 403);
+    const id = String(b?.id || '').toLowerCase();
+    if (!await this.state.storage.get(`business:${id}`)) return json({ error: 'not found' }, 404);
+    await this.state.storage.delete(`business:${id}`);
+    for (const k of (await this.state.storage.list({ prefix: 'membership:' })).keys()) {
+      if (k.endsWith(`:${id}`)) await this.state.storage.delete(k);
+    }
+    return json({ ok: true });
   }
 
   // ── users ──

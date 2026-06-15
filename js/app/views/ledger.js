@@ -177,6 +177,8 @@ function confirmVoid(t) {
 
 function confirmDelete(t) {
   if (t.reconciledIn) { toast('Reconciled transactions cannot be deleted', 'err'); return; }
+  const locks = new Set(entities('lock').map(l => l.id));
+  if (locks.has(periodKey(t.date))) { toast(`Period ${periodKey(t.date)} is locked — reopen it in Settings first`, 'err'); return; }
   const linkedStaged = entities('staged').find(s => s.txnId === t.id);
   const m = modal('Delete this transaction?');
   m.body.append(

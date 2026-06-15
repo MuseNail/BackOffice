@@ -320,9 +320,13 @@ export class BusinessDO {
     if (op.op === 'entity.delete') {
       if (!ENTITY_KINDS.has(op.kind) || !op.id) return { rejected: true, reason: 'bad op' };
       // Reconciled transactions are permanently locked — deletion would corrupt past statements.
+      // A closed (locked) period is sealed too: no add, no edit, AND no delete.
       if (op.kind === 'txn') {
         const t = await this.state.storage.get(`txn:${op.id}`);
         if (t?.reconciledIn) return { rejected: true, reason: 'reconciled: cannot delete a reconciled transaction' };
+        if (t && await this.state.storage.get(`lock:${periodKey(t.date)}`)) {
+          return { rejected: true, reason: `period ${periodKey(t.date)} is locked — reopen it to delete` };
+        }
       }
       await this.state.storage.delete(`${op.kind}:${op.id}`);
       return this.commit(op);
