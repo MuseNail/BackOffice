@@ -14,8 +14,16 @@
   <div class="logo"><span class="ms">account_balance</span> Back Office <span id="ver" class="ver"></span></div>
   <div class="spacer"></div>
   <div id="syncpill" class="syncpill synced">Synced</div>
-  <div id="userchip" class="userchip" style="display:none"><span></span>
-    <button id="logoutbtn" class="iconbtn" title="Sign out"><span class="ms">logout</span></button>
+  <div id="userchip" class="userchip" style="display:none">
+    <button id="userchip-btn" type="button" title="Account"><span id="userchip-name"></span><span class="ms" style="font-size:18px">expand_more</span></button>
+    <div id="usermenu" class="usermenu" hidden>
+      <button data-act="guide"><span class="ms">menu_book</span> App guide</button>
+      <button data-act="quickref"><span class="ms">bolt</span> Quick reference</button>
+      <button data-act="whatsnew"><span class="ms">new_releases</span> What’s new</button>
+      <div class="usermenu-div"></div>
+      <button data-act="reset"><span class="ms">restart_alt</span> Hard reset</button>
+      <button data-act="logout"><span class="ms">logout</span> Log out</button>
+    </div>
   </div>
 </div>
 <div class="layout">

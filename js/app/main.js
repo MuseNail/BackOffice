@@ -24,6 +24,8 @@ import * as inventory from './views/inventory.js';
 import * as settings from './views/settings.js';
 import { subscribe } from './store.js';
 import { entities } from './store.js';
+import { openGuide, openQuickRef } from './guide.js';
+import { showWhatsNew, maybeShowWhatsNew } from './changelog.js';
 import { stub } from './views/stubs.js';
 
 const VIEWS = {
@@ -100,7 +102,7 @@ function setNav(active, biz) {
   const who = document.getElementById('userchip');
   const u = getUser();
   who.style.display = u ? 'flex' : 'none';
-  if (u) who.firstChild.textContent = u.name;
+  if (u) document.getElementById('userchip-name').textContent = u.name;
 }
 
 // ── Version check ────────────────────────────────────────────────────────────
@@ -141,7 +143,8 @@ async function hardReload() {
 function boot() {
   const ver = document.getElementById('ver');
   ver.textContent = 'v' + APP_VERSION;
-  ver.title = 'Back Office v' + APP_VERSION;
+  ver.title = 'Back Office v' + APP_VERSION + ' — what’s new';
+  ver.onclick = () => showWhatsNew();   // checkAppVersion swaps this to a hard-reload when an update is waiting
   setStatusListener(s => {
     const pill = document.getElementById('syncpill');
     pill.textContent = s === 'synced' ? 'Synced' : 'Offline';
@@ -152,17 +155,32 @@ function boot() {
       const biz = document.getElementById('sidebar').dataset.biz;
       location.hash = n.dataset.v === 'businesses' ? '#/businesses' : `#/b/${biz}/${n.dataset.v}`;
     }));
-  document.getElementById('logoutbtn').addEventListener('click', async () => {
+  // Account menu (top-right): guide, quick reference, what's new, hard reset, log out.
+  const doLogout = async () => {
     try { await fetch(ORIGIN + '/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${getToken()}` } }); } catch { /* signing out anyway */ }
     clearSession();
     location.hash = '';
     location.reload();
+  };
+  const menu = document.getElementById('usermenu');
+  document.getElementById('userchip-btn').addEventListener('click', (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; });
+  document.addEventListener('click', (e) => { if (!document.getElementById('userchip').contains(e.target)) menu.hidden = true; });
+  menu.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-act]'); if (!b) return;
+    menu.hidden = true;
+    const act = b.dataset.act;
+    if (act === 'guide') openGuide();
+    else if (act === 'quickref') openQuickRef();
+    else if (act === 'whatsnew') showWhatsNew();
+    else if (act === 'reset') promptHardReload();
+    else if (act === 'logout') doLogout();
   });
   subscribe(updateReviewBadge);
   window.addEventListener('hashchange', route);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkAppVersion(); });
   route();
   checkAppVersion();
+  if (getToken()) maybeShowWhatsNew();
   resumePlaidOAuth();   // finish a bank OAuth connect if we're returning from the redirect
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 }

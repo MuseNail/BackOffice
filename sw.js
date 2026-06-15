@@ -35,6 +35,8 @@ const PRECACHE = [
   './js/app/sync.js',
   './js/app/session.js',
   './js/app/ui.js',
+  './js/app/guide.js',
+  './js/app/changelog.js',
   './js/app/views/login.js',
   './js/app/views/businesses.js',
   './js/app/views/dashboard.js',
