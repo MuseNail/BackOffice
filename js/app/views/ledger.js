@@ -1,6 +1,6 @@
 // ── view: ledger — posted transactions, manual entry, journal entries ────────────────
 import { el, clear, toast, modal, fmtMoney } from '../ui.js';
-import { entities, subscribe } from '../store.js';
+import { entities, subscribe, usesInvoices } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseMoney } from '../lib/money.js';
@@ -129,10 +129,11 @@ function drawTable(host, editable) {
     const isVoid = t.status === 'void';
     const isRecon = !!t.reconciledIn;
     const actions = [];
-    if (editable && !isVoid) {
-      actions.push(el('button', { class: 'linklike', onclick: () => editTxnModal(t) }, 'Edit'));
+    if (editable) {
+      if (!isVoid) actions.push(el('button', { class: 'linklike', onclick: () => editTxnModal(t) }, 'Edit'));
+      // Delete is offered on voided rows too (purge a dead record); blocked only when reconciled.
       if (!isRecon) actions.push(el('button', { class: 'linklike', onclick: () => confirmDelete(t) }, 'Delete'));
-      actions.push(el('button', { class: 'linklike', onclick: () => confirmVoid(t) }, 'Void'));
+      if (!isVoid) actions.push(el('button', { class: 'linklike', onclick: () => confirmVoid(t) }, 'Void'));
     }
     return el('tr', { style: isVoid ? 'opacity:.45' : '' },
       el('td', {}, t.date),
@@ -180,10 +181,13 @@ function confirmDelete(t) {
   const locks = new Set(entities('lock').map(l => l.id));
   if (locks.has(periodKey(t.date))) { toast(`Period ${periodKey(t.date)} is locked — reopen it in Settings first`, 'err'); return; }
   const linkedStaged = entities('staged').find(s => s.txnId === t.id);
+  const linkedPurchase = entities('purchase').find(p => p.txnId === t.id);
+  const linkedItem = linkedPurchase ? entities('item').find(i => i.id === linkedPurchase.itemId) : null;
   const m = modal('Delete this transaction?');
   m.body.append(
-    el('p', {}, `${t.date} · ${t.payee || 'no payee'} — this permanently removes the entry. Use Void instead if you want to keep a record.`),
+    el('p', {}, `${t.date} · ${t.payee || 'no payee'} — this permanently removes the entry.${t.status === 'void' ? '' : ' Use Void instead if you want to keep a record.'}`),
     linkedStaged ? el('p', { class: 'sub' }, 'The imported bank row it was posted from returns to Review as pending, so you can re-categorize and re-approve it.') : null,
+    linkedPurchase ? el('p', { class: 'sub' }, `This was an inventory restock — deleting it also removes the purchase record${linkedItem ? ` and reduces “${linkedItem.name}” on-hand by ${linkedPurchase.qty}` : ''}.`) : null,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', style: 'background:var(--red)', onclick: () => {
@@ -191,6 +195,13 @@ function confirmDelete(t) {
         // Revert the associated staged row (if any) so it can be re-approved
         const staged = entities('staged').find(s => s.txnId === t.id);
         if (staged) dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...staged, status: 'pending', txnId: null, categoryId: null } });
+        // Inventory restock: remove the purchase record and undo its on-hand qty so nothing is orphaned.
+        if (linkedPurchase) {
+          dispatch({ op: 'entity.delete', kind: 'purchase', id: linkedPurchase.id });
+          if (linkedItem && typeof linkedItem.qtyOnHand === 'number') {
+            dispatch({ op: 'entity.upsert', kind: 'item', value: { ...linkedItem, qtyOnHand: linkedItem.qtyOnHand - (linkedPurchase.qty || 0) } });
+          }
+        }
         toast('Transaction deleted');
         m.close();
       } }, 'Delete permanently')),
@@ -226,6 +237,13 @@ function editTxnModal(t) {
     el('option', { value: '' }, '— none —'),
     ...vendors.map(v => el('option', { value: v.id, selected: v.id === t.vendorId }, v.name)));
 
+  // Invoice tag (per-invoice margin) — only when this business uses invoices. Metadata only.
+  const useInv = usesInvoices();
+  const invoices = useInv ? entities('invoice').slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')) : [];
+  const invSel = useInv ? el('select', { class: 'field-input' },
+    el('option', { value: '' }, '— none —'),
+    ...invoices.map(i => el('option', { value: i.id, selected: i.id === t.invoiceId }, `#${i.number || i.id} · ${(i.clientName || '').slice(0, 24)}`))) : null;
+
   m.body.append(
     isRecon ? el('p', { class: 'sub' }, '⚠️ This transaction is reconciled — the date, accounts, and amounts are locked. You can still update the payee and memo.') : null,
     el('label', { class: 'field-label' }, 'Date'), date,
@@ -235,6 +253,8 @@ function editTxnModal(t) {
     catSel || null,
     vendors.length ? el('label', { class: 'field-label' }, 'Vendor') : null,
     vendors.length ? vendSel : null,
+    invSel ? el('label', { class: 'field-label' }, 'Invoice (for margin)') : null,
+    invSel || null,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', onclick: () => {
@@ -243,7 +263,7 @@ function editTxnModal(t) {
         const newLines = (!isRecon && catSel && catLine)
           ? t.lines.map(l => l === catLine ? { ...l, accountId: catSel.value } : l)
           : t.lines;
-        const updated = { ...t, date: newDate, payee: payee.value.trim(), memo: memo.value.trim(), lines: newLines, vendorId: vendSel.value || undefined };
+        const updated = { ...t, date: newDate, payee: payee.value.trim(), memo: memo.value.trim(), lines: newLines, vendorId: vendSel.value || undefined, invoiceId: invSel ? (invSel.value || undefined) : t.invoiceId };
         const v = validateTxn(updated, ctx());
         if (!v.ok) { toast(v.error, 'err'); return; }
         dispatch({ op: 'entity.upsert', kind: 'txn', value: updated });

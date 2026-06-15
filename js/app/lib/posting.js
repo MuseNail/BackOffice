@@ -72,6 +72,21 @@ export function activityByAccount(txns, { from, to } = {}) {
   return out;
 }
 
+// Total expense (incl. COGS) tagged to one invoice via txn.invoiceId. Expense/COGS
+// lines are debit-positive, so the sum is a positive "cost" in cents. Posted only.
+// Used for per-invoice profit margin = invoice total − this.
+export function invoiceExpensesTotal(txns, accountsById, invoiceId) {
+  let total = 0;
+  for (const t of txns) {
+    if (!counts(t) || t.invoiceId !== invoiceId) continue;
+    for (const l of t.lines) {
+      const a = accountsById.get(l.accountId);
+      if (a && (a.type === 'expense' || a.type === 'cogs')) total += l.amountCents;
+    }
+  }
+  return total;
+}
+
 // P&L rollup: income shows positive when earned, expenses positive when spent.
 export function profitAndLoss(txns, accountsById, range) {
   const act = activityByAccount(txns, range);

@@ -9,7 +9,7 @@ import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseInvoices } from '../lib/invoice2go.js';
 import { buildPaymentTxns, paymentTxnId } from '../lib/invoice2go-posting.js';
-import { validateTxn } from '../lib/posting.js';
+import { validateTxn, invoiceExpensesTotal } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { blankInvoice, recompute, nextInvoiceNumber, addManualPayment } from '../lib/invoice-edit.js';
 import { parseMoney } from '../lib/money.js';
@@ -402,6 +402,42 @@ function renderInvoiceDetail(root, id) {
   const editable = canEdit(biz);
   const isManual = inv.source?.app === 'manual';
 
+  // Per-invoice margin (#3): billed total − expenses tagged to this invoice (txn.invoiceId).
+  const accountsById = new Map(entities('account').map(a => [a.id, a]));
+  const allTxns = entities('txn');
+  const isExpenseTxn = (t) => t.lines.some(l => { const a = accountsById.get(l.accountId); return a && (a.type === 'expense' || a.type === 'cogs'); });
+  const expenseAmt = (t) => { let s = 0; for (const l of t.lines) { const a = accountsById.get(l.accountId); if (a && (a.type === 'expense' || a.type === 'cogs')) s += l.amountCents; } return s; };
+  const expensesTotal = invoiceExpensesTotal(allTxns, accountsById, inv.id);
+  const marginCents = inv.totalCents - expensesTotal;
+  const marginPct = inv.totalCents > 0 ? Math.round((marginCents / inv.totalCents) * 100) : null;
+  const linkedExpenses = allTxns.filter(t => t.status === 'posted' && t.invoiceId === inv.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const candidates = allTxns.filter(t => t.status === 'posted' && t.invoiceId !== inv.id && isExpenseTxn(t)).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 100);
+  const linkSel = el('select', { class: 'field-input', style: 'max-width:360px' },
+    el('option', { value: '' }, '— pick an expense to link —'),
+    ...candidates.map(t => el('option', { value: t.id }, `${t.date} · ${(t.payee || '—').slice(0, 30)} · ${fmtMoney(expenseAmt(t))}`)));
+  const expenseRows = linkedExpenses.map(t => el('tr', {},
+    el('td', {}, t.date),
+    el('td', {}, t.payee || '—'),
+    el('td', { class: 'num' }, fmtMoney(expenseAmt(t))),
+    el('td', {}, editable ? el('button', { class: 'linklike', onclick: () => { dispatch({ op: 'entity.upsert', kind: 'txn', value: { ...t, invoiceId: undefined } }); toast('Unlinked'); } }, 'Unlink') : '')));
+  const expensesCard = (editable || linkedExpenses.length)
+    ? el('div', { class: 'card', style: 'max-width:640px;margin-bottom:14px' },
+        el('div', { class: 'cardtitle' }, 'Linked expenses'),
+        linkedExpenses.length
+          ? el('table', { class: 'data' },
+              el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Payee'), el('th', { class: 'num' }, 'Expense'), el('th', {}, '')),
+              ...expenseRows)
+          : el('p', { class: 'sub' }, 'No expenses linked yet.'),
+        editable ? el('div', { style: 'display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap' },
+          linkSel,
+          el('button', { class: 'btn sm', onclick: () => {
+            const t = allTxns.find(x => x.id === linkSel.value);
+            if (!t) { toast('Pick an expense to link', 'err'); return; }
+            dispatch({ op: 'entity.upsert', kind: 'txn', value: { ...t, invoiceId: inv.id } });
+            toast('Expense linked');
+          } }, 'Link expense')) : el('span'))
+    : el('span');
+
   const actions = el('div', { style: 'display:flex;gap:8px;margin:10px 0 4px;flex-wrap:wrap' });
   if (editable && isManual) {
     actions.append(
@@ -434,7 +470,10 @@ function renderInvoiceDetail(root, id) {
       el('table', { class: 'data' },
         el('tr', {}, el('td', {}, 'Total'), el('td', { class: 'num' }, fmtMoney(inv.totalCents))),
         el('tr', {}, el('td', {}, 'Paid'), el('td', { class: 'num' }, fmtMoney(inv.paidCents))),
-        el('tr', {}, el('td', {}, el('b', {}, 'Open balance')), el('td', { class: 'num' }, el('b', {}, fmtMoney(inv.balanceCents)))))),
+        el('tr', {}, el('td', {}, el('b', {}, 'Open balance')), el('td', { class: 'num' }, el('b', {}, fmtMoney(inv.balanceCents)))),
+        el('tr', {}, el('td', {}, 'Expenses'), el('td', { class: 'num' }, fmtMoney(expensesTotal))),
+        el('tr', {}, el('td', {}, el('b', {}, 'Profit margin')), el('td', { class: 'num ' + (marginCents >= 0 ? 'pos' : 'neg') }, el('b', {}, fmtMoney(marginCents) + (marginPct != null ? ` (${marginPct}%)` : '')))))),
+    expensesCard,
     itemRows.length ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;margin-bottom:14px;max-width:640px' },
       el('table', { class: 'data' },
         el('tr', {}, el('th', {}, 'Line item'), el('th', { class: 'num' }, 'Qty'), el('th', { class: 'num' }, 'Unit'), el('th', { class: 'num' }, 'Amount')),

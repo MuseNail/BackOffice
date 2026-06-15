@@ -1,7 +1,7 @@
 // node --test tests/posting.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateTxn, simpleTxn, voidTxn, accountBalance, activityByAccount, profitAndLoss, periodKey } from '../js/app/lib/posting.js';
+import { validateTxn, simpleTxn, voidTxn, accountBalance, activityByAccount, profitAndLoss, periodKey, invoiceExpensesTotal } from '../js/app/lib/posting.js';
 import { parseMoney, fmtCents } from '../js/app/lib/money.js';
 
 const accounts = new Map([
@@ -82,4 +82,25 @@ test('fmtCents round-trips', () => {
   assert.equal(fmtCents(123456), '$1,234.56');
   assert.equal(fmtCents(-8417), '−$84.17');
   assert.equal(fmtCents(150000, { sign: true }), '+$1,500.00');
+});
+
+test('invoiceExpensesTotal sums expense + cogs lines tagged to one invoice, posted only', () => {
+  const accts = new Map([
+    ['checking', { id: 'checking', type: 'asset' }],
+    ['supplies', { id: 'supplies', type: 'expense' }],
+    ['cogs', { id: 'cogs', type: 'cogs' }],
+    ['income', { id: 'income', type: 'income' }],
+  ]);
+  const T = (id, invoiceId, lines, status = 'posted') => ({ id, date: '2026-03-01', status, invoiceId, lines });
+  const txns = [
+    T('a', 'inv1', [{ accountId: 'checking', amountCents: -5000 }, { accountId: 'supplies', amountCents: 5000 }]),
+    T('b', 'inv1', [{ accountId: 'checking', amountCents: -2000 }, { accountId: 'cogs', amountCents: 2000 }]),
+    T('c', 'inv2', [{ accountId: 'checking', amountCents: -9999 }, { accountId: 'supplies', amountCents: 9999 }]), // other invoice
+    T('d', 'inv1', [{ accountId: 'checking', amountCents: -1000 }, { accountId: 'supplies', amountCents: 1000 }], 'void'), // void excluded
+    T('e', undefined, [{ accountId: 'checking', amountCents: -3000 }, { accountId: 'supplies', amountCents: 3000 }]), // untagged
+    T('f', 'inv1', [{ accountId: 'checking', amountCents: 7000 }, { accountId: 'income', amountCents: -7000 }]), // income line, not an expense
+  ];
+  assert.equal(invoiceExpensesTotal(txns, accts, 'inv1'), 7000); // 5000 + 2000 only
+  assert.equal(invoiceExpensesTotal(txns, accts, 'inv2'), 9999);
+  assert.equal(invoiceExpensesTotal(txns, accts, 'nope'), 0);
 });

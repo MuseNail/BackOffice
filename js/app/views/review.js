@@ -7,7 +7,7 @@
 //  • Fee split — a deposit where the processor kept a cut: posts gross income,
 //    the fee as its own expense, and the net into the bank, in one balanced txn.
 import { el, clear, toast, fmtMoney, modal } from '../ui.js';
-import { entities, subscribe, getState } from '../store.js';
+import { entities, subscribe, getState, usesInvoices } from '../store.js';
 import { dispatch, api } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { validateTxn, simpleTxn } from '../lib/posting.js';
@@ -17,6 +17,7 @@ import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 import { helcimDayTotals, ledgerDayDebits, matchDeposit } from '../lib/processor-match.js';
 import { quickAddAccountModal } from './accounts.js';
+import { quickAddVendorModal } from './vendors.js';
 
 let unsub = null;
 let aiSuggestions = new Map();
@@ -122,6 +123,37 @@ function addNewCategoryIntercept(sel, initialValue = '') {
   });
 }
 
+// Vendor picker for a Review row — tags THIS transaction with a vendor (separate from
+// the ⚡ "make a rule" flow). Inline "＋ Add vendor" creates a name-only vendor.
+function vendorSelect(vendors, preselect) {
+  const sel = el('select', { class: 'field-input', style: 'margin:4px 0 0;min-width:190px;font-size:.82em' },
+    el('option', { value: '' }, '— vendor (optional) —'),
+    ...vendors.map(v => el('option', { value: v.id, selected: v.id === preselect }, v.name)),
+    el('option', { value: '__newvendor__' }, '＋ Add vendor…'));
+  addNewVendorIntercept(sel, preselect);
+  return sel;
+}
+function addNewVendorIntercept(sel, initial = '') {
+  let prev = initial || '';
+  sel.addEventListener('change', () => {
+    if (sel.value !== '__newvendor__') { prev = sel.value; return; }
+    sel.value = prev; // reset so the row looks unchanged while the modal is open
+    quickAddVendorModal((vendor) => {
+      const marker = sel.querySelector('option[value="__newvendor__"]');
+      marker.before(el('option', { value: vendor.id }, vendor.name));
+      sel.value = vendor.id;
+      prev = vendor.id;
+    });
+  });
+}
+// Invoice picker for a Review row (only when the business uses invoices) — tags the
+// expense to an invoice for per-invoice profit margin. Invoices newest-first.
+function invoiceSelect(invoices, preselect) {
+  return el('select', { class: 'field-input', style: 'margin:4px 0 0;min-width:190px;font-size:.82em' },
+    el('option', { value: '' }, '— invoice (optional) —'),
+    ...invoices.map(i => el('option', { value: i.id, selected: i.id === preselect }, `#${i.number || i.id} · ${(i.clientName || '').slice(0, 24)}`)));
+}
+
 function drawBody(body, editable) {
   const pending = entities('staged')
     .filter(s => s.status === 'pending')
@@ -133,6 +165,9 @@ function drawBody(body, editable) {
   const accountsById = new Map(entities('account').map(a => [a.id, a]));
   const categories = entities('account').filter(a => a.active !== false && !bankish(a));
   const matchCtx = { vendors: entities('vendor'), history: entities('staged') };
+  const vendorsList = entities('vendor').slice().sort((a, b) => a.name.localeCompare(b.name));
+  const showInvoices = usesInvoices();
+  const invoicesList = showInvoices ? entities('invoice').slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')) : [];
 
   const suggested = [];
   const unmatched = [];
@@ -152,9 +187,11 @@ function drawBody(body, editable) {
     const preselect = lastCategory.get(row.id) || sug?.accountId;
     const sel = categorySelect(row, categories, accountsById, preselect);
     const memoIn = el('input', { class: 'field-input', placeholder: 'Add a note…', style: 'margin:4px 0 0;font-size:.82em', value: row.memo || '' });
+    const vendSel = vendorSelect(vendorsList, sug?.vendorId);
+    const invSel = showInvoices ? invoiceSelect(invoicesList) : null;
     const approve = el('button', { class: 'btn sm green', disabled: !preselect, onclick: () => {
       lastCategory.delete(row.id);
-      approveRow(row, sel.value, sug, { memo: memoIn.value.trim() });
+      approveRow(row, sel.value, sug, { memo: memoIn.value.trim(), vendorId: vendSel.value, invoiceId: invSel?.value || '' });
     } }, 'Approve');
     sel.addEventListener('change', () => {
       if (sel.value && sel.value !== '__new__') lastCategory.set(row.id, sel.value);
@@ -179,7 +216,7 @@ function drawBody(body, editable) {
       el('td', {}, row.date),
       el('td', {}, el('b', {}, row.desc.slice(0, 55))),
       el('td', { class: 'num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
-      el('td', {}, editable ? el('div', {}, sel, memoIn) : '—'),
+      el('td', {}, editable ? el('div', {}, sel, memoIn, vendSel, invSel) : '—'),
       el('td', {}, chip),
       el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px' }, ...actions) : ''),
     );
@@ -333,7 +370,7 @@ function approveSyncRow(row, categoryId) {
   toast('Posted');
 }
 
-function approveRow(row, categoryId, sug, { quiet = false, memo = '' } = {}) {
+function approveRow(row, categoryId, sug, { quiet = false, memo = '', vendorId = '', invoiceId = '' } = {}) {
   const bankacct = entities('bankacct').find(b => b.id === row.bankacctId);
   if (!bankacct || !categoryId) { toast('Pick a category first', 'err'); return; }
   const target = entities('account').find(a => a.id === categoryId);
@@ -351,7 +388,9 @@ function approveRow(row, categoryId, sug, { quiet = false, memo = '' } = {}) {
   });
   // Stamp the vendor (Option B) when this row matched a vendor rule and was approved
   // to that vendor's category — so the vendor's register is exact going forward.
-  if (sug?.vendorId && sug.accountId === categoryId) txn.vendorId = sug.vendorId;
+  if (vendorId) txn.vendorId = vendorId;                                  // explicit pick wins
+  else if (sug?.vendorId && sug.accountId === categoryId) txn.vendorId = sug.vendorId;
+  if (invoiceId) txn.invoiceId = invoiceId;                              // tag the expense to an invoice (margin)
   const v = validateTxn(txn, postCtx());
   if (!v.ok) { toast(v.error, 'err'); return; }
   dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });

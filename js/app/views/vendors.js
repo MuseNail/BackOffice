@@ -148,3 +148,31 @@ function ruleModal(existing) {
   );
   setTimeout(() => name.focus(), 0);
 }
+
+// Lightweight "add vendor" (name only) for inline use in Review's vendor picker.
+// Creates a vendor with no rule (empty matchers, no default category) and calls
+// oncreate(vendor). To auto-categorize future imports, use the ⚡ "make a rule" flow.
+export function quickAddVendorModal(oncreate) {
+  const m = modal('Add vendor');
+  const name = el('input', { class: 'field-input', placeholder: 'Vendor name' });
+  m.body.append(
+    el('label', { class: 'field-label' }, 'Name'), name,
+    el('p', { class: 'sub' }, 'Just tags this transaction with the vendor. To auto-categorize a vendor on future imports, use “⚡” in Review.'),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
+      el('button', { class: 'btn', onclick: () => {
+        const n = name.value.trim();
+        if (!n) { toast('Name the vendor', 'err'); return; }
+        const taken = new Set(entities('vendor').map(v => v.id));
+        const base = 'v-' + (slug(n) || 'vendor');
+        let id = base, i = 2;
+        while (taken.has(id)) id = `${base}-${i++}`;
+        const vendor = { id, name: n, matchers: { exact: [], keywords: [] }, defaultAccountId: null, used: 0 };
+        dispatch({ op: 'entity.upsert', kind: 'vendor', value: vendor });
+        toast('Vendor added');
+        m.close();
+        oncreate(vendor);
+      } }, 'Add vendor')),
+  );
+  setTimeout(() => name.focus(), 0);
+}
