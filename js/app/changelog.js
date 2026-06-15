@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.44.0', items: [
+    { icon: 'table_rows', t: 'Click a transaction to edit it', d: 'In the Ledger, click anywhere on a transaction row to open its editor (you no longer have to aim for the small “Edit” link). The Save button is green to match Add.' },
+    { icon: 'checklist', t: 'Faster Review', d: 'The Review screen now works like QuickBooks: each bank transaction shows as a tidy one-line row — click it to open the category, note, vendor and the rule/fee/match actions. After you Approve a row, the next one opens automatically so you can fly down the list.' },
+  ] },
   { v: '0.43.0', items: [
     { icon: 'update', t: 'Self-updating', d: 'Back Office now checks for a new version on its own periodically, so the “Update available” prompt appears even on a device left open all day — no need to close and reopen first.' },
   ] },

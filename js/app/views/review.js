@@ -28,6 +28,9 @@ let reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc' }
 // Preserve per-row category selection across drawBody re-renders (store changes
 // trigger a full redraw, so we save the user's pick here and restore it).
 let lastCategory = new Map();
+// Which bank row's inline editor is expanded (QuickBooks-style accordion). After an Approve we
+// set this to the NEXT pending row's id so it auto-expands on the re-render (fly down the list).
+let _expandedId = null;
 
 const TYPE_GROUPS = [
   ['income', 'Income'], ['asset', 'Assets'], ['liability', 'Liabilities'],
@@ -48,7 +51,7 @@ export function render(root) {
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc' }; }
+export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); _expandedId = null; reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc' }; }
 
 // A row is "ready" if it has a resolved category — a valid rule/history suggestion,
 // an AI suggestion, or a manual pick (lastCategory). Drives the needs/ready filter.
@@ -138,7 +141,7 @@ function drawBody(body, editable) {
 
   const suggested = [];
   const unmatched = [];
-  const rowEl = (row) => {
+  const rowEl = (row, nextId) => {
     let sug = suggestFor(row, matchCtx);
     if (sug && (!accountsById.has(sug.accountId) || accountsById.get(sug.accountId).active === false)) sug = null;
     if (!sug) {
@@ -156,7 +159,55 @@ function drawBody(body, editable) {
     const memoIn = el('input', { class: 'field-input', placeholder: 'Add a note…', style: 'margin:4px 0 0;font-size:.82em', value: row.memo || '' });
     const vendSel = vendorSelect(vendorsList, sug?.vendorId);
     const invSel = showInvoices ? invoiceSelect(invoicesList) : null;
-    const approve = el('button', { class: 'btn sm green', disabled: !preselect, onclick: () => {
+    const chip = sug
+      ? (sug.by === 'rule' ? el('span', { class: 'pill blue' }, `⚡ Rule · ${sug.vendorName}`)
+        : sug.by === 'ai' ? el('span', { class: 'pill amber' }, `✨ AI · ${sug.confidence}%`)
+        : el('span', { class: 'pill green' }, '🕘 You did this before'))
+      : el('span', { class: 'pill gray' }, 'No match');
+
+    // The secondary actions live in the expanded editor (the row stays tidy until opened).
+    const detailActions = [
+      el('button', { class: 'btn sm ghost', onclick: () => skipRow(row) }, 'Skip'),
+      el('button', { class: 'btn sm ghost', title: 'Auto-categorize this vendor from now on', onclick: () => makeRuleModal(row, sel.value, categories, accountsById) }, '⚡ Make a rule')];
+    if (row.amountCents > 0) {
+      detailActions.push(el('button', { class: 'btn sm ghost', title: 'Deposit with a processing fee taken out (e.g. Helcim/Square payout)', onclick: () => feeSplitModal(row, accountsById) }, '% Fee split'));
+      detailActions.push(el('button', { class: 'btn sm ghost', title: 'Match this deposit to your recorded sales/payments', onclick: () => matchDepositModal(row, accountsById) }, '⚡$ Match deposit'));
+    }
+
+    // Expandable editor row (QuickBooks accordion) — hidden until the summary row is clicked.
+    const detailTr = el('tr', { class: 'rev-detail', style: _expandedId === row.id ? '' : 'display:none' },
+      el('td', { colspan: '6', style: 'background:var(--bg);padding:12px 14px' },
+        editable ? el('div', {},
+          el('div', { class: 'f2' },
+            el('div', {}, el('label', { class: 'field-label' }, 'Category'), sel),
+            el('div', {}, el('label', { class: 'field-label' }, 'Note'), memoIn)),
+          el('div', { class: 'f2' },
+            el('div', {}, el('label', { class: 'field-label' }, 'Vendor'), vendSel),
+            invSel ? el('div', {}, el('label', { class: 'field-label' }, 'Invoice'), invSel) : el('div')),
+          el('div', { style: 'display:flex;gap:6px;margin-top:8px;flex-wrap:wrap' }, ...detailActions),
+        ) : '—'));
+
+    const chevron = el('span', { class: 'ms', style: 'font-size:18px;color:var(--mut)' }, _expandedId === row.id ? 'expand_less' : 'expand_more');
+    const toggle = () => {
+      const open = detailTr.style.display !== 'none';
+      _expandedId = open ? null : row.id;
+      // Single-open accordion: collapse every other expanded editor + reset its chevron first.
+      if (!open) {
+        document.querySelectorAll('tr.rev-detail').forEach(d => {
+          if (d !== detailTr && d.style.display !== 'none') {
+            d.style.display = 'none';
+            const chev = d.previousElementSibling?.querySelector('.ms');
+            if (chev) chev.textContent = 'expand_more';
+          }
+        });
+      }
+      detailTr.style.display = open ? 'none' : 'table-row';
+      chevron.textContent = open ? 'expand_more' : 'expand_less';
+    };
+
+    const approve = el('button', { class: 'btn sm green', disabled: !preselect, onclick: (e) => {
+      e.stopPropagation();                 // don't also toggle the row open/closed
+      _expandedId = nextId;                // auto-advance: expand the next pending row after re-render
       lastCategory.delete(row.id);
       approveRow(row, sel.value, sug, { memo: memoIn.value.trim(), vendorId: vendSel.value, invoiceId: invSel?.value || '' });
     } }, 'Approve');
@@ -165,28 +216,18 @@ function drawBody(body, editable) {
       approve.disabled = !sel.value || sel.value === '__new__';
     });
 
-    const chip = sug
-      ? (sug.by === 'rule' ? el('span', { class: 'pill blue' }, `⚡ Rule · ${sug.vendorName}`)
-        : sug.by === 'ai' ? el('span', { class: 'pill amber' }, `✨ AI · ${sug.confidence}%`)
-        : el('span', { class: 'pill green' }, '🕘 You did this before'))
-      : el('span', { class: 'pill gray' }, 'No match');
-
-    const actions = [approve,
-      el('button', { class: 'btn sm ghost', onclick: () => skipRow(row) }, 'Skip'),
-      el('button', { class: 'btn sm ghost', title: 'Auto-categorize this vendor from now on', onclick: () => makeRuleModal(row, sel.value, categories, accountsById) }, '⚡')];
-    if (row.amountCents > 0) {
-      actions.push(el('button', { class: 'btn sm ghost', title: 'Deposit with a processing fee taken out (e.g. Helcim/Square payout)', onclick: () => feeSplitModal(row, accountsById) }, '%'));
-      actions.push(el('button', { class: 'btn sm ghost', title: 'Match this deposit to your recorded sales/payments and clear the clearing account', onclick: () => matchDepositModal(row, accountsById) }, '⚡$'));
-    }
-
-    return el('tr', {},
+    const catAcct = preselect ? accountsById.get(preselect) : null;
+    const catLabel = catAcct && catAcct.active !== false ? accountLabel(catAcct, accountsById) : null;
+    const summaryTr = el('tr', { style: 'cursor:pointer', onclick: toggle },
       el('td', {}, row.date),
       el('td', {}, el('b', {}, row.desc.slice(0, 55))),
       el('td', { class: 'num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
-      el('td', {}, editable ? el('div', {}, sel, memoIn, vendSel, invSel) : '—'),
+      el('td', {}, catLabel || el('span', { style: 'color:var(--amber);font-style:italic' }, '— pick a category —')),
       el('td', {}, chip),
-      el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px' }, ...actions) : ''),
+      el('td', { style: 'white-space:nowrap;text-align:right' },
+        editable ? el('div', { style: 'display:flex;gap:8px;align-items:center;justify-content:flex-end' }, approve, chevron) : chevron),
     );
+    return [summaryTr, detailTr];
   };
 
   // one section per bank account (1.), after the filter/sort bar is applied
@@ -204,7 +245,7 @@ function drawBody(body, editable) {
       el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
         el('table', { class: 'data' },
           el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Bank description'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Category'), el('th', {}, 'Suggested by'), el('th', {}, '')),
-          ...mine.map(rowEl)))));
+          ...mine.flatMap((row, i) => rowEl(row, mine[i + 1] && mine[i + 1].id))))));
   }
 
   // Skipped rows section
