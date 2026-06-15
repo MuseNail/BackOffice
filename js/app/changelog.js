@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.42.0', items: [
+    { icon: 'system_update', t: 'Update prompts you won’t miss', d: 'When a new version is published, Back Office now pops up an “Update available” message with an Update button — instead of only a small ↻ on the version number. Tap Update to load the newest version; your data is never affected.' },
+  ] },
   { v: '0.41.0', items: [
     { icon: 'account_balance_wallet', t: 'Per-account ledger registers', d: 'Pick a bank or card account at the top of the Ledger to see just that account — a running balance column plus its current balance up top, which should match your bank statement. “All accounts” still shows the whole-business total.' },
     { icon: 'open_in_new', t: 'Tap a balance to open its register', d: 'On Banking, click an account’s balance to jump straight into that account’s register in the Ledger.' },
