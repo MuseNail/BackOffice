@@ -187,7 +187,11 @@ function drawTable(host, editable) {
       if (!isRecon) actions.push(el('button', { class: 'linklike', onclick: () => confirmDelete(t) }, 'Delete'));
       if (!isVoid) actions.push(el('button', { class: 'linklike', onclick: () => confirmVoid(t) }, 'Void'));
     }
-    return el('tr', { style: isVoid ? 'opacity:.45' : '' },
+    // Whole row opens Edit (except voided rows, which can't be edited). The actions cell stops
+    // propagation so Edit/Delete/Void run on their own without also firing the row's edit.
+    const rowClickable = editable && !isVoid;
+    return el('tr', { style: (isVoid ? 'opacity:.45;' : '') + (rowClickable ? 'cursor:pointer' : ''),
+        onclick: rowClickable ? () => editTxnModal(t) : undefined },
       el('td', {}, t.date),
       el('td', {}, el('b', {}, t.payee || '—'), t.memo ? el('span', { style: 'color:var(--mut)' }, ` · ${t.memo}`) : '', t.checkNo ? el('span', { style: 'color:var(--mut)' }, ` · #${t.checkNo}`) : ''),
       el('td', {}, d.category),
@@ -197,7 +201,7 @@ function drawTable(host, editable) {
       el('td', { class: 'num ' + (amt > 0 ? 'pos' : amt < 0 ? 'neg' : '') }, amt == null ? '—' : fmtMoney(amt, { sign: amt > 0 })),
       // Running balance only advances on posted entries; a voided row keeps no balance.
       scoped ? el('td', { class: 'num' }, isVoid ? '—' : fmtMoney(balAfter.get(t.id) || 0)) : null,
-      el('td', { style: 'white-space:nowrap' }, ...actions.flatMap((a, i) => i ? [' · ', a] : [a])),
+      el('td', { style: 'white-space:nowrap', onclick: (e) => e.stopPropagation() }, ...actions.flatMap((a, i) => i ? [' · ', a] : [a])),
     );
   });
   const th = (key, label, cls) => el('th', { class: cls || '', style: 'cursor:pointer;user-select:none', title: 'Click to sort', onclick: () => { setSort(key); drawTable(host, editable); } }, label + arrow(key));
@@ -318,7 +322,7 @@ function editTxnModal(t) {
     invSel || null,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
-      el('button', { class: 'btn', onclick: () => {
+      el('button', { class: 'btn green', onclick: () => {
         const newDate = isRecon ? t.date : date.value;
         if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) { toast('Bad date', 'err'); return; }
         if (catSel && catSel.value === '__new__') { toast('Pick a category', 'err'); return; }
