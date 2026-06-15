@@ -6,6 +6,13 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.41.0', items: [
+    { icon: 'account_balance_wallet', t: 'Per-account ledger registers', d: 'Pick a bank or card account at the top of the Ledger to see just that account — a running balance column plus its current balance up top, which should match your bank statement. “All accounts” still shows the whole-business total.' },
+    { icon: 'open_in_new', t: 'Tap a balance to open its register', d: 'On Banking, click an account’s balance to jump straight into that account’s register in the Ledger.' },
+    { icon: 'add_circle', t: 'Add a category or vendor mid-entry', d: 'When adding or editing a transaction you can now create a new category or vendor inline — it’s selected automatically, just like in Review.' },
+    { icon: 'bolt', t: 'Smarter “auto-categorize this vendor”', d: 'The ⚡ rule popup now suggests vendors you already have and adds your new match text to the existing one instead of creating a duplicate.' },
+    { icon: 'check_circle', t: 'Pop-ups no longer close mid-drag', d: 'Selecting text by dragging inside a dialog no longer accidentally dismisses it.' },
+  ] },
   { v: '0.32.0', items: [
     { icon: 'request_quote', t: 'Invoices tab (Invoice2go)', d: 'Import your weekly Invoice2go export, track open balances and A/R aging, and drill into any invoice’s line items and payments.' },
     { icon: 'account_balance', t: 'Payments → ledger → bank', d: 'Post invoice payments to the ledger through a clearing account (fees expensed), then match your bank deposits against it to reconcile.' },

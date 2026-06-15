@@ -16,8 +16,7 @@ import { accountLabel } from '../lib/coa-templates.js';
 import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 import { helcimDayTotals, ledgerDayDebits, matchDeposit } from '../lib/processor-match.js';
-import { quickAddAccountModal } from './accounts.js';
-import { quickAddVendorModal } from './vendors.js';
+import { attachAddCategory, attachAddVendor } from '../pickers.js';
 
 let unsub = null;
 let aiSuggestions = new Map();
@@ -100,27 +99,8 @@ function categorySelect(row, categories, accountsById, preselect) {
   const sel = el('select', { class: 'field-input', style: 'margin:0;min-width:190px' },
     el('option', { value: '' }, '— pick a category —'), ...groups,
     el('option', { value: '__new__' }, '＋ Add category…'));
-  addNewCategoryIntercept(sel, preselect);
+  attachAddCategory(sel, preselect);
   return sel;
-}
-
-// Appends a "＋ Add category…" intercept to any <select>. When __new__ is
-// chosen, the modal opens without losing the current selection; on success the
-// new option is added and auto-selected, then a synthetic change event fires so
-// any upstream listener (approve-button enable) picks it up.
-function addNewCategoryIntercept(sel, initialValue = '') {
-  let prevVal = initialValue || '';
-  sel.addEventListener('change', () => {
-    if (sel.value !== '__new__') { prevVal = sel.value; return; }
-    sel.value = prevVal; // reset so the row looks unchanged while modal is open
-    quickAddAccountModal((account) => {
-      const marker = sel.querySelector('option[value="__new__"]');
-      marker.before(el('option', { value: account.id }, account.name));
-      sel.value = account.id;
-      prevVal = account.id;
-      sel.dispatchEvent(new Event('change')); // notify upstream (approve-button etc.)
-    });
-  });
 }
 
 // Vendor picker for a Review row — tags THIS transaction with a vendor (separate from
@@ -130,21 +110,8 @@ function vendorSelect(vendors, preselect) {
     el('option', { value: '' }, '— vendor (optional) —'),
     ...vendors.map(v => el('option', { value: v.id, selected: v.id === preselect }, v.name)),
     el('option', { value: '__newvendor__' }, '＋ Add vendor…'));
-  addNewVendorIntercept(sel, preselect);
+  attachAddVendor(sel, preselect);
   return sel;
-}
-function addNewVendorIntercept(sel, initial = '') {
-  let prev = initial || '';
-  sel.addEventListener('change', () => {
-    if (sel.value !== '__newvendor__') { prev = sel.value; return; }
-    sel.value = prev; // reset so the row looks unchanged while the modal is open
-    quickAddVendorModal((vendor) => {
-      const marker = sel.querySelector('option[value="__newvendor__"]');
-      marker.before(el('option', { value: vendor.id }, vendor.name));
-      sel.value = vendor.id;
-      prev = vendor.id;
-    });
-  });
 }
 // Invoice picker for a Review row (only when the business uses invoices) — tags the
 // expense to an invoice for per-invoice profit margin. Invoices newest-first.
@@ -287,7 +254,7 @@ function drawBody(body, editable) {
           return accts.length ? el('optgroup', { label }, ...accts.map(a => el('option', { value: a.id, selected: a.id === preselect }, accountLabel(a, accountsById)))) : null;
         }).filter(Boolean),
         el('option', { value: '__new__' }, '＋ Add category…'));
-      addNewCategoryIntercept(sel, preselect);
+      attachAddCategory(sel, preselect);
       const approve = el('button', { class: 'btn sm green', disabled: !bal || !sel.value || sel.value === '__new__', onclick: () => approveSyncRow(row, sel.value) }, 'Approve');
       sel.addEventListener('change', () => { approve.disabled = !bal || !sel.value || sel.value === '__new__'; });
       return el('tr', {},
@@ -438,11 +405,11 @@ function feeSplitModal(row, accountsById) {
   const incomeSel = el('select', { class: 'field-input' },
     ...incomeAccts.map(a => el('option', { value: a.id }, accountLabel(a, accountsById))),
     el('option', { value: '__new__' }, '＋ Add category…'));
-  addNewCategoryIntercept(incomeSel, incomeAccts[0]?.id);
+  attachAddCategory(incomeSel, incomeAccts[0]?.id);
   const feeSel = el('select', { class: 'field-input' },
     ...feeAccts.map(a => el('option', { value: a.id, selected: a.id === defaultFee.id }, accountLabel(a, accountsById))),
     el('option', { value: '__new__' }, '＋ Add category…'));
-  addNewCategoryIntercept(feeSel, defaultFee.id);
+  attachAddCategory(feeSel, defaultFee.id);
   const feeLine = el('p', { style: 'font-weight:700' }, '');
   gross.addEventListener('input', () => {
     const g = parseMoney(gross.value);
@@ -537,7 +504,7 @@ async function matchDepositModal(row, accountsById) {
   const feeSel = el('select', { class: 'field-input' },
     ...feeAccts.map(a => el('option', { value: a.id, selected: a.id === feeDefault?.id }, accountLabel(a, accountsById))),
     el('option', { value: '__new__' }, '＋ Add category…'));
-  addNewCategoryIntercept(feeSel, feeDefault?.id);
+  attachAddCategory(feeSel, feeDefault?.id);
 
   const daysLabel = match.days.length === 1 ? match.days[0] : `${match.days[0]} – ${match.days[match.days.length - 1]}`;
   clear(m.body).append(
@@ -633,8 +600,14 @@ async function askAI(rows, categories, body, editable) {
 
 function makeRuleModal(row, pickedCategoryId, categories, accountsById) {
   const m = modal('Auto-categorize this vendor');
-  const name = el('input', { class: 'field-input', value: guessVendorName(row.desc) });
+  // Existing vendors are offered for reuse (datalist autocomplete) so a second rule
+  // for the same vendor extends it instead of silently overwriting it.
+  const existingVendors = entities('vendor').slice().sort((a, b) => a.name.localeCompare(b.name));
+  const findVendor = (nm) => { const t = nm.trim().toLowerCase(); return t ? existingVendors.find(v => (v.name || '').trim().toLowerCase() === t) : null; };
+  const dl = el('datalist', { id: 'mr-existing-vendors' }, ...existingVendors.map(v => el('option', { value: v.name })));
+  const name = el('input', { class: 'field-input', list: 'mr-existing-vendors', value: guessVendorName(row.desc) });
   const keyword = el('input', { class: 'field-input', value: guessVendorName(row.desc).toUpperCase() });
+  const hint = el('p', { class: 'sub', style: 'margin:4px 0 0;color:var(--green)' }, '');
   // Bank/card accounts are offered as transfer destinations (a rule can auto-categorize
   // a recurring transfer to another account), mirroring the Vendors-tab rule editor.
   const ownAccountId = entities('bankacct').find(b => b.id === row.bankacctId)?.accountId;
@@ -650,23 +623,39 @@ function makeRuleModal(row, pickedCategoryId, categories, accountsById) {
         .sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)))
         .map(a => el('option', { value: a.id, selected: a.id === pickedCategoryId }, accountLabel(a, accountsById)))),
     el('option', { value: '__new__' }, '＋ Add category…'));
-  addNewCategoryIntercept(cat, pickedCategoryId);
+  attachAddCategory(cat, pickedCategoryId);
+  // When the typed name matches a vendor that already exists, say so and adopt its
+  // category — so the user keeps building one vendor rather than making a duplicate.
+  const syncExisting = () => {
+    const v = findVendor(name.value);
+    hint.textContent = v ? `“${v.name}” already exists — this match text will be added to it.` : '';
+    if (v?.defaultAccountId && !cat.value) cat.value = v.defaultAccountId;
+  };
+  name.addEventListener('input', syncExisting);
+  syncExisting();
   m.body.append(
     el('p', { class: 'sub' }, 'Bank descriptions containing the match text get this category suggested automatically.'),
-    el('label', { class: 'field-label' }, 'Vendor name'), name,
+    el('label', { class: 'field-label' }, 'Vendor name'), name, dl, hint,
     el('label', { class: 'field-label' }, 'Match text (appears anywhere in the description)'), keyword,
     el('label', { class: 'field-label' }, 'Category'), cat,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', onclick: () => {
-        if (!name.value.trim() || !keyword.value.trim() || !cat.value) { toast('Fill all three fields', 'err'); return; }
+        const nm = name.value.trim(), kw = keyword.value.trim();
+        if (!nm || !kw || !cat.value || cat.value === '__new__') { toast('Fill all three fields', 'err'); return; }
+        const existing = findVendor(nm);
+        const keywords = existing
+          ? Array.from(new Set([...(existing.matchers?.keywords || []), kw]))
+          : [kw];
         dispatch({ op: 'entity.upsert', kind: 'vendor', value: {
-          id: 'v-' + name.value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30),
-          name: name.value.trim(),
-          matchers: { exact: [], keywords: [keyword.value.trim()] },
-          defaultAccountId: cat.value, used: 0,
+          ...(existing || {}),
+          id: existing?.id || ('v-' + nm.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30)),
+          name: nm,
+          matchers: { exact: existing?.matchers?.exact || [], keywords },
+          defaultAccountId: cat.value,
+          used: existing?.used || 0,
         } });
-        toast('Rule saved — future imports match automatically');
+        toast(existing ? `Match text added to “${nm}”` : 'Rule saved — future imports match automatically');
         m.close();
       } }, 'Save rule')),
   );

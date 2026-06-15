@@ -4,9 +4,10 @@ import { entities, subscribe, usesInvoices } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseMoney } from '../lib/money.js';
-import { validateTxn, simpleTxn, voidTxn, periodKey } from '../lib/posting.js';
+import { validateTxn, simpleTxn, voidTxn, periodKey, accountBalance } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { vendorMatches } from './vendors.js';
+import { attachAddCategory, attachAddVendor } from '../pickers.js';
 
 let unsub = null;
 
@@ -24,14 +25,20 @@ const sourceTag = (app) => SOURCE_TAGS[app] || { label: 'Import', cls: 'blue' };
 
 const flt = { q: '', from: '', to: '', accountId: '', vendorId: '', source: '' };
 const sort = { key: 'date', dir: 'desc' };
+// Reference to the account-filter <select> so the per-account tab bar (re-rendered
+// inside the table) can keep the dropdown in sync when it changes the scope.
+let acctFilterEl = null;
 // A global-search transaction result deep-links the ledger to a query (set before navigating).
 let _pendingQuery = '';
 export function setLedgerQuery(q) { _pendingQuery = q || ''; }
 const resetFilters = () => { Object.assign(flt, { q: '', from: '', to: '', accountId: '', vendorId: '', source: '' }); sort.key = 'date'; sort.dir = 'desc'; };
 
-export function render(root) {
+export function render(root, detail) {
   const editable = canEdit(getActiveBiz());
   if (_pendingQuery) { flt.q = _pendingQuery; _pendingQuery = ''; }
+  // #/b/<biz>/ledger/<accountId> opens the ledger scoped to one account's register
+  // (deep-linked from the Banking balance cards).
+  if (detail && entities('account').some(a => a.id === detail)) flt.accountId = detail;
   const tableHost = el('div');
   const redraw = () => drawTable(tableHost, editable);
   root.append(
@@ -59,6 +66,7 @@ function filterBar(redraw) {
   const to = el('input', { class: 'field-input', type: 'date', value: flt.to, style: 'max-width:150px', title: 'To date', onchange: (e) => { flt.to = e.target.value; redraw(); } });
   const acct = el('select', { class: 'field-input', style: 'max-width:175px', onchange: (e) => { flt.accountId = e.target.value; redraw(); } },
     el('option', { value: '' }, 'All accounts'), ...accts.map(a => el('option', { value: a.id, selected: a.id === flt.accountId }, accountLabel(a, byId))));
+  acctFilterEl = acct;
   const vend = el('select', { class: 'field-input', style: 'max-width:160px', onchange: (e) => { flt.vendorId = e.target.value; redraw(); } },
     el('option', { value: '' }, 'All vendors'), ...vendors.map(v => el('option', { value: v.id, selected: v.id === flt.vendorId }, v.name)));
   const src = el('select', { class: 'field-input', style: 'max-width:140px', onchange: (e) => { flt.source = e.target.value; redraw(); } },
@@ -86,7 +94,12 @@ function applyFilters(txns) {
   });
 }
 
-const sortAmt = (t) => { const d = describe(t); return d.amount == null ? 0 : d.amount; };
+// Signed cents on one account's line(s) of a txn — the register's per-account amount.
+const lineSumOn = (t, id) => (t.lines || []).filter(l => l.accountId === id).reduce((s, l) => s + l.amountCents, 0);
+// When scoped to one account the amount column shows that account's movement;
+// otherwise it's the business-total amount from describe().
+const rowAmount = (t) => flt.accountId ? lineSumOn(t, flt.accountId) : describe(t).amount;
+const sortAmt = (t) => { const a = rowAmount(t); return a == null ? 0 : a; };
 function applySort(txns) {
   const dir = sort.dir === 'asc' ? 1 : -1;
   const cmp = ({
@@ -120,16 +133,51 @@ function describe(t) {
   return { category: 'Journal — ' + t.lines.map(l => acctName(l.accountId)).join(', '), amount: null };
 }
 
+// Quick-switch bar: "All accounts" (business total) + one chip per bank/card
+// account. Selecting a bank account scopes the ledger to that account's register.
+function accountTabs(host, editable) {
+  const byId = new Map(entities('account').map(a => [a.id, a]));
+  const banks = entities('bankacct')
+    .map(b => byId.get(b.accountId)).filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const pick = (id) => { flt.accountId = id; if (acctFilterEl) acctFilterEl.value = id; drawTable(host, editable); };
+  const chip = (id, label) => el('button', {
+    class: 'btn sm' + (flt.accountId === id ? '' : ' ghost'),
+    onclick: () => pick(id),
+  }, label);
+  return el('div', { class: 'no-print', style: 'display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px' },
+    chip('', 'All accounts'),
+    ...banks.map(a => chip(a.id, a.name)));
+}
+
 function drawTable(host, editable) {
   const allTxns = entities('txn').filter(t => t.status === 'posted' || t.status === 'void');
   if (!allTxns.length) {
     clear(host).append(el('p', { class: 'sub' }, 'No transactions yet — add one above, or import a CSV from Banking.'));
     return;
   }
+  const byId = new Map(entities('account').map(a => [a.id, a]));
+  const scopedAcct = flt.accountId ? byId.get(flt.accountId) : null;
+  const scoped = !!scopedAcct;
+  const isBank = scoped && bankish(scopedAcct);
+
+  // Running balance is computed CHRONOLOGICALLY over ALL of this account's posted
+  // history (not just the filtered/visible rows), so each shown row's balance is the
+  // true cumulative figure — and the latest row ties out to the account balance.
+  const balAfter = new Map();
+  if (scoped) {
+    let run = 0;
+    const chron = entities('txn')
+      .filter(t => t.status === 'posted' && (t.lines || []).some(l => l.accountId === flt.accountId))
+      .sort((a, b) => a.date.localeCompare(b.date) || (a.id < b.id ? -1 : 1));
+    for (const t of chron) { run += lineSumOn(t, flt.accountId); balAfter.set(t.id, run); }
+  }
+
   const filtered = applySort(applyFilters(allTxns));
   const txns = filtered.slice(0, 200);
   const rows = txns.map(t => {
     const d = describe(t);
+    const amt = rowAmount(t);
     const isVoid = t.status === 'void';
     const isRecon = !!t.reconciledIn;
     const actions = [];
@@ -146,18 +194,28 @@ function drawTable(host, editable) {
       el('td', {},
         el('span', { class: `pill ${isVoid ? 'gray' : sourceTag(t.source?.app).cls}` }, isVoid ? 'Void' : sourceTag(t.source?.app).label),
         isRecon ? el('span', { class: 'pill gray', title: 'Amounts and accounts are locked — reconciled in a closed period', style: 'margin-left:4px' }, 'Reconciled') : ''),
-      el('td', { class: 'num ' + (d.amount > 0 ? 'pos' : d.amount < 0 ? 'neg' : '') }, d.amount == null ? '—' : fmtMoney(d.amount, { sign: d.amount > 0 })),
+      el('td', { class: 'num ' + (amt > 0 ? 'pos' : amt < 0 ? 'neg' : '') }, amt == null ? '—' : fmtMoney(amt, { sign: amt > 0 })),
+      // Running balance only advances on posted entries; a voided row keeps no balance.
+      scoped ? el('td', { class: 'num' }, isVoid ? '—' : fmtMoney(balAfter.get(t.id) || 0)) : null,
       el('td', { style: 'white-space:nowrap' }, ...actions.flatMap((a, i) => i ? [' · ', a] : [a])),
     );
   });
   const th = (key, label, cls) => el('th', { class: cls || '', style: 'cursor:pointer;user-select:none', title: 'Click to sort', onclick: () => { setSort(key); drawTable(host, editable); } }, label + arrow(key));
+  const balance = scoped ? accountBalance(entities('txn'), flt.accountId) : 0;
   clear(host).append(
+    accountTabs(host, editable),
+    scoped ? el('div', { class: 'card', style: 'max-width:420px;margin-bottom:12px' },
+      el('div', { class: 'kpilbl' }, `${scopedAcct.name} — current balance`),
+      el('div', { class: 'kpi' }, fmtMoney(balance)),
+      el('div', { class: 'sub', style: 'margin:0' }, isBank
+        ? 'Should match your bank/card statement once every transaction through this account is entered and approved.'
+        : 'Balance of all posted activity in this account.')) : null,
     el('p', { class: 'sub', style: 'margin:0 0 8px' },
       `${filtered.length} of ${allTxns.length} transaction${allTxns.length === 1 ? '' : 's'}${filtered.length > 200 ? ' · showing the first 200 — narrow the filters to see the rest' : ''}`),
     filtered.length
       ? el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
           el('table', { class: 'data' },
-            el('tr', {}, th('date', 'Date'), th('payee', 'Payee / memo'), th('category', 'Category'), el('th', {}, 'Source'), th('amount', 'Amount', 'num'), el('th', {}, '')),
+            el('tr', {}, th('date', 'Date'), th('payee', 'Payee / memo'), th('category', 'Category'), el('th', {}, 'Source'), th('amount', 'Amount', 'num'), scoped ? el('th', { class: 'num' }, 'Balance') : null, el('th', {}, '')),
             ...rows))
       : el('p', { class: 'sub' }, 'No transactions match these filters.'),
   );
@@ -227,19 +285,19 @@ function editTxnModal(t) {
   const payee = el('input', { class: 'field-input', value: t.payee || '', placeholder: 'Who?' });
   const memo = el('input', { class: 'field-input', value: t.memo || '', placeholder: 'Notes (optional)' });
 
-  const catSel = (!isRecon && catLine)
-    ? el('select', { class: 'field-input' },
-        ...entities('account')
-          .filter(a => a.active !== false && !bankish(a))
-          .sort((a, b) => (a.type + accountLabel(a, byId)).localeCompare(b.type + accountLabel(b, byId)))
-          .map(a => el('option', { value: a.id, selected: a.id === catLine.accountId }, accountLabel(a, byId))))
-    : null;
+  let catSel = null;
+  if (!isRecon && catLine) {
+    catSel = el('select', { class: 'field-input' },
+      ...entities('account')
+        .filter(a => a.active !== false && !bankish(a))
+        .sort((a, b) => (a.type + accountLabel(a, byId)).localeCompare(b.type + accountLabel(b, byId)))
+        .map(a => el('option', { value: a.id, selected: a.id === catLine.accountId }, accountLabel(a, byId))),
+      el('option', { value: '__new__' }, '＋ Add category…'));
+    attachAddCategory(catSel, catLine.accountId);
+  }
 
   // Manual vendor assignment (Option B) — metadata only, so allowed even when reconciled.
-  const vendors = entities('vendor').slice().sort((a, b) => a.name.localeCompare(b.name));
-  const vendSel = el('select', { class: 'field-input' },
-    el('option', { value: '' }, '— none —'),
-    ...vendors.map(v => el('option', { value: v.id, selected: v.id === t.vendorId }, v.name)));
+  const vendSel = vendorSelectEl(t.vendorId);
 
   // Invoice tag (per-invoice margin) — only when this business uses invoices. Metadata only.
   const useInv = usesInvoices();
@@ -255,8 +313,7 @@ function editTxnModal(t) {
     el('label', { class: 'field-label' }, 'Memo / notes'), memo,
     catSel ? el('label', { class: 'field-label' }, 'Category') : null,
     catSel || null,
-    vendors.length ? el('label', { class: 'field-label' }, 'Vendor') : null,
-    vendors.length ? vendSel : null,
+    el('label', { class: 'field-label' }, 'Vendor'), vendSel,
     invSel ? el('label', { class: 'field-label' }, 'Invoice (for margin)') : null,
     invSel || null,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
@@ -264,6 +321,7 @@ function editTxnModal(t) {
       el('button', { class: 'btn', onclick: () => {
         const newDate = isRecon ? t.date : date.value;
         if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) { toast('Bad date', 'err'); return; }
+        if (catSel && catSel.value === '__new__') { toast('Pick a category', 'err'); return; }
         const newLines = (!isRecon && catSel && catLine)
           ? t.lines.map(l => l === catLine ? { ...l, accountId: catSel.value } : l)
           : t.lines;
@@ -281,6 +339,17 @@ function editTxnModal(t) {
 const today = () => new Date().toISOString().slice(0, 10);
 const txnId = () => 't-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const ctx = () => ({ accountsById: new Map(entities('account').map(a => [a.id, a])), locks: new Set(entities('lock').map(l => l.id)) });
+
+// Vendor <select> with an inline "＋ Add vendor…" that auto-selects the new vendor.
+function vendorSelectEl(selected = '') {
+  const vendors = entities('vendor').slice().sort((a, b) => a.name.localeCompare(b.name));
+  const sel = el('select', { class: 'field-input' },
+    el('option', { value: '', selected: !selected }, '— none —'),
+    ...vendors.map(v => el('option', { value: v.id, selected: v.id === selected }, v.name)),
+    el('option', { value: '__newvendor__' }, '＋ Add vendor…'));
+  attachAddVendor(sel, selected);
+  return sel;
+}
 
 function accountOptions(filter, selected) {
   const byId = new Map(entities('account').map(a => [a.id, a]));
@@ -311,9 +380,13 @@ function addTxnModal() {
   const checkNo = el('input', { class: 'field-input', placeholder: 'optional' });
   const category = el('select', { class: 'field-input' });
   const redrawCategory = () => {
-    clear(category).append(...accountOptions(a => !bankish(a) && (direction === 'out' ? a.type !== 'income' : a.type !== 'expense' && a.type !== 'cogs')));
+    clear(category).append(
+      ...accountOptions(a => !bankish(a) && (direction === 'out' ? a.type !== 'income' : a.type !== 'expense' && a.type !== 'cogs')),
+      el('option', { value: '__new__' }, '＋ Add category…'));
   };
   redrawCategory();
+  attachAddCategory(category);
+  const vendor = vendorSelectEl();
   const memo = el('input', { class: 'field-input', placeholder: 'optional' });
 
   m.body.append(
@@ -326,18 +399,20 @@ function addTxnModal() {
       el('div', {}, el('label', { class: 'field-label' }, 'Account (paid from / into)'), bank),
       el('div', {}, el('label', { class: 'field-label' }, 'Check #'), checkNo)),
     el('label', { class: 'field-label' }, 'Category'), category,
+    el('label', { class: 'field-label' }, 'Vendor (optional)'), vendor,
     el('label', { class: 'field-label' }, 'Memo'), memo,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn green', onclick: () => {
         const cents = parseMoney(amount.value);
         if (!cents || cents <= 0) { toast('Enter an amount like 84.17', 'err'); return; }
-        if (!bank.value || !category.value) { toast('Pick the accounts', 'err'); return; }
+        if (!bank.value || !category.value || category.value === '__new__') { toast('Pick the accounts', 'err'); return; }
         const txn = simpleTxn({
           id: txnId(), date: date.value, payee: payee.value.trim(), memo: memo.value.trim(),
           checkNo: checkNo.value.trim(), amountCents: cents, direction,
           bankAccountId: bank.value, categoryAccountId: category.value,
         });
+        if (vendor.value) txn.vendorId = vendor.value;
         const v = validateTxn(txn, ctx());
         if (!v.ok) { toast(v.error, 'err'); return; }
         dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });

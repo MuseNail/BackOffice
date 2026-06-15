@@ -42,7 +42,7 @@ function drawBody(body, editable) {
     return el('div', { class: 'card', style: 'flex:1;min-width:230px' },
       el('div', { class: 'cardtitle' }, b.name),
       el('div', { class: 'sub', style: 'margin:0 0 6px' }, `${KINDS[b.kind] || b.kind}${b.institution ? ' · ' + b.institution : ''}`),
-      el('div', { class: 'kpi' }, fmtMoney(bal)),
+      el('a', { class: 'kpi', href: `#/b/${getActiveBiz()}/ledger/${b.accountId}`, title: 'Open this account’s register in the Ledger', style: 'display:block;text-decoration:none;color:inherit' }, fmtMoney(bal)),
       pending ? el('span', { class: 'pill amber' }, `${pending} in Review`) : el('span', { class: 'pill green' }, 'Up to date'),
       openLine ? el('div', { class: 'sub', style: 'margin:6px 0 0' }, `Opening ${fmtMoney(openLine.amountCents)} as of ${opening.date}`) : null,
       b.plaid ? el('div', { class: 'sub', style: 'margin:6px 0 0;color:var(--green)' },

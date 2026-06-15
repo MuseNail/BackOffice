@@ -25,14 +25,22 @@ export function toast(msg, kind = 'ok') {
 
 export function modal(title) {
   const body = el('div');
-  const overlay = el('div', { class: 'overlay on', onclick: (e) => { if (e.target === overlay) overlay.remove(); } },
+  const overlay = el('div', { class: 'overlay on' },
     el('div', { class: 'modal' },
       el('div', { class: 'mhead' },
         el('b', {}, title),
-        el('span', { class: 'ms mclose', onclick: () => overlay.remove() }, 'close')),
+        el('span', { class: 'ms mclose' }, 'close')),
       body));
+  const close = () => overlay.remove();
+  // Backdrop-click-to-close, but ONLY when the press also STARTED on the backdrop.
+  // Otherwise selecting text inside a field and releasing the mouse over the backdrop
+  // (a fast drag) registers as a backdrop click and wrongly dismisses the modal.
+  let downOnOverlay = false;
+  overlay.addEventListener('pointerdown', (e) => { downOnOverlay = e.target === overlay; });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay && downOnOverlay) close(); });
+  overlay.querySelector('.mclose').addEventListener('click', close);
   document.body.append(overlay);
-  return { body, close: () => overlay.remove() };
+  return { body, close };
 }
 
 // Money is integer cents everywhere in stored data; format only at the edge.
