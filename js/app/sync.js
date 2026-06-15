@@ -24,12 +24,20 @@ export async function api(path, opts = {}) {
 
 export async function openBusiness(bizId) {
   const cached = localStorage.getItem(LS.cache(bizId));
-  if (cached) { try { setSnapshot(JSON.parse(cached)); } catch { /* bad cache */ } }
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      // Multi-tenant guard: only render a cached snapshot stamped for THIS business
+      // (or an older unstamped cache, for back-compat). A mismatch means a wrong/stale
+      // entry under this key — skip it; the network fetch below loads the right one.
+      if (!parsed._biz || parsed._biz === bizId) setSnapshot(parsed);
+    } catch { /* bad cache */ }
+  }
   const res = await api(`/b/${bizId}/state`);
   if (res.ok) {
     const snap = await res.json();
     setSnapshot(snap);
-    localStorage.setItem(LS.cache(bizId), JSON.stringify(snap));
+    localStorage.setItem(LS.cache(bizId), JSON.stringify({ ...snap, _biz: bizId }));
   }
   connectWS(bizId);
   await flushOutbox(bizId);
