@@ -11,6 +11,8 @@ import { parseInvoices } from '../lib/invoice2go.js';
 import { buildPaymentTxns, paymentTxnId } from '../lib/invoice2go-posting.js';
 import { validateTxn } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
+import { blankInvoice, recompute, nextInvoiceNumber, addManualPayment } from '../lib/invoice-edit.js';
+import { parseMoney } from '../lib/money.js';
 
 let unsub = null;
 const DEFAULT_CUTOFF = '2025-10-01';
@@ -33,7 +35,9 @@ export function render(root, detail) {
     el('h2', {}, 'Invoices'),
     el('p', { class: 'sub' }, 'Imported from Invoice2go. Each weekly export is the full history — re-importing only adds new invoices and applies new payments, never duplicates.'),
   );
-  if (editable) root.append(importCard(), postCard());
+  if (editable) root.append(
+    el('div', { style: 'margin-bottom:14px' }, el('button', { class: 'btn sm', onclick: () => invoiceModal(null) }, '＋ New invoice')),
+    importCard(), postCard());
   const body = el('div');
   root.append(body);
   const draw = () => drawList(body);
@@ -208,6 +212,117 @@ function postCard() {
   return card;
 }
 
+// ── Manual invoicing (P5): create / edit / record payment / delete ──
+function invoiceModal(existing) {
+  const m = modal(existing ? `Edit invoice #${existing.number}` : 'New invoice');
+  const inv = existing || blankInvoice('inv-man-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), nextInvoiceNumber(entities('invoice')));
+  const fi = (val, ph, extra = {}) => el('input', { class: 'field-input', value: val ?? '', placeholder: ph, ...extra });
+  const name = fi(inv.clientName, 'Client name');
+  const email = fi(inv.clientEmail, 'Email (optional)');
+  const number = fi(inv.number, '#', { style: 'max-width:120px' });
+  const date = el('input', { type: 'date', class: 'field-input', style: 'max-width:170px', value: inv.date || todayIso() });
+
+  const linesBox = el('div');
+  const totalLbl = el('div', { style: 'font-weight:800;margin-top:8px' });
+  const rows = [];
+  const recalc = () => {
+    let sum = 0;
+    for (const r of rows) {
+      if (!r.tr.isConnected) continue;
+      const qty = parseFloat(r.qty.value) || 0;
+      const price = parseMoney(r.price.value) || 0;
+      const amt = Math.round(qty * price);
+      r.amt.textContent = fmtMoney(amt);
+      sum += amt;
+    }
+    totalLbl.textContent = 'Total: ' + fmtMoney(sum);
+  };
+  const addRow = (li = { description: '', qty: 1, unitPriceCents: 0 }) => {
+    const desc = fi(li.description, 'Description', { style: 'flex:1;min-width:160px' });
+    const qty = fi(li.qty, 'Qty', { inputmode: 'decimal', style: 'width:64px' });
+    const price = fi(li.unitPriceCents ? (li.unitPriceCents / 100).toFixed(2) : '', 'Unit $', { inputmode: 'decimal', style: 'width:90px' });
+    const amt = el('span', { class: 'num', style: 'min-width:80px;text-align:right' }, '$0.00');
+    const rm = el('button', { class: 'linklike', style: 'color:var(--red)', onclick: () => { tr.remove(); recalc(); } }, '✕');
+    const tr = el('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:6px' }, desc, qty, price, amt, rm);
+    [desc, qty, price].forEach(i => i.addEventListener('input', recalc));
+    rows.push({ tr, desc, qty, price, amt });
+    linesBox.append(tr);
+  };
+  (inv.lineItems?.length ? inv.lineItems : [{ description: '', qty: 1, unitPriceCents: 0 }]).forEach(addRow);
+  recalc();
+
+  m.body.append(
+    el('div', { style: 'display:flex;gap:10px;flex-wrap:wrap' },
+      el('div', { style: 'flex:1;min-width:200px' }, el('label', { class: 'field-label' }, 'Client'), name),
+      el('div', {}, el('label', { class: 'field-label' }, 'Invoice #'), number),
+      el('div', {}, el('label', { class: 'field-label' }, 'Date'), date)),
+    el('label', { class: 'field-label' }, 'Email'), email,
+    el('label', { class: 'field-label', style: 'margin-top:10px' }, 'Line items'),
+    linesBox,
+    el('button', { class: 'btn sm ghost', onclick: () => { addRow(); } }, '＋ Add line'),
+    totalLbl,
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:14px' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
+      el('button', { class: 'btn', onclick: () => {
+        if (!name.value.trim()) { toast('Enter a client name', 'err'); return; }
+        if (!date.value) { toast('Pick a date', 'err'); return; }
+        const lineItems = rows.filter(r => r.tr.isConnected && (r.desc.value.trim() || parseMoney(r.price.value)))
+          .map(r => ({ code: '', description: r.desc.value.trim(), qty: parseFloat(r.qty.value) || 0, unitType: '', unitPriceCents: parseMoney(r.price.value) || 0 }));
+        if (!lineItems.length) { toast('Add at least one line item', 'err'); return; }
+        const saved = recompute({ ...inv, clientName: name.value.trim(), clientEmail: email.value.trim(), number: number.value.trim() || inv.number, date: date.value, lineItems });
+        dispatch({ op: 'entity.upsert', kind: 'invoice', value: { ...saved, importedAt: inv.importedAt || Date.now(), updatedAt: Date.now() } });
+        toast(existing ? 'Invoice updated' : 'Invoice created');
+        m.close();
+      } }, existing ? 'Save' : 'Create invoice')),
+  );
+  setTimeout(() => name.focus(), 0);
+}
+
+function paymentModal(inv) {
+  const m = modal(`Record a payment — #${inv.number}`);
+  const date = el('input', { type: 'date', class: 'field-input', style: 'max-width:170px', value: todayIso() });
+  const amount = el('input', { class: 'field-input', inputmode: 'decimal', placeholder: (inv.balanceCents / 100).toFixed(2) });
+  const method = el('select', { class: 'field-input' },
+    ...['manual_payment', 'cash', 'check', 'bank_transfer', 'credit_card', 'other'].map(v =>
+      el('option', { value: v }, v.replace(/_/g, ' '))));
+  m.body.append(
+    el('p', { class: 'sub' }, `Open balance: ${fmtMoney(inv.balanceCents)}. Recorded payments post to the ledger from the Invoices list ("Post payments to the ledger").`),
+    el('label', { class: 'field-label' }, 'Date'), date,
+    el('label', { class: 'field-label' }, 'Amount ($)'), amount,
+    el('label', { class: 'field-label' }, 'Method'), method,
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
+      el('button', { class: 'btn green', onclick: () => {
+        const cents = parseMoney(amount.value);
+        if (cents == null || cents <= 0) { toast('Enter a valid amount', 'err'); return; }
+        if (!date.value) { toast('Pick a date', 'err'); return; }
+        const txId = 'man-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        const updated = addManualPayment(inv, { txId, date: date.value, amountCents: cents, method: method.value });
+        dispatch({ op: 'entity.upsert', kind: 'invoice', value: { ...updated, updatedAt: Date.now() } });
+        toast('Payment recorded');
+        m.close();
+      } }, 'Record payment')),
+  );
+  setTimeout(() => amount.focus(), 0);
+}
+
+function confirmDeleteInvoice(inv) {
+  const posted = (inv.payments || []).some(p => entities('txn').some(t => t.id === paymentTxnId(p.txId)));
+  const m = modal('Delete this invoice?');
+  m.body.append(
+    el('p', {}, `Delete invoice #${inv.number} for ${inv.clientName || 'this client'}? This removes the A/R record.`),
+    posted ? el('p', { class: 'sub' }, 'Some payments were already posted to the ledger — those transactions stay posted (remove them in the Ledger if needed).') : el('span'),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Keep it'),
+      el('button', { class: 'btn', style: 'background:var(--red)', onclick: () => {
+        dispatch({ op: 'entity.delete', kind: 'invoice', id: inv.id });
+        toast('Invoice deleted');
+        m.close();
+        location.hash = `#/b/${getActiveBiz()}/invoices`;
+      } }, 'Delete')),
+  );
+}
+
 // ── List + aging ──
 function drawList(body) {
   const biz = getActiveBiz();
@@ -275,6 +390,18 @@ function renderInvoiceDetail(root, id) {
   const back = el('a', { class: 'btn sm ghost', href: `#/b/${biz}/invoices` }, '← Invoices');
   if (!inv) { root.append(el('p', { class: 'sub' }, 'That invoice is no longer here.'), back); return; }
   const st = statusOf(inv);
+  const editable = canEdit(biz);
+  const isManual = inv.source?.app === 'manual';
+
+  const actions = el('div', { style: 'display:flex;gap:8px;margin:10px 0 4px;flex-wrap:wrap' });
+  if (editable && isManual) {
+    actions.append(
+      el('button', { class: 'btn sm', onclick: () => invoiceModal(inv) }, 'Edit'),
+      inv.balanceCents > 0 ? el('button', { class: 'btn sm green', onclick: () => paymentModal(inv) }, 'Record payment') : el('span'),
+      el('button', { class: 'btn sm ghost', style: 'color:var(--red)', onclick: () => confirmDeleteInvoice(inv) }, 'Delete'));
+  } else if (!isManual) {
+    actions.append(el('span', { class: 'sub', style: 'margin:0' }, 'Synced from Invoice2go — edit it there; weekly imports keep it current.'));
+  }
 
   const itemRows = (inv.lineItems || []).map(it => el('tr', {},
     el('td', {}, it.description || it.code || '—'),
@@ -293,6 +420,7 @@ function renderInvoiceDetail(root, id) {
     back,
     el('h2', { style: 'margin-top:10px' }, `Invoice #${inv.number || '—'} `, el('span', { class: 'pill ' + st.cls, style: 'font-size:.5em;vertical-align:middle' }, st.label)),
     el('p', { class: 'sub' }, `${inv.clientName || ''}${inv.clientEmail ? ' · ' + inv.clientEmail : ''} · ${inv.date || ''}`),
+    actions,
     el('div', { class: 'card', style: 'max-width:420px;margin-bottom:14px' },
       el('table', { class: 'data' },
         el('tr', {}, el('td', {}, 'Total'), el('td', { class: 'num' }, fmtMoney(inv.totalCents))),
