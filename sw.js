@@ -13,6 +13,7 @@ const PRECACHE = [
   './js/app/lib/musesync.js',
   './js/app/lib/processor-match.js',
   './js/app/lib/qb-iif.js',
+  './js/app/lib/qb-iif-import.js',
   './js/app/views/vendors.js',
   './js/app/register.js',
   './js/app/views/banking.js',

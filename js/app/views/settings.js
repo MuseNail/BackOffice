@@ -9,6 +9,7 @@ import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { buildIif } from '../lib/qb-iif.js';
+import { parseIifAccounts } from '../lib/qb-iif-import.js';
 import { ORIGIN, LS } from '../config.js';
 
 const ROLES = ['owner', 'manager', 'bookkeeper', 'viewer'];
@@ -28,10 +29,12 @@ export function render(root) {
   const aiCard = el('div', { class: 'card', style: 'max-width:560px' });
   const museCard = el('div', { class: 'card', style: 'max-width:640px' });
   const qbCard = el('div', { class: 'card', style: 'max-width:560px' });
+  const qbImportCard = el('div', { class: 'card', style: 'max-width:560px' });
   const failedCard = el('div', { class: 'card', style: 'max-width:560px' });
-  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, AI spending, the Muse salon sync, and the QuickBooks export for this business only.'), usersCard, devicesCard, aiCard, museCard, qbCard, failedCard);
+  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, AI spending, the Muse salon sync, and the QuickBooks export for this business only.'), usersCard, devicesCard, aiCard, museCard, qbCard, qbImportCard, failedCard);
   drawUsers(usersCard, biz);
   drawDevices(devicesCard, biz);
+  drawQbImportCard(qbImportCard, biz); // not in the subscribe loop — a redraw would clear the chosen file
   const drawAI = () => drawAICard(aiCard);
   const drawMuse = () => drawMuseCard(museCard, biz);
   const drawQb = () => drawQbCard(qbCard, biz);
@@ -212,6 +215,94 @@ function drawQbCard(card, biz) {
       el('div', {}, el('label', { class: 'field-label' }, 'To'), to),
       el('button', { class: 'btn sm', onclick: doExport }, 'Export .iif')),
     result,
+  );
+}
+
+// ── Import the chart of accounts from a QuickBooks .IIF export ──
+// Reads only the !ACCNT section (see lib/qb-iif-import.js). Matches by full
+// account path so an account that already exists is skipped, never duplicated;
+// QB subaccounts (Parent:Child) keep their parent link. Accounts only — never
+// transactions. CCARD accounts import as transfer-capable (qbType CCARD).
+function drawQbImportCard(card, biz) {
+  // existing accounts keyed by their full "parent:child" path (lowercased)
+  const idTo = new Map(entities('account').map(a => [a.id, a]));
+  const pathOf = (a) => {
+    const parts = [a.name]; let cur = a, hops = 0;
+    while (cur.parentId && hops++ < 5) { cur = idTo.get(cur.parentId); if (!cur) break; parts.unshift(cur.name); }
+    return parts.join(':').toLowerCase();
+  };
+  const existingByPath = new Map(entities('account').map(a => [pathOf(a), a]));
+
+  const file = el('input', { type: 'file', accept: '.iif,.txt', class: 'field-input', style: 'max-width:340px' });
+  const preview = el('div', { style: 'margin-top:10px' });
+  const importBtn = el('button', { class: 'btn sm', disabled: true }, 'Import accounts');
+  let toCreate = []; // [{ name, parentName, type, qbType, qbName }]
+
+  const uniqueId = (name, taken) => {
+    const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'account';
+    let id = base, n = 2;
+    while (taken.has(id)) id = `${base}-${n++}`;
+    return id;
+  };
+
+  file.addEventListener('change', async () => {
+    toCreate = []; importBtn.disabled = true; clear(preview);
+    const f = file.files?.[0];
+    if (!f) return;
+    let parsed;
+    try { parsed = parseIifAccounts(await f.text()); }
+    catch { preview.append(el('p', { class: 'sub' }, 'Could not read that file.')); return; }
+
+    const exists = [];
+    for (const a of parsed.accounts) {
+      if (existingByPath.has(a.qbName.toLowerCase())) exists.push(a);
+      else toCreate.push(a);
+    }
+    const unsupported = parsed.skipped;
+    if (!parsed.accounts.length && !unsupported.length) {
+      preview.append(el('p', { class: 'sub' }, 'No accounts found in that file. Export from QuickBooks via File → Utilities → Export → Lists to IIF Files (Chart of Accounts).'));
+      return;
+    }
+    preview.append(
+      el('p', {}, el('b', {}, `${toCreate.length} new`), ` to import · ${exists.length} already exist (skipped)`,
+        unsupported.length ? ` · ${unsupported.length} unsupported (skipped)` : ''),
+      toCreate.length ? el('div', { class: 'sub', style: 'max-height:150px;overflow:auto;margin-top:4px' },
+        ...toCreate.slice(0, 60).map(a => el('div', {}, `${a.qbName} — ${a.type}`)),
+        toCreate.length > 60 ? el('div', {}, `…and ${toCreate.length - 60} more`) : '') : el('span'),
+    );
+    importBtn.disabled = !toCreate.length;
+  });
+
+  importBtn.addEventListener('click', () => {
+    if (!toCreate.length) return;
+    const taken = new Set(entities('account').map(a => a.id));
+    const createdByPath = new Map(); // lowercased path → new account (for parent links)
+    const values = [];
+    for (const a of toCreate) {
+      const id = uniqueId(a.name, taken);
+      taken.add(id);
+      let parentId = null;
+      if (a.parentName) {
+        const key = a.parentName.toLowerCase();
+        const parent = existingByPath.get(key) || createdByPath.get(key);
+        if (parent) parentId = parent.id;
+      }
+      const acct = { id, name: a.name, type: a.type, qbType: a.qbType, qbName: a.qbName.split(':').pop(), parentId, active: true };
+      values.push(acct);
+      createdByPath.set(a.qbName.toLowerCase(), acct);
+    }
+    for (let i = 0; i < values.length; i += 200) {
+      dispatch({ op: 'entity.bulkUpsert', kind: 'account', values: values.slice(i, i + 200) });
+    }
+    toast(`Imported ${values.length} account${values.length === 1 ? '' : 's'}`);
+    clear(preview).append(el('p', { class: 'sub' }, `Imported ${values.length} accounts. They’re now in your chart of accounts and category pickers.`));
+    importBtn.disabled = true; toCreate = []; file.value = '';
+  });
+
+  clear(card).append(
+    el('div', { class: 'cardtitle' }, 'Import chart of accounts (.IIF)'),
+    el('p', { class: 'sub' }, 'Bring a client’s QuickBooks Desktop accounts in. In QuickBooks: File → Utilities → Export → Lists to IIF Files → Chart of Accounts. Accounts that already exist are skipped, so re-importing is safe. Transactions are not imported.'),
+    file, importBtn, preview,
   );
 }
 
