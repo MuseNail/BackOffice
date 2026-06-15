@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.43.0', items: [
+    { icon: 'update', t: 'Self-updating', d: 'Back Office now checks for a new version on its own periodically, so the “Update available” prompt appears even on a device left open all day — no need to close and reopen first.' },
+  ] },
   { v: '0.42.0', items: [
     { icon: 'system_update', t: 'Update prompts you won’t miss', d: 'When a new version is published, Back Office now pops up an “Update available” message with an Update button — instead of only a small ↻ on the version number. Tap Update to load the newest version; your data is never affected.' },
   ] },

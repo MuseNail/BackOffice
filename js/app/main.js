@@ -214,6 +214,7 @@ function boot() {
   mountGlobalSearch();
   window.addEventListener('hashchange', route);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkAppVersion(); });
+  setInterval(() => { if (!document.hidden) checkAppVersion(); }, 20 * 60 * 1000);   // poll so an always-open app self-updates
   route();
   checkAppVersion();
   if (getToken()) maybeShowWhatsNew();
