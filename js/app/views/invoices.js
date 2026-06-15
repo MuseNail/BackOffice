@@ -18,18 +18,39 @@ let unsub = null;
 const DEFAULT_CUTOFF = '2025-10-01';
 
 // Display status from the money, not Invoice2go's label (so it always matches
-// what we show for total/paid/open).
+// what we show for total/paid/open). An open balance more than 30 days past the
+// invoice date reads as Overdue.
 function statusOf(inv) {
   if (inv.balanceCents <= 0 && inv.paidCents > 0) return { key: 'paid', label: 'Paid', cls: 'green' };
+  if (inv.date && daysBetween(inv.date, todayIso()) > 30) return { key: 'overdue', label: 'Overdue', cls: 'red' };
   if (inv.paidCents > 0) return { key: 'partial', label: 'Partial', cls: 'amber' };
   return { key: 'open', label: 'Open', cls: 'gray' };
 }
 
+// Manual invoices are created here; everything else is synced from Invoice2go.
+const sourceOf = (inv) => inv.source?.app === 'manual'
+  ? { label: 'Manual', cls: 'blue' }
+  : { label: 'Imported', cls: 'gray' };
+
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
 
+// Which A/R aging bucket an invoice's open balance falls in (−1 = none/paid).
+const AGING_BUCKETS = [['Current', 0, 0], ['1–30', 1, 30], ['31–60', 31, 60], ['61–90', 61, 90], ['90+', 91, Infinity]];
+function bucketOf(inv, today) {
+  if (inv.balanceCents <= 0 || !inv.date) return -1;
+  const age = daysBetween(inv.date, today);
+  if (age <= 0) return 0;
+  const i = AGING_BUCKETS.findIndex(([, lo, hi]) => age >= lo && age <= hi);
+  return i < 0 ? 0 : i;
+}
+
+// Active aging-chip filter (bucket index, or null for "all"). Reset each mount.
+let agingFilter = null;
+
 export function render(root, detail) {
   if (detail) { renderInvoiceDetail(root, detail); return; }
+  agingFilter = null;
   if (!usesInvoices()) {
     root.append(
       el('h2', {}, 'Invoices'),
@@ -344,32 +365,46 @@ function drawList(body) {
   const totalPaid = invoices.reduce((s, i) => s + i.paidCents, 0);
   const openCount = invoices.filter(i => i.balanceCents > 0).length;
 
-  // AR aging on open balances, by days since invoice date
-  const buckets = [['Current', 0, 0], ['1–30', 1, 30], ['31–60', 31, 60], ['61–90', 61, 90], ['90+', 91, Infinity]];
-  const aging = buckets.map(() => 0);
+  // AR aging on open balances, by days since invoice date.
   const t = todayIso();
-  for (const inv of invoices) {
-    if (inv.balanceCents <= 0 || !inv.date) continue;
-    const age = daysBetween(inv.date, t);
-    const bi = age <= 0 ? 0 : buckets.findIndex(([, lo, hi]) => age >= lo && age <= hi);
-    aging[bi < 0 ? 0 : bi] += inv.balanceCents;
-  }
+  const aging = AGING_BUCKETS.map(() => 0);
+  for (const inv of invoices) { const bi = bucketOf(inv, t); if (bi >= 0) aging[bi] += inv.balanceCents; }
 
   const kpi = (label, val, cls) => el('div', { class: 'card', style: 'flex:1;min-width:150px;padding:12px 16px' },
     el('div', { class: 'sub', style: 'margin:0' }, label),
     el('div', { style: `font-size:1.4em;font-weight:800;${cls || ''}` }, val));
 
-  const rows = invoices.map(inv => {
+  // Aging chips: tap one to filter the list to that bucket's open invoices.
+  const chip = (label, cls, idx, amount) => {
+    const on = agingFilter === idx;
+    const c = el('button', {
+      class: 'pill ' + cls,
+      style: 'cursor:pointer;border:1.5px solid transparent;' + (on ? 'box-shadow:0 0 0 2px var(--brand) inset' : ''),
+      onclick: () => { agingFilter = on ? null : idx; drawList(body); },
+    }, amount != null ? `${label} · ${fmtMoney(amount)}` : label);
+    return c;
+  };
+  const agingChips = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px' },
+    el('span', { class: 'sub', style: 'margin:0 4px 0 0;font-weight:700' }, 'A/R aging'),
+    chip('All open', 'gray', null),
+    ...AGING_BUCKETS.map(([l], i) => chip(l, aging[i] > 0 ? 'amber' : 'gray', i, aging[i])));
+
+  const shown = agingFilter == null ? invoices : invoices.filter(inv => bucketOf(inv, t) === agingFilter);
+  const rows = shown.map(inv => {
     const st = statusOf(inv);
-    return el('tr', {},
-      el('td', {}, el('a', { class: 'linklike', style: 'font-weight:700', href: `#/b/${biz}/invoices/${inv.id}` }, '#' + (inv.number || '—'))),
+    const src = sourceOf(inv);
+    const tr = el('tr', { style: 'cursor:pointer' },
+      el('td', {}, el('span', { style: 'font-weight:700;color:var(--brand)' }, '#' + (inv.number || '—'))),
       el('td', {}, inv.date || '—'),
       el('td', {}, inv.clientName || '—'),
+      el('td', {}, el('span', { class: 'pill ' + src.cls }, src.label)),
       el('td', { class: 'num' }, fmtMoney(inv.totalCents)),
       el('td', { class: 'num' }, fmtMoney(inv.paidCents)),
       el('td', { class: 'num ' + (inv.balanceCents > 0 ? 'neg' : '') }, fmtMoney(inv.balanceCents)),
       el('td', {}, el('span', { class: 'pill ' + st.cls }, st.label)),
     );
+    tr.addEventListener('click', () => { location.hash = `#/b/${biz}/invoices/${inv.id}`; });
+    return tr;
   });
 
   clear(body).append(
@@ -379,16 +414,13 @@ function drawList(body) {
       kpi('Collected', fmtMoney(totalPaid), 'color:var(--green,#2a8)'),
       kpi('Invoices', String(invoices.length)),
     ),
-    el('div', { class: 'card', style: 'padding:0;overflow:hidden;margin-bottom:14px;max-width:640px' },
-      el('table', { class: 'data' },
-        el('tr', {}, el('th', { colspan: '5', style: 'text-align:left' }, 'A/R aging — open balances')),
-        el('tr', {}, ...buckets.map(([l]) => el('th', { class: 'num' }, l))),
-        el('tr', {}, ...aging.map(c => el('td', { class: 'num' + (c > 0 ? ' neg' : '') }, fmtMoney(c)))))),
+    agingChips,
     el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
       el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'Invoice'), el('th', {}, 'Date'), el('th', {}, 'Client'),
+        el('tr', {}, el('th', {}, 'Invoice'), el('th', {}, 'Date'), el('th', {}, 'Client'), el('th', {}, 'Source'),
           el('th', { class: 'num' }, 'Total'), el('th', { class: 'num' }, 'Paid'), el('th', { class: 'num' }, 'Open'), el('th', {}, 'Status')),
         ...rows)),
+    agingFilter != null && !rows.length ? el('p', { class: 'sub', style: 'margin:12px 0 0' }, 'No open invoices in this aging bucket.') : null,
   );
 }
 

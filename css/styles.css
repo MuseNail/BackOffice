@@ -37,6 +37,11 @@ h2{font-size:19px;margin:0 0 2px}
 
 /* ── primitives ── */
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px}
+.kpi-card{transition:border-color .12s,box-shadow .12s,transform .12s}
+.kpi-card:hover{border-color:var(--brand);box-shadow:0 2px 10px rgba(36,86,166,.12);transform:translateY(-1px)}
+.kpi-more{font-size:11px;font-weight:700;color:var(--brand);margin-top:8px;opacity:0;transition:opacity .12s}
+.kpi-card:hover .kpi-more{opacity:1}
+table.data tr[style*="cursor:pointer"]:hover td,table.data tr[style*="cursor: pointer"]:hover td{background:var(--brand-soft)}
 .cardtitle{font-weight:800;font-size:14px;margin:0 0 10px}
 .btn{display:inline-flex;align-items:center;gap:7px;font-weight:700;font-size:13px;border-radius:10px;padding:9px 14px;border:none;cursor:pointer;background:var(--brand);color:#fff}
 .btn:hover{background:var(--brand-dim)}

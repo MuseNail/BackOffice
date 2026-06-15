@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.45.0', items: [
+    { icon: 'space_dashboard', t: 'A Dashboard you can click into', d: 'Each number on the Dashboard now opens a breakdown when you click it: Cash position lists every bank account, Income and Expenses break down by category, and Net shows a mini profit-and-loss. Each card also compares this month to last. A new “Bank accounts” panel lists your accounts — click one to jump straight into its register.' },
+    { icon: 'request_quote', t: 'A clearer Invoices list', d: 'Click anywhere on an invoice row to open it. The list now has a “Source” column showing whether an invoice was entered by hand (Manual) or imported from Invoice2go, an “Overdue” status for past-due open balances, and A/R aging buttons you can tap to filter the list to just that age range.' },
+  ] },
   { v: '0.44.0', items: [
     { icon: 'table_rows', t: 'Click a transaction to edit it', d: 'In the Ledger, click anywhere on a transaction row to open its editor (you no longer have to aim for the small “Edit” link). The Save button is green to match Add.' },
     { icon: 'checklist', t: 'Faster Review', d: 'The Review screen now works like QuickBooks: each bank transaction shows as a tidy one-line row — click it to open the category, note, vendor and the rule/fee/match actions. After you Approve a row, the next one opens automatically so you can fly down the list.' },
