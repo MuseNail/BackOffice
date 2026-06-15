@@ -588,11 +588,20 @@ function makeRuleModal(row, pickedCategoryId, categories, accountsById) {
   const m = modal('Auto-categorize this vendor');
   const name = el('input', { class: 'field-input', value: guessVendorName(row.desc) });
   const keyword = el('input', { class: 'field-input', value: guessVendorName(row.desc).toUpperCase() });
+  // Bank/card accounts are offered as transfer destinations (a rule can auto-categorize
+  // a recurring transfer to another account), mirroring the Vendors-tab rule editor.
+  const ownAccountId = entities('bankacct').find(b => b.id === row.bankacctId)?.accountId;
+  const transferTargets = entities('account')
+    .filter(a => a.active !== false && bankish(a) && a.id !== ownAccountId)
+    .sort((a, b) => a.name.localeCompare(b.name));
   const cat = el('select', { class: 'field-input' },
     el('option', { value: '' }, '— category —'),
-    ...categories
-      .sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)))
-      .map(a => el('option', { value: a.id, selected: a.id === pickedCategoryId }, accountLabel(a, accountsById))),
+    transferTargets.length ? el('optgroup', { label: '↔ Transfer to / from' },
+      ...transferTargets.map(a => el('option', { value: a.id, selected: a.id === pickedCategoryId }, a.name))) : null,
+    el('optgroup', { label: 'Categories' },
+      ...categories
+        .sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)))
+        .map(a => el('option', { value: a.id, selected: a.id === pickedCategoryId }, accountLabel(a, accountsById)))),
     el('option', { value: '__new__' }, '＋ Add category…'));
   addNewCategoryIntercept(cat, pickedCategoryId);
   m.body.append(
