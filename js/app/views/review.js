@@ -172,7 +172,7 @@ function drawBody(body, editable) {
       el('button', { class: 'btn sm ghost', title: 'Auto-categorize this vendor from now on', onclick: () => makeRuleModal(row, sel.value, categories, accountsById) }, '⚡')];
     if (row.amountCents > 0) {
       actions.push(el('button', { class: 'btn sm ghost', title: 'Deposit with a processing fee taken out (e.g. Helcim/Square payout)', onclick: () => feeSplitModal(row, accountsById) }, '%'));
-      actions.push(el('button', { class: 'btn sm ghost', title: 'Match this deposit to the salon’s daily card sales (books first, then Helcim)', onclick: () => matchDepositModal(row, accountsById) }, '⚡$'));
+      actions.push(el('button', { class: 'btn sm ghost', title: 'Match this deposit to your recorded sales/payments and clear the clearing account', onclick: () => matchDepositModal(row, accountsById) }, '⚡$'));
     }
 
     return el('tr', {},
@@ -461,13 +461,19 @@ async function matchDepositModal(row, accountsById) {
   m.body.append(el('p', { class: 'sub' }, 'Looking for the sales days this deposit covers…'));
 
   const mapping = getState().meta?.museMapping || {};
-  const clearingIds = [...new Set([mapping.balancing?.sales_card, mapping.balancing?.gift_sold].filter(Boolean))];
+  const i2gMap = getState().meta?.i2gMapping || {};
+  // Clearing accounts a deposit can relieve: the salon's card/gift clearing
+  // (Muse sync) and/or the Invoice2go clearing account (A/R module).
+  const clearingIds = [...new Set([mapping.balancing?.sales_card, mapping.balancing?.gift_sold, i2gMap.clearingId].filter(Boolean))];
+  // The Helcim API fallback is salon-only — it uses the shared Helcim token, so
+  // a non-salon business (e.g. Invoice2go-only) must never reach for it.
+  const usesHelcim = !!(mapping.balancing?.sales_card || mapping.balancing?.gift_sold);
   const dep = { date: row.date, amountCents: row.amountCents };
 
   let match = clearingIds.length ? matchDeposit(dep, ledgerDayDebits(entities('txn'), clearingIds)) : null;
   let source = match ? 'your books' : null;
 
-  if (!match) {
+  if (!match && usesHelcim) {
     const back = new Date(row.date + 'T12:00:00Z'); back.setUTCDate(back.getUTCDate() - 10);
     try {
       const res = await api(`/b/${getActiveBiz()}/processor/helcim/transactions?dateFrom=${back.toISOString().slice(0, 10)}&dateTo=${row.date}`);
