@@ -24,10 +24,14 @@ const sourceTag = (app) => SOURCE_TAGS[app] || { label: 'Import', cls: 'blue' };
 
 const flt = { q: '', from: '', to: '', accountId: '', vendorId: '', source: '' };
 const sort = { key: 'date', dir: 'desc' };
+// A global-search transaction result deep-links the ledger to a query (set before navigating).
+let _pendingQuery = '';
+export function setLedgerQuery(q) { _pendingQuery = q || ''; }
 const resetFilters = () => { Object.assign(flt, { q: '', from: '', to: '', accountId: '', vendorId: '', source: '' }); sort.key = 'date'; sort.dir = 'desc'; };
 
 export function render(root) {
   const editable = canEdit(getActiveBiz());
+  if (_pendingQuery) { flt.q = _pendingQuery; _pendingQuery = ''; }
   const tableHost = el('div');
   const redraw = () => drawTable(tableHost, editable);
   root.append(

@@ -3,7 +3,7 @@
 // the same rule, this is just honest UI. Muse sync + IIF export land M11/M12.
 import { el, clear, toast, fmtMoney } from '../ui.js';
 import { api, dispatch } from '../sync.js';
-import { getActiveBiz, getBusinesses, roleFor } from '../session.js';
+import { getActiveBiz, getBusinesses, roleFor, getUser } from '../session.js';
 import { getState, entities, byId, subscribe, usesInvoices, usesMuseSync } from '../store.js';
 import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
@@ -32,10 +32,12 @@ export function render(root) {
   const qbCard = el('div', { class: 'card', style: 'max-width:560px' });
   const qbImportCard = el('div', { class: 'card', style: 'max-width:560px' });
   const locksCard = el('div', { class: 'card', style: 'max-width:560px' });
+  const auditCard = el('div', { class: 'card', style: 'max-width:680px' });
   const failedCard = el('div', { class: 'card', style: 'max-width:560px' });
-  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, modules, AI spending, closing the books, and the QuickBooks export for this business only.'), usersCard, devicesCard, featuresCard, aiCard, museCard, qbCard, qbImportCard, locksCard, failedCard);
+  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, modules, AI spending, closing the books, the audit log, and the QuickBooks export for this business only.'), usersCard, devicesCard, featuresCard, aiCard, museCard, qbCard, qbImportCard, locksCard, auditCard, failedCard);
   drawUsers(usersCard, biz);
   drawDevices(devicesCard, biz);
+  drawAuditCard(auditCard, biz);       // async, fetched once (server-stored, not store-driven)
   drawQbImportCard(qbImportCard, biz); // not in the subscribe loop — a redraw would clear the chosen file
   const drawFeatures = () => drawFeaturesCard(featuresCard);
   const drawAI = () => drawAICard(aiCard);
@@ -58,6 +60,30 @@ export function render(root) {
 // LS.failed log so they're never silently lost. This card surfaces them for the
 // owner; there's no retry — a rejection is the server deciding the write is
 // stale or not allowed (e.g. editing a reconciled txn). Device-local.
+// ── Audit log (server-stored: who changed which transaction, when) ──
+async function drawAuditCard(card, biz) {
+  clear(card).append(
+    el('div', { class: 'cardtitle' }, 'Audit log'),
+    el('p', { class: 'sub' }, 'Recent changes to transactions — who did what, and when.'));
+  let entries = [], users = [];
+  try {
+    entries = ((await (await api(`/b/${biz}/_audit?limit=100`)).json()).entries) || [];
+    users = ((await (await api(`/registry/users?businessId=${biz}`)).json()).users) || [];
+  } catch { card.append(el('p', { class: 'sub' }, 'Could not load the audit log.')); return; }
+  const nameById = new Map(users.map(u => [u.id, u.name]));
+  const me = getUser(); if (me?.id) nameById.set(me.id, me.name);
+  if (!entries.length) { card.append(el('p', { class: 'sub' }, 'No transaction changes recorded yet.')); return; }
+  const fmtWhen = ts => { try { return new Date(ts).toLocaleString(); } catch { return '—'; } };
+  const desc = e => `${e.action}${e.payee ? ' “' + e.payee + '”' : ''}${e.amountCents ? ' · ' + fmtMoney(e.amountCents) : ''}`;
+  const rows = entries.map(e => el('tr', {},
+    el('td', {}, fmtWhen(e.at)),
+    el('td', {}, nameById.get(e.by) || e.by || '—'),
+    el('td', {}, desc(e))));
+  card.append(el('div', { style: 'overflow:auto;max-height:360px' }, el('table', { class: 'data' },
+    el('tr', {}, el('th', {}, 'When'), el('th', {}, 'User'), el('th', {}, 'Change')),
+    ...rows)));
+}
+
 function drawFailedOps(card, biz) {
   let log = [];
   try { log = JSON.parse(localStorage.getItem(LS.failed) || '[]'); } catch { /* corrupt → empty */ }

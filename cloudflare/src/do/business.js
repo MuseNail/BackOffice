@@ -33,6 +33,18 @@ const periodKey = (date) => String(date).slice(0, 7); // 'YYYY-MM'
 const lineSig = (t) =>
   JSON.stringify([...(t.lines || [])].sort((a, b) => a.accountId < b.accountId ? -1 : 1).map(l => [l.accountId, l.amountCents]));
 
+// Compact audit record for a transaction change (who/what/when). `actor` is the
+// user id; `before`/`after` are the txn before/after the write (either may be null).
+function auditEntry(op, id, actor, before, after) {
+  const t = after || before || {};
+  const gross = (x) => { let s = 0; for (const l of x?.lines || []) if (l.amountCents > 0) s += l.amountCents; return s; };
+  const action = op === 'delete' ? 'deleted'
+    : !before ? 'created'
+    : (before.status !== 'void' && after?.status === 'void') ? 'voided'
+    : 'edited';
+  return { at: Date.now(), op, id, by: actor || 'system', action, payee: t.payee || '', amountCents: gross(t), status: t.status || null };
+}
+
 export class BusinessDO {
   constructor(state, env) {
     this.state = state;
@@ -54,6 +66,7 @@ export class BusinessDO {
       pair[1].serializeAttachment({
         device: url.searchParams.get('device') || '',
         role: req.headers.get('X-Bo-Role') || 'viewer',
+        user: req.headers.get('X-Bo-User') || '',
       });
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
@@ -205,8 +218,15 @@ export class BusinessDO {
     if (path === '/state' && req.method === 'GET') return this.snapshot();
     if (path === '/state' && req.method === 'POST') {
       const op = await req.json();
-      const result = await this.apply(op);
+      const result = await this.apply(op, req.headers.get('X-Bo-User') || '');
       return json(result, result.rejected ? 409 : 200);
+    }
+    // Audit log of transaction changes (who/what/when). Newest first; not in the
+    // snapshot (audit:* isn't an ENTITY_KIND), so it never bloats client state.
+    if (path === '/_audit' && req.method === 'GET') {
+      const limit = Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 500);
+      const batch = await this.state.storage.list({ prefix: 'audit:', reverse: true, limit });
+      return json({ entries: [...batch.values()] });
     }
     return json({ error: 'not found' }, 404);
   }
@@ -252,7 +272,8 @@ export class BusinessDO {
   }
 
   // op: { op:'entity.upsert'|'entity.delete'|'meta.set', kind?, value?, id?, device? }
-  async apply(op) {
+  // actor = the acting user's id (from X-Bo-User / the WS attachment) for the audit log.
+  async apply(op, actor = '') {
     if (op.op === 'meta.set') {
       await this.state.storage.put('meta', op.value);
       return this.commit(op);
@@ -283,7 +304,9 @@ export class BusinessDO {
         if (locked) return { rejected: true, reason: locked };
       }
       await this.state.storage.put(key, op.value);
-      return this.commit(op);
+      const res = await this.commit(op);
+      if (op.kind === 'txn') await this.recordAudit(res.seq, auditEntry('upsert', op.value.id, actor, existing, op.value));
+      return res;
     }
     if (op.op === 'entity.bulkUpsert') {
       if (!ENTITY_KINDS.has(op.kind) || !Array.isArray(op.values) || op.values.length > 500) {
@@ -321,15 +344,19 @@ export class BusinessDO {
       if (!ENTITY_KINDS.has(op.kind) || !op.id) return { rejected: true, reason: 'bad op' };
       // Reconciled transactions are permanently locked — deletion would corrupt past statements.
       // A closed (locked) period is sealed too: no add, no edit, AND no delete.
+      let before = null;
       if (op.kind === 'txn') {
         const t = await this.state.storage.get(`txn:${op.id}`);
+        before = t;
         if (t?.reconciledIn) return { rejected: true, reason: 'reconciled: cannot delete a reconciled transaction' };
         if (t && await this.state.storage.get(`lock:${periodKey(t.date)}`)) {
           return { rejected: true, reason: `period ${periodKey(t.date)} is locked — reopen it to delete` };
         }
       }
       await this.state.storage.delete(`${op.kind}:${op.id}`);
-      return this.commit(op);
+      const res = await this.commit(op);
+      if (op.kind === 'txn') await this.recordAudit(res.seq, auditEntry('delete', op.id, actor, before, null));
+      return res;
     }
     return { rejected: true, reason: 'unknown op' };
   }
@@ -339,6 +366,16 @@ export class BusinessDO {
     await this.state.storage.put('seq', seq);
     this.broadcast({ type: 'op', seq, op }, op.device);
     return { ok: true, seq, ...extra };
+  }
+
+  // Append an audit record keyed by zero-padded seq (sorts chronologically). Kept to
+  // the most recent ~1000; pruned occasionally so the DO doesn't grow unbounded.
+  async recordAudit(seq, entry) {
+    await this.state.storage.put('audit:' + String(seq).padStart(12, '0'), { seq, ...entry });
+    if (seq % 250 === 0) {
+      const keys = [...(await this.state.storage.list({ prefix: 'audit:' })).keys()];
+      if (keys.length > 1000) await this.state.storage.delete(keys.slice(0, keys.length - 1000));
+    }
   }
 
   broadcast(msg, exceptDevice) {
@@ -359,7 +396,7 @@ export class BusinessDO {
     if (msg.type === 'op' && msg.op) {
       const att = (() => { try { return ws.deserializeAttachment() || {}; } catch { return {}; } })();
       if (att.role === 'viewer') { ws.send(JSON.stringify({ type: 'ack', clientId: msg.clientId, rejected: true, reason: 'read only' })); return; }
-      const result = await this.apply(msg.op);
+      const result = await this.apply(msg.op, att.user || '');
       ws.send(JSON.stringify({ type: 'ack', clientId: msg.clientId, ...result }));
     }
     if (msg.type === 'ping') ws.send('{"type":"pong"}');

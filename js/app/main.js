@@ -27,6 +27,7 @@ import { entities, usesInvoices, usesMuseSync } from './store.js';
 import { openGuide, openQuickRef } from './guide.js';
 import { showWhatsNew, maybeShowWhatsNew } from './changelog.js';
 import { stub } from './views/stubs.js';
+import { mountGlobalSearch } from './search.js';
 
 const VIEWS = {
   dashboard,
@@ -92,6 +93,7 @@ function mount(view, root, detail) {
 
 function setNav(active, biz) {
   document.getElementById('sidebar').dataset.biz = biz;
+  const gs = document.getElementById('gsearch'); if (gs) gs.style.display = biz ? '' : 'none';
   // 3b UI shaping: the Businesses entry exists only for multi-business sessions.
   const multi = getUser()?.isOwner || getBusinesses().length > 1;
   document.querySelectorAll('#sidebar .navitem').forEach(n => {
@@ -189,6 +191,7 @@ function boot() {
   });
   subscribe(updateReviewBadge);
   subscribe(applyFeatureNav);
+  mountGlobalSearch();
   window.addEventListener('hashchange', route);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkAppVersion(); });
   route();
