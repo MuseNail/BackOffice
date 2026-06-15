@@ -30,19 +30,22 @@ export function render(root) {
   const museCard = el('div', { class: 'card', style: 'max-width:640px' });
   const qbCard = el('div', { class: 'card', style: 'max-width:560px' });
   const qbImportCard = el('div', { class: 'card', style: 'max-width:560px' });
+  const locksCard = el('div', { class: 'card', style: 'max-width:560px' });
   const failedCard = el('div', { class: 'card', style: 'max-width:560px' });
-  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, AI spending, the Muse salon sync, and the QuickBooks export for this business only.'), usersCard, devicesCard, aiCard, museCard, qbCard, qbImportCard, failedCard);
+  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, AI spending, the Muse salon sync, closing the books, and the QuickBooks export for this business only.'), usersCard, devicesCard, aiCard, museCard, qbCard, qbImportCard, locksCard, failedCard);
   drawUsers(usersCard, biz);
   drawDevices(devicesCard, biz);
   drawQbImportCard(qbImportCard, biz); // not in the subscribe loop — a redraw would clear the chosen file
   const drawAI = () => drawAICard(aiCard);
   const drawMuse = () => drawMuseCard(museCard, biz);
   const drawQb = () => drawQbCard(qbCard, biz);
+  const drawLocks = () => drawLocksCard(locksCard);
   const drawFailed = () => drawFailedOps(failedCard, biz);
-  unsubAI = subscribe(() => { drawAI(); drawMuse(); drawQb(); drawFailed(); });
+  unsubAI = subscribe(() => { drawAI(); drawMuse(); drawQb(); drawLocks(); drawFailed(); });
   drawAI();
   drawMuse();
   drawQb();
+  drawLocks();
   drawFailed();
 }
 
@@ -303,6 +306,46 @@ function drawQbImportCard(card, biz) {
     el('div', { class: 'cardtitle' }, 'Import chart of accounts (.IIF)'),
     el('p', { class: 'sub' }, 'Bring a client’s QuickBooks Desktop accounts in. In QuickBooks: File → Utilities → Export → Lists to IIF Files → Chart of Accounts. Accounts that already exist are skipped, so re-importing is safe. Transactions are not imported.'),
     file, importBtn, preview,
+  );
+}
+
+// ── Close the books (period locks) ──
+// A locked month rejects new postings and edits to posted entries in that month
+// — enforced on every device (validateTxn) AND on the server (BusinessDO). Metadata
+// fixes and QB re-exports still pass; unlock anytime. Lock entity id = 'YYYY-MM'.
+function drawLocksCard(card) {
+  const locks = entities('lock').slice().sort((a, b) => a.id < b.id ? 1 : -1);
+  const month = el('input', { class: 'field-input', type: 'month', style: 'margin:0;max-width:170px' });
+
+  const list = locks.length
+    ? el('table', { class: 'data' },
+        el('tr', {}, el('th', {}, 'Closed month'), el('th', {}, 'Locked on'), el('th', {}, '')),
+        ...locks.map(l => el('tr', {},
+          el('td', {}, l.id),
+          el('td', { style: 'color:var(--mut)' }, l.closedAt ? new Date(l.closedAt).toLocaleDateString() : '—'),
+          el('td', {}, el('button', { class: 'btn sm ghost', onclick: () => {
+            if (!confirm(`Reopen ${l.id}? Postings and edits in that month will be allowed again until you close it.`)) return;
+            dispatch({ op: 'entity.delete', kind: 'lock', id: l.id });
+            toast(`${l.id} reopened`);
+          } }, 'Reopen'))))
+      )
+    : el('p', { class: 'sub' }, 'No months are closed.');
+
+  clear(card).append(
+    el('div', { class: 'cardtitle' }, 'Close the books'),
+    el('p', { class: 'sub' }, 'Lock a finished month so its posted transactions can’t be changed or added to by mistake — enforced on every device and on the server. QuickBooks re-exports of a closed month still work; reopen a month anytime you need to make changes.'),
+    list,
+    el('div', { style: 'display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-top:12px' },
+      el('div', {}, el('label', { class: 'field-label' }, 'Month to close'), month),
+      el('button', { class: 'btn sm', onclick: () => {
+        const p = month.value;
+        if (!/^\d{4}-\d{2}$/.test(p)) { toast('Pick a month to close', 'err'); return; }
+        if (entities('lock').some(l => l.id === p)) { toast(`${p} is already closed`); return; }
+        const now = Date.now();
+        dispatch({ op: 'entity.upsert', kind: 'lock', value: { id: p, closedAt: now, updatedAt: now } });
+        toast(`${p} closed`);
+        month.value = '';
+      } }, 'Close month')),
   );
 }
 

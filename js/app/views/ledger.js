@@ -177,9 +177,11 @@ function confirmVoid(t) {
 
 function confirmDelete(t) {
   if (t.reconciledIn) { toast('Reconciled transactions cannot be deleted', 'err'); return; }
+  const linkedStaged = entities('staged').find(s => s.txnId === t.id);
   const m = modal('Delete this transaction?');
   m.body.append(
     el('p', {}, `${t.date} · ${t.payee || 'no payee'} — this permanently removes the entry. Use Void instead if you want to keep a record.`),
+    linkedStaged ? el('p', { class: 'sub' }, 'The imported bank row it was posted from returns to Review as pending, so you can re-categorize and re-approve it.') : null,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', style: 'background:var(--red)', onclick: () => {

@@ -576,6 +576,8 @@ async function askAI(rows, categories, body, editable) {
         : 'AI is unavailable', 'err');
       return;
     }
+    if (res.status === 400) { toast('Add some categories to your chart of accounts first — the AI needs a list to choose from', 'err'); return; }
+    if (res.status === 502) { toast('The AI service didn’t respond — the owner may need to check the ANTHROPIC_API_KEY', 'err'); return; }
     if (!res.ok) { toast('AI suggestions failed — categorize manually for now', 'err'); return; }
     const { suggestions } = await res.json();
     let got = 0;

@@ -29,6 +29,10 @@ function txnInvariantBreach(t) {
   return sum === 0 ? null : 'unbalanced lines';
 }
 
+const periodKey = (date) => String(date).slice(0, 7); // 'YYYY-MM'
+const lineSig = (t) =>
+  JSON.stringify([...(t.lines || [])].sort((a, b) => a.accountId < b.accountId ? -1 : 1).map(l => [l.accountId, l.amountCents]));
+
 export class BusinessDO {
   constructor(state, env) {
     this.state = state;
@@ -231,6 +235,22 @@ export class BusinessDO {
     return json(out);
   }
 
+  // Period locks (closed books): a locked month rejects new postings and any
+  // change to a posted entry's amounts/accounts/date/status. Metadata-only edits
+  // (payee, memo, qbExportedAt, reconciledIn) still pass so re-export and recon
+  // stamping keep working after close. Staged rows aren't in the ledger → not gated.
+  // Mirrors the client's validateTxn() lock check (lib/posting.js).
+  async periodLockBreach(next, existing) {
+    if (next.status !== 'posted' && existing?.status !== 'posted') return null;
+    if (existing && next.status === existing.status && next.date === existing.date && lineSig(next) === lineSig(existing)) return null;
+    const periods = new Set([periodKey(next.date)]);
+    if (existing) periods.add(periodKey(existing.date));
+    for (const p of periods) {
+      if (await this.state.storage.get(`lock:${p}`)) return `period ${p} is locked`;
+    }
+    return null;
+  }
+
   // op: { op:'entity.upsert'|'entity.delete'|'meta.set', kind?, value?, id?, device? }
   async apply(op) {
     if (op.op === 'meta.set') {
@@ -257,6 +277,10 @@ export class BusinessDO {
         const existingSig = JSON.stringify([...existing.lines].sort((a, b) => a.accountId < b.accountId ? -1 : 1).map(l => [l.accountId, l.amountCents]));
         const newSig = JSON.stringify([...(op.value.lines || [])].sort((a, b) => a.accountId < b.accountId ? -1 : 1).map(l => [l.accountId, l.amountCents]));
         if (existingSig !== newSig) return { rejected: true, reason: 'reconciled: amounts and accounts are locked' };
+      }
+      if (op.kind === 'txn') {
+        const locked = await this.periodLockBreach(op.value, existing);
+        if (locked) return { rejected: true, reason: locked };
       }
       await this.state.storage.put(key, op.value);
       return this.commit(op);
@@ -287,6 +311,7 @@ export class BusinessDO {
           const nSig = JSON.stringify([...(v.lines || [])].sort((a, b) => a.accountId < b.accountId ? -1 : 1).map(l => [l.accountId, l.amountCents]));
           if (eSig !== nSig) continue;
         }
+        if (op.kind === 'txn' && await this.periodLockBreach(v, existing)) continue;
         await this.state.storage.put(key, v);
         applied++;
       }
