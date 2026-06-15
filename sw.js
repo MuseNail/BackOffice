@@ -20,6 +20,7 @@ const PRECACHE = [
   './js/app/views/review.js',
   './js/app/views/invoices.js',
   './js/app/lib/invoice2go.js',
+  './js/app/lib/invoice2go-posting.js',
   './js/app/views/setup.js',
   './js/app/views/settings.js',
   './js/app/views/accounts.js',

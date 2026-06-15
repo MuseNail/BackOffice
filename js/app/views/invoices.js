@@ -4,10 +4,13 @@
 // to the ledger and bank reconciliation are later phases — this view tracks, it
 // does not post.
 import { el, clear, toast, fmtMoney, modal } from '../ui.js';
-import { entities, subscribe } from '../store.js';
+import { entities, subscribe, getState } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseInvoices } from '../lib/invoice2go.js';
+import { buildPaymentTxns, paymentTxnId } from '../lib/invoice2go-posting.js';
+import { validateTxn } from '../lib/posting.js';
+import { accountLabel } from '../lib/coa-templates.js';
 
 let unsub = null;
 const DEFAULT_CUTOFF = '2025-10-01';
@@ -30,7 +33,7 @@ export function render(root, detail) {
     el('h2', {}, 'Invoices'),
     el('p', { class: 'sub' }, 'Imported from Invoice2go. Each weekly export is the full history — re-importing only adds new invoices and applies new payments, never duplicates.'),
   );
-  if (editable) root.append(importCard());
+  if (editable) root.append(importCard(), postCard());
   const body = el('div');
   root.append(body);
   const draw = () => drawList(body);
@@ -103,6 +106,105 @@ function importCard() {
       importBtn),
     preview,
   );
+  return card;
+}
+
+// ── Post payments to the ledger (P3) ──
+// Cash basis through a clearing account: income credited, clearing debited, the
+// processing fee expensed. The bank deposit later relieves the clearing account
+// (P4 reconciliation). Idempotent — already-posted payments are skipped.
+function postCard() {
+  const card = el('div', { class: 'card', style: 'max-width:680px;margin-bottom:16px' });
+  const draw = () => {
+    const map = getState().meta?.i2gMapping || {};
+    const byId = new Map(entities('account').map(a => [a.id, a]));
+    const opts = (type, sel) => {
+      const accts = entities('account').filter(a => a.active !== false && a.type === type)
+        .sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)));
+      return el('select', { class: 'field-input', style: 'min-width:200px' },
+        el('option', { value: '' }, '— select —'),
+        ...accts.map(a => el('option', { value: a.id, selected: a.id === sel }, accountLabel(a, byId))));
+    };
+    const incomeSel = opts('income', map.incomeId);
+    const clearingSel = opts('asset', map.clearingId);
+    const feeSel = opts('expense', map.feeId);
+    const startDate = el('input', { type: 'date', class: 'field-input', style: 'max-width:170px', value: map.startDate || DEFAULT_CUTOFF });
+
+    // live counts for the window
+    const status = el('p', { class: 'sub', style: 'margin:8px 0 0' });
+    const recount = () => {
+      const existing = new Set(entities('txn').map(t => t.id));
+      const { eligible, skipped } = buildPaymentTxns(entities('invoice'), map, { startDate: startDate.value, existingTxnIds: existing });
+      const toPost = eligible - skipped;
+      status.textContent = `${eligible} payments since ${startDate.value} · ${skipped} already posted · ${toPost} to post`;
+    };
+    startDate.addEventListener('change', recount);
+
+    // create the two standard accounts if they don't exist, then select them
+    const ensureBtn = el('button', { class: 'linklike', onclick: () => {
+      const have = entities('account');
+      const mk = (name, type, qbType) => {
+        let a = have.find(x => x.type === type && x.name.toLowerCase() === name.toLowerCase());
+        if (!a) {
+          const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
+          a = { id, name, type, qbType, qbName: name, parentId: null, active: true, updatedAt: Date.now() };
+          dispatch({ op: 'entity.upsert', kind: 'account', value: a });
+        }
+        return a;
+      };
+      const clr = mk('Invoice2go Clearing', 'asset', 'OCASSET');
+      const fee = mk('Invoice2go Fees', 'expense', 'EXP');
+      toast('Clearing + fee accounts ready');
+      // redraw so the new options appear and are selected
+      const m = getState().meta?.i2gMapping || {};
+      dispatch({ op: 'meta.set', value: { ...getState().meta, i2gMapping: { ...m, clearingId: clr.id, feeId: fee.id } } });
+      draw();
+    } }, 'Create the standard clearing + fee accounts');
+
+    const postBtn = el('button', { class: 'btn sm green', onclick: () => {
+      const mapping = { incomeId: incomeSel.value, clearingId: clearingSel.value, feeId: feeSel.value, startDate: startDate.value };
+      if (!mapping.incomeId || !mapping.clearingId) { toast('Pick an income and a clearing account', 'err'); return; }
+      const invoices = entities('invoice');
+      const existing = new Set(entities('txn').map(t => t.id));
+      // a fee account is required only if some payment in the window has a fee
+      const needFee = invoices.some(inv => (inv.payments || []).some(p =>
+        p.status === 'succeeded' && p.txId && p.date >= mapping.startDate && (p.feeCents | 0) > 0 && !existing.has(paymentTxnId(p.txId))));
+      if (needFee && !mapping.feeId) { toast('Some payments have a processing fee — pick a fee account', 'err'); return; }
+
+      const { txns, skipped } = buildPaymentTxns(invoices, mapping, { startDate: mapping.startDate, existingTxnIds: existing });
+      if (!txns.length) { if (skipped) toast('All payments in this window are already posted'); else toast('No payments to post', 'err'); return; }
+
+      const ctx = { accountsById: new Map(entities('account').map(a => [a.id, a])), locks: new Set(entities('lock').map(l => l.id)) };
+      const good = [], bad = [];
+      for (const t of txns) (validateTxn(t, ctx).ok ? good : bad).push(t);
+      if (!good.length) { toast('Could not post — check the accounts (and that the period isn’t locked)', 'err'); return; }
+
+      let income = 0, fees = 0;
+      for (const t of good) for (const l of t.lines) {
+        if (l.accountId === mapping.incomeId) income += -l.amountCents;
+        if (l.accountId === mapping.feeId) fees += l.amountCents;
+      }
+      dispatch({ op: 'meta.set', value: { ...getState().meta, i2gMapping: mapping } });
+      for (let i = 0; i < good.length; i += 200) {
+        dispatch({ op: 'entity.bulkUpsert', kind: 'txn', values: good.slice(i, i + 200) });
+      }
+      toast(`Posted ${good.length} payments — ${fmtMoney(income)} income, ${fmtMoney(fees)} fees${bad.length ? ` · ${bad.length} skipped` : ''}`);
+      recount();
+    } }, 'Post payments to the ledger');
+
+    const field = (label, node) => el('div', {}, el('label', { class: 'field-label' }, label), node);
+    clear(card).append(
+      el('div', { class: 'cardtitle' }, 'Post payments to the ledger'),
+      el('p', { class: 'sub' }, 'Each payment posts as income through a clearing account; processing fees are booked as an expense. Your bank deposits later clear this account (reconciliation). Already-posted payments are skipped, so this is safe to re-run after each weekly import.'),
+      el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end' },
+        field('Income account', incomeSel), field('Clearing account', clearingSel), field('Fee account', feeSel), field('Post payments since', startDate)),
+      el('div', { style: 'margin-top:6px' }, ensureBtn),
+      el('div', { style: 'margin-top:10px' }, postBtn),
+      status,
+    );
+    recount();
+  };
+  draw();
   return card;
 }
 
