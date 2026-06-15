@@ -24,6 +24,21 @@ function bump() {
 export function entities(kind) { return state.entities[kind] || []; }
 export function byId(kind, id) { return entities(kind).find(e => e.id === id); }
 
+// Per-business capability flags (meta.features). When a flag is unset, derive it
+// from existing data so businesses created before features existed behave correctly
+// with no migration: a business with invoices/i2g mapping uses invoices; one with a
+// Muse mapping or salon-synced rows uses Muse sync. An explicit flag always wins.
+export function usesInvoices() {
+  const f = state.meta?.features;
+  if (f && typeof f.invoices === 'boolean') return f.invoices;
+  return (state.entities.invoice?.length > 0) || !!state.meta?.i2gMapping;
+}
+export function usesMuseSync() {
+  const f = state.meta?.features;
+  if (f && typeof f.museSync === 'boolean') return f.museSync;
+  return !!state.meta?.museMapping || (state.entities.staged || []).some(s => s.syncApp);
+}
+
 // Same op vocabulary as the DO — applied optimistically client-side.
 export function applyChange(op) {
   if (op.op === 'meta.set') { state.meta = op.value; bump(); return; }

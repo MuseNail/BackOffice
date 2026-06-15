@@ -15,7 +15,7 @@ let s = null;
 let box = null;
 
 export function render(root) {
-  s = { step: 1, name: '', fiscal: 'January', industry: 'salon-spa', busy: false };
+  s = { step: 1, name: '', fiscal: 'January', industry: 'salon-spa', invoices: false, busy: false };
   box = el('div', { class: 'card wizard' });
   root.append(
     el('h2', {}, 'New business'),
@@ -47,9 +47,13 @@ const steps = {
       oninput: (e) => { s.name = e.target.value; } });
     const fiscal = el('select', { class: 'field-input', onchange: (e) => { s.fiscal = e.target.value; } },
       ...MONTHS.map(m => el('option', { value: m, selected: m === s.fiscal }, m)));
+    const invoices = el('input', { type: 'checkbox', checked: s.invoices, onchange: (e) => { s.invoices = e.target.checked; } });
     return [
       el('label', { class: 'field-label' }, 'Business name'), name,
       el('label', { class: 'field-label' }, 'Fiscal year starts'), fiscal,
+      el('label', { style: 'display:flex;align-items:flex-start;gap:8px;margin-top:14px;font-weight:600' },
+        invoices, el('span', {}, 'This business sends and tracks invoices',
+          el('div', { class: 'sub', style: 'margin:0;font-weight:400' }, 'Adds an Invoices tab for accounts receivable. You can change this later in Settings.'))),
       el('div', { class: 'wizbtns' },
         el('button', { class: 'btn', onclick: () => {
           if (!s.name.trim()) { toast('Give the business a name', 'err'); return; }
@@ -104,7 +108,7 @@ async function create() {
     const now = Date.now();
     const metaRes = await api(`/b/${id}/state`, {
       method: 'POST',
-      body: JSON.stringify({ op: 'meta.set', value: { name, industry: s.industry, fiscalYearStart: s.fiscal, createdAt: now }, device: deviceId() }),
+      body: JSON.stringify({ op: 'meta.set', value: { name, industry: s.industry, fiscalYearStart: s.fiscal, createdAt: now, features: { invoices: !!s.invoices, museSync: false } }, device: deviceId() }),
     });
     if (!metaRes.ok) throw new Error('meta');
 

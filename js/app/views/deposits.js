@@ -10,7 +10,7 @@
 // Deposit↔batch matching + posting the fee is Phase 3 — nothing here writes.
 
 import { el, clear, fmtMoney } from '../ui.js';
-import { entities, subscribe } from '../store.js';
+import { entities, subscribe, usesMuseSync } from '../store.js';
 import { api } from '../sync.js';
 import { getActiveBiz, roleFor } from '../session.js';
 import { helcimDayTotals } from '../lib/processor-match.js';
@@ -28,6 +28,14 @@ export function render(root) {
     root.append(
       el('h2', {}, 'Deposits'),
       el('p', { class: 'sub' }, 'Deposits reconciliation is available to owners and managers.'));
+    return;
+  }
+  if (!usesMuseSync()) {
+    root.append(
+      el('h2', {}, 'Deposits'),
+      el('p', { class: 'sub' }, 'The Deposits report compares Muse salon card sales with Helcim payouts — it’s only for the salon. This business isn’t set up for Muse salon sync.'));
+    // Re-render if Muse sync gets enabled (async snapshot load / Settings toggle).
+    unsub = subscribe(() => { if (usesMuseSync()) { unsub?.(); unsub = null; root.replaceChildren(); render(root); } });
     return;
   }
   const today = iso(new Date());

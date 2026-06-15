@@ -23,7 +23,7 @@ import * as reports from './views/reports.js';
 import * as inventory from './views/inventory.js';
 import * as settings from './views/settings.js';
 import { subscribe } from './store.js';
-import { entities } from './store.js';
+import { entities, usesInvoices, usesMuseSync } from './store.js';
 import { openGuide, openQuickRef } from './guide.js';
 import { showWhatsNew, maybeShowWhatsNew } from './changelog.js';
 import { stub } from './views/stubs.js';
@@ -99,10 +99,22 @@ function setNav(active, biz) {
     if (n.dataset.v === 'businesses') n.style.display = multi ? 'flex' : 'none';
     else n.style.display = biz ? 'flex' : 'none';
   });
+  applyFeatureNav();
   const who = document.getElementById('userchip');
   const u = getUser();
   who.style.display = u ? 'flex' : 'none';
   if (u) document.getElementById('userchip-name').textContent = u.name;
+}
+
+// Per-business feature nav: hide the Invoices/Deposits tabs for businesses that
+// don't use them. Re-runs on store changes (the snapshot loads async, after the
+// first setNav), so the tabs settle once the business's data arrives.
+function applyFeatureNav() {
+  const biz = document.getElementById('sidebar').dataset.biz;
+  if (!biz) return;
+  const set = (v, on) => { const n = document.querySelector(`#sidebar .navitem[data-v="${v}"]`); if (n) n.style.display = on ? 'flex' : 'none'; };
+  set('invoices', usesInvoices());
+  set('deposits', usesMuseSync());
 }
 
 // ── Version check ────────────────────────────────────────────────────────────
@@ -176,6 +188,7 @@ function boot() {
     else if (act === 'logout') doLogout();
   });
   subscribe(updateReviewBadge);
+  subscribe(applyFeatureNav);
   window.addEventListener('hashchange', route);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkAppVersion(); });
   route();

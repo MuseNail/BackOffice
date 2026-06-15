@@ -4,7 +4,7 @@
 import { el, clear, toast, fmtMoney } from '../ui.js';
 import { api, dispatch } from '../sync.js';
 import { getActiveBiz, getBusinesses, roleFor } from '../session.js';
-import { getState, entities, byId, subscribe } from '../store.js';
+import { getState, entities, byId, subscribe, usesInvoices, usesMuseSync } from '../store.js';
 import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 import { accountLabel } from '../lib/coa-templates.js';
@@ -26,22 +26,26 @@ export function render(root) {
   }
   const usersCard = el('div', { class: 'card', style: 'max-width:560px' });
   const devicesCard = el('div', { class: 'card', style: 'max-width:560px' });
+  const featuresCard = el('div', { class: 'card', style: 'max-width:560px' });
   const aiCard = el('div', { class: 'card', style: 'max-width:560px' });
   const museCard = el('div', { class: 'card', style: 'max-width:640px' });
   const qbCard = el('div', { class: 'card', style: 'max-width:560px' });
   const qbImportCard = el('div', { class: 'card', style: 'max-width:560px' });
   const locksCard = el('div', { class: 'card', style: 'max-width:560px' });
   const failedCard = el('div', { class: 'card', style: 'max-width:560px' });
-  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, AI spending, the Muse salon sync, closing the books, and the QuickBooks export for this business only.'), usersCard, devicesCard, aiCard, museCard, qbCard, qbImportCard, locksCard, failedCard);
+  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, modules, AI spending, closing the books, and the QuickBooks export for this business only.'), usersCard, devicesCard, featuresCard, aiCard, museCard, qbCard, qbImportCard, locksCard, failedCard);
   drawUsers(usersCard, biz);
   drawDevices(devicesCard, biz);
   drawQbImportCard(qbImportCard, biz); // not in the subscribe loop — a redraw would clear the chosen file
+  const drawFeatures = () => drawFeaturesCard(featuresCard);
   const drawAI = () => drawAICard(aiCard);
-  const drawMuse = () => drawMuseCard(museCard, biz);
+  // Muse sync is salon-only — hide its mapping card entirely for businesses that don't use it.
+  const drawMuse = () => { if (usesMuseSync()) { museCard.style.display = ''; drawMuseCard(museCard, biz); } else { museCard.style.display = 'none'; clear(museCard); } };
   const drawQb = () => drawQbCard(qbCard, biz);
   const drawLocks = () => drawLocksCard(locksCard);
   const drawFailed = () => drawFailedOps(failedCard, biz);
-  unsubAI = subscribe(() => { drawAI(); drawMuse(); drawQb(); drawLocks(); drawFailed(); });
+  unsubAI = subscribe(() => { drawFeatures(); drawAI(); drawMuse(); drawQb(); drawLocks(); drawFailed(); });
+  drawFeatures();
   drawAI();
   drawMuse();
   drawQb();
@@ -87,6 +91,29 @@ function drawFailedOps(card, biz) {
 
 let unsubAI = null;
 export function unmount() { unsubAI?.(); unsubAI = null; }
+
+// ── Business features (per-business modules) ──
+// Stored on meta.features; absent flags derive from existing data (store.js), so
+// existing businesses are correct before anyone opens this card. Hiding a module
+// never deletes data — toggling it back on brings everything back.
+function drawFeaturesCard(card) {
+  const invoices = el('input', { type: 'checkbox', checked: usesInvoices() });
+  const muse = el('input', { type: 'checkbox', checked: usesMuseSync() });
+  const row = (input, label, help) => el('label', { style: 'display:flex;align-items:flex-start;gap:8px;margin-top:8px' },
+    input, el('span', {}, el('b', {}, label), help ? el('div', { class: 'sub', style: 'margin:0;font-weight:400' }, help) : null));
+  clear(card).append(
+    el('div', { class: 'cardtitle' }, 'Business features'),
+    el('p', { class: 'sub' }, 'Turn modules on or off for this business. This only shows or hides screens — it never deletes data, so toggling a module back on brings everything back.'),
+    row(invoices, 'Invoices / accounts receivable', 'Adds the Invoices tab for businesses that send invoices and track receivables.'),
+    row(muse, 'Muse salon sync', 'Adds the Deposits tab and the salon-sync mapping. Only the Muse salon uses this.'),
+    el('div', { style: 'margin-top:12px' },
+      el('button', { class: 'btn sm', onclick: () => {
+        const meta = getState().meta || {};
+        dispatch({ op: 'meta.set', value: { ...meta, features: { ...(meta.features || {}), invoices: invoices.checked, museSync: muse.checked } } });
+        toast('Business features saved');
+      } }, 'Save')),
+  );
+}
 
 // ── AI usage & controls ──
 function drawAICard(card) {

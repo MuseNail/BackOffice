@@ -4,7 +4,7 @@
 // to the ledger and bank reconciliation are later phases — this view tracks, it
 // does not post.
 import { el, clear, toast, fmtMoney, modal } from '../ui.js';
-import { entities, subscribe, getState } from '../store.js';
+import { entities, subscribe, getState, usesInvoices } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseInvoices } from '../lib/invoice2go.js';
@@ -30,6 +30,15 @@ const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000)
 
 export function render(root, detail) {
   if (detail) { renderInvoiceDetail(root, detail); return; }
+  if (!usesInvoices()) {
+    root.append(
+      el('h2', {}, 'Invoices'),
+      el('p', { class: 'sub' }, 'Invoices aren’t enabled for this business. Turn it on in Settings → Business features.'));
+    // The snapshot loads async (a reload lands here before data arrives) and the
+    // owner can flip the feature on — re-render the full view if it becomes enabled.
+    unsub = subscribe(() => { if (usesInvoices()) { unsub?.(); unsub = null; root.replaceChildren(); render(root); } });
+    return;
+  }
   const editable = canEdit(getActiveBiz());
   root.append(
     el('h2', {}, 'Invoices'),
