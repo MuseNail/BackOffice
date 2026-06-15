@@ -15,6 +15,7 @@ import * as accounts from './views/accounts.js';
 import * as ledger from './views/ledger.js';
 import * as banking from './views/banking.js';
 import * as review from './views/review.js';
+import * as invoices from './views/invoices.js';
 import * as vendors from './views/vendors.js';
 import * as reconcile from './views/reconcile.js';
 import * as deposits from './views/deposits.js';
@@ -29,6 +30,7 @@ const VIEWS = {
   dashboard,
   banking,
   review,
+  invoices,
   ledger,
   accounts,
   vendors,

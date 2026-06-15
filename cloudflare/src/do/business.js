@@ -12,7 +12,7 @@ const json = (data, status = 200) =>
 const ENTITY_KINDS = new Set([
   'user', 'account', 'txn', 'bankacct', 'import', 'staged',
   'vendor', 'item', 'purchase', 'recon', 'lock',
-  'aiusage', 'aisetting', 'taxsetting',
+  'aiusage', 'aisetting', 'taxsetting', 'invoice',
 ]);
 
 // Structural double-entry invariants, enforced server-side no matter what the
