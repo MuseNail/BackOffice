@@ -6,8 +6,8 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
-  { v: '0.48.0', items: [
-    { icon: 'paid', t: 'Honest per-invoice profit, with fees split the right way', d: 'Each invoice now shows a profit breakdown — revenue, job expenses, card fee absorbed, payout fee, profit and profit %, plus how much processing fee you passed to the customer. Invoice2go card fees split by who paid them: a fee a customer covered (surcharge — your real Invoice2go data) nets out of income and does NOT cut your profit, while a fee you absorbed is booked to cost of goods and does. Invoice2go doesn’t export its own cut, so the absorbed fee is estimated at your card rate (2.9%, adjustable on the Post-payments screen) and every fee is clearly labeled on the transaction (e.g. “card fee $118.76 (est. 2.9%) — $0 passed, $118.76 absorbed”) so you can review it.' },
+  { v: '0.49.0', items: [
+    { icon: 'paid', t: 'Invoice2go cashflow import + honest per-invoice profit', d: 'A new “Post Invoice2go cashflow” tool (Invoices tab) imports your Invoice2go transactions export and books payments with their REAL fees — no estimates: the part a customer covered (a surcharge) is recorded as contra-income (nets out, no profit hit), the part you absorbed goes to cost of goods, and the 1% instant-payout fees are booked too, each tagged to its invoice. Every invoice then shows a clean profit breakdown — revenue, job expenses, card fee absorbed, payout fee, profit and profit %, plus what you passed to the customer. Each payment’s net lands in a clearing account; when your bank deposits relieve it to $0, your invoices are matched to your deposits to the penny.' },
   ] },
   { v: '0.47.0', items: [
     { icon: 'percent', t: 'Invoice2go fees now count toward each job’s profit', d: 'When you post Invoice2go payments, the card processing fee is tagged to that invoice, so it shows in the job’s profit margin. And every invoice now has a “＋ Payout fee” button to record Invoice2go’s 1% instant-payout fee — it pre-fills 1% of the payment, books it to your Payout Fee account against that invoice, and leaves your bank balance untouched.' },

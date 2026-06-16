@@ -8,7 +8,7 @@ import { entities, subscribe, getState, usesInvoices } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseInvoices } from '../lib/invoice2go.js';
-import { buildPaymentTxns, paymentTxnId } from '../lib/invoice2go-posting.js';
+import { buildCashflowImport, cashflowPaymentTxnId } from '../lib/i2g-cashflow.js';
 import { validateTxn, invoiceExpensesTotal } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { blankInvoice, recompute, nextInvoiceNumber, addManualPayment } from '../lib/invoice-edit.js';
@@ -143,41 +143,28 @@ function importCard() {
   return card;
 }
 
-// ── Post payments to the ledger (P3) ──
-// Cash basis through a clearing account: income credited, clearing debited, the
-// processing fee expensed. The bank deposit later relieves the clearing account
-// (P4 reconciliation). Idempotent — already-posted payments are skipped.
+// ── Post the Invoice2go cashflow (payments + payouts) to the ledger ──
+// Uploads the Invoice2go "banking/adyen/transactions" export, which carries the
+// REAL fees, nets, and payouts — so income, the passed/absorbed fee split, and the
+// 1% instant-payout fee are exact (no estimation). Each payment's net lands in the
+// clearing account; bank deposits relieve it (when clearing nets to $0, every
+// payment is matched to a deposit). Idempotent — already-posted entries are skipped.
 function postCard() {
   const card = el('div', { class: 'card', style: 'max-width:680px;margin-bottom:16px' });
   const draw = () => {
     const map = getState().meta?.i2gMapping || {};
     const byId = new Map(entities('account').map(a => [a.id, a]));
-    const opts = (type, sel) => {
-      const accts = entities('account').filter(a => a.active !== false && a.type === type)
-        .sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)));
-      return el('select', { class: 'field-input', style: 'min-width:200px' },
-        el('option', { value: '' }, '— select —'),
-        ...accts.map(a => el('option', { value: a.id, selected: a.id === sel }, accountLabel(a, byId))));
-    };
+    const opts = (type, sel) => el('select', { class: 'field-input', style: 'min-width:190px' },
+      el('option', { value: '' }, '— select —'),
+      ...entities('account').filter(a => a.active !== false && a.type === type).sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)))
+        .map(a => el('option', { value: a.id, selected: a.id === sel }, accountLabel(a, byId))));
     const incomeSel = opts('income', map.incomeId);
     const clearingSel = opts('asset', map.clearingId);
-    const feePassedSel = opts('income', map.feePassedId);   // contra-income: fee covered by a customer surcharge
-    const feeAbsorbedSel = opts('cogs', map.feeAbsorbedId);  // COGS: fee you absorbed
-    const cardRateIn = el('input', { class: 'field-input', inputmode: 'decimal', style: 'max-width:90px', value: ((map.cardRate != null ? map.cardRate : 0.029) * 100).toFixed(2).replace(/\.?0+$/, '') });
-    const startDate = el('input', { type: 'date', class: 'field-input', style: 'max-width:170px', value: map.startDate || DEFAULT_CUTOFF });
+    const feePassedSel = opts('income', map.feePassedId);     // contra-income: fee the customer covered
+    const feeAbsorbedSel = opts('cogs', map.feeAbsorbedId);    // COGS: fee you absorbed
+    const payoutSel = opts('expense', map.payoutFeeId);        // expense: 1% instant-payout fee
+    const curMapping = () => ({ incomeId: incomeSel.value, clearingId: clearingSel.value, feePassedId: feePassedSel.value, feeAbsorbedId: feeAbsorbedSel.value, payoutFeeId: payoutSel.value });
 
-    // live counts for the window
-    const status = el('p', { class: 'sub', style: 'margin:8px 0 0' });
-    const recount = () => {
-      const existing = new Set(entities('txn').map(t => t.id));
-      const { eligible, skipped } = buildPaymentTxns(entities('invoice'), map, { startDate: startDate.value, existingTxnIds: existing });
-      const toPost = eligible - skipped;
-      status.textContent = `${eligible} payments since ${startDate.value} · ${skipped} already posted · ${toPost} to post`;
-    };
-    startDate.addEventListener('change', recount);
-
-    // create/locate the standard accounts (clearing asset, COGS for absorbed fees,
-    // contra-income for passed fees), then select them.
     const ensureBtn = el('button', { class: 'linklike', onclick: () => {
       const have = entities('account');
       const find = (type, re) => have.find(x => x.type === type && (re.test(x.name) || re.test(x.qbName || '')));
@@ -194,57 +181,58 @@ function postCard() {
       const clr = mk('Undeposited Funds', 'asset', 'OCASSET', find('asset', /undeposited/i));
       const cogs = mk('Card processing fees', 'cogs', 'COGS', find('cogs', /processing|card fee/i));
       const passed = mk('Processing Fees', 'income', 'INC', find('income', /processing fee/i));
-      dispatch({ op: 'meta.set', value: { ...getState().meta, i2gMapping: { ...(getState().meta?.i2gMapping || {}), clearingId: clr.id, feeAbsorbedId: cogs.id, feePassedId: passed.id } } });
+      const payout = mk('Payout Fee', 'expense', 'EXP', find('expense', /payout/i));
+      dispatch({ op: 'meta.set', value: { ...getState().meta, i2gMapping: { ...(getState().meta?.i2gMapping || {}), clearingId: clr.id, feeAbsorbedId: cogs.id, feePassedId: passed.id, payoutFeeId: payout.id } } });
       toast('Clearing + fee accounts ready');
       draw();
     } }, 'Create / link the standard clearing + fee accounts');
 
-    const postBtn = el('button', { class: 'btn sm green', onclick: () => {
-      const rate = (parseFloat(cardRateIn.value) || 2.9) / 100;
-      const mapping = { incomeId: incomeSel.value, clearingId: clearingSel.value, feePassedId: feePassedSel.value, feeAbsorbedId: feeAbsorbedSel.value, cardRate: rate, startDate: startDate.value };
-      if (!mapping.incomeId || !mapping.clearingId) { toast('Pick an income and a clearing account', 'err'); return; }
-      const invoices = entities('invoice');
-      const existing = new Set(entities('txn').map(t => t.id));
-      // card payments incur a derived fee, so both fee accounts are needed when any are in the window
-      const needFee = invoices.some(inv => (inv.payments || []).some(p =>
-        p.status === 'succeeded' && p.txId && p.date >= mapping.startDate && /card/i.test(p.method || '') && !existing.has(paymentTxnId(p.txId))));
-      if (needFee && (!mapping.feePassedId || !mapping.feeAbsorbedId)) { toast('Card payments need the “passed to customer” (income) and “absorbed” (COGS) fee accounts', 'err'); return; }
+    const file = el('input', { type: 'file', accept: '.json', class: 'field-input', style: 'max-width:300px' });
+    const preview = el('div', { style: 'margin-top:10px' });
+    const importBtn = el('button', { class: 'btn sm green', disabled: true }, 'Post cashflow');
+    let built = null;
 
-      const { txns, skipped } = buildPaymentTxns(invoices, mapping, { startDate: mapping.startDate, existingTxnIds: existing });
-      if (!txns.length) { if (skipped) toast('All payments in this window are already posted'); else toast('No payments to post', 'err'); return; }
+    file.addEventListener('change', async () => {
+      built = null; importBtn.disabled = true; clear(preview);
+      const f = file.files?.[0]; if (!f) return;
+      let raw;
+      try { raw = JSON.parse(await f.text()); } catch { preview.append(el('p', { class: 'sub' }, 'Could not read that file — expected the Invoice2go cashflow export (i2g-cashflow.json).')); return; }
+      built = buildCashflowImport(raw, { existingInvoices: entities('invoice'), mapping: curMapping(), existingTxnIds: new Set(entities('txn').map(t => t.id)), now: Date.now() });
+      const p = built.preview || {};
+      if (built.errors.length) preview.append(el('p', { style: 'color:var(--red)' }, built.errors.join(' ')));
+      if (p.payments != null) preview.append(
+        el('p', {}, el('b', {}, `${p.payments} payments`), `, ${p.payouts} payouts (${p.payoutsWithFee} with a 1% fee) · `, el('b', {}, `${p.toPost} to post`), p.alreadyPosted ? `, ${p.alreadyPosted} already posted` : ''),
+        el('p', { class: 'sub', style: 'margin:2px 0' }, `income ${fmtMoney(p.income)} · absorbed ${fmtMoney(p.absorbed)} (COGS) · passed ${fmtMoney(p.passed)} (contra-income) · payout fees ${fmtMoney(p.payoutFees)}`),
+        el('p', { class: 'sub', style: 'margin:2px 0' }, `${p.tagged} tagged to invoices${p.unmatchedInvoices.length ? ` · ${p.unmatchedInvoices.length} not matched (income still posts)` : ''}${p.dateRange ? ` · ${p.dateRange[0]} → ${p.dateRange[1]}` : ''}`),
+        p.unmatchedInvoices.length ? el('details', {}, el('summary', { class: 'sub', style: 'cursor:pointer' }, `${p.unmatchedInvoices.length} invoice/estimate #s not matched`), el('div', { class: 'sub', style: 'max-height:120px;overflow:auto' }, p.unmatchedInvoices.slice(0, 100).map(u => '#' + u.number).join(', '))) : el('span'),
+      );
+      importBtn.disabled = !p.toPost || built.errors.length > 0;
+    });
 
+    importBtn.addEventListener('click', () => {
+      if (!built?.txns?.length) return;
       const ctx = { accountsById: new Map(entities('account').map(a => [a.id, a])), locks: new Set(entities('lock').map(l => l.id)) };
-      const good = [], bad = [];
-      for (const t of txns) (validateTxn(t, ctx).ok ? good : bad).push(t);
+      const good = built.txns.filter(t => validateTxn(t, ctx).ok);
+      const bad = built.txns.length - good.length;
       if (!good.length) { toast('Could not post — check the accounts (and that the period isn’t locked)', 'err'); return; }
-
-      let income = 0, passed = 0, absorbed = 0;
-      for (const t of good) for (const l of t.lines) {
-        if (l.accountId === mapping.incomeId) income += -l.amountCents;
-        if (l.accountId === mapping.feePassedId) passed += l.amountCents;
-        if (l.accountId === mapping.feeAbsorbedId) absorbed += l.amountCents;
-      }
-      dispatch({ op: 'meta.set', value: { ...getState().meta, i2gMapping: mapping } });
-      for (let i = 0; i < good.length; i += 200) {
-        dispatch({ op: 'entity.bulkUpsert', kind: 'txn', values: good.slice(i, i + 200) });
-      }
-      toast(`Posted ${good.length} — ${fmtMoney(income)} income · ${fmtMoney(absorbed)} fees absorbed · ${fmtMoney(passed)} passed to customers${bad.length ? ` · ${bad.length} skipped` : ''}`);
-      recount();
-    } }, 'Post payments to the ledger');
+      dispatch({ op: 'meta.set', value: { ...getState().meta, i2gMapping: curMapping() } });
+      for (let i = 0; i < good.length; i += 200) dispatch({ op: 'entity.bulkUpsert', kind: 'txn', values: good.slice(i, i + 200) });
+      toast(`Posted ${good.length} cashflow entries${bad ? ` · ${bad} skipped` : ''}`);
+      importBtn.disabled = true; built = null; file.value = '';
+      clear(preview).append(el('p', { class: 'sub' }, `Posted ${good.length}. Income + real fees are on the books; your bank deposits relieve the clearing account — when it nets to $0, every payment is matched to a deposit.`));
+    });
 
     const field = (label, node) => el('div', {}, el('label', { class: 'field-label' }, label), node);
     clear(card).append(
-      el('div', { class: 'cardtitle' }, 'Post payments to the ledger'),
-      el('p', { class: 'sub' }, 'Each payment posts as income (at the gross paid) through a clearing account your bank deposit later clears. Card fees split by who paid them: the part a customer covered via a surcharge nets out of income (contra-income), the part you absorbed is a cost of goods (COGS). Instant-payout (1%) fees are booked per invoice with the “＋ Payout fee” button. Already-posted payments are skipped — safe to re-run after each import.'),
+      el('div', { class: 'cardtitle' }, 'Post Invoice2go cashflow (payments & payouts)'),
+      el('p', { class: 'sub' }, 'Upload the Invoice2go cashflow export (i2g-cashflow.json). Posts each payment with its REAL fees — the part you absorbed to COGS, the part the customer covered as contra-income — plus the 1% instant-payout fees, all tagged to their invoices. Income lands net in the clearing account; your bank deposits relieve it. Safe to re-run after each export.'),
       el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end' },
         field('Income account', incomeSel), field('Clearing account', clearingSel),
-        field('Fees passed to customer (income)', feePassedSel), field('Fees absorbed (COGS)', feeAbsorbedSel),
-        field('Card fee %', cardRateIn), field('Post payments since', startDate)),
+        field('Fees passed (income)', feePassedSel), field('Fees absorbed (COGS)', feeAbsorbedSel), field('Payout fee (expense)', payoutSel)),
       el('div', { style: 'margin-top:6px' }, ensureBtn),
-      el('div', { style: 'margin-top:10px' }, postBtn),
-      status,
+      el('div', { style: 'display:flex;gap:10px;align-items:center;margin-top:10px' }, file, importBtn),
+      preview,
     );
-    recount();
   };
   draw();
   return card;
@@ -404,7 +392,7 @@ function payoutFeeModal(inv) {
 }
 
 function confirmDeleteInvoice(inv) {
-  const posted = (inv.payments || []).some(p => entities('txn').some(t => t.id === paymentTxnId(p.txId)));
+  const posted = entities('txn').some(t => t.invoiceId === inv.id && (t.source?.app === 'i2g-cashflow' || t.source?.app === 'invoice2go'));
   const m = modal('Delete this invoice?');
   m.body.append(
     el('p', {}, `Delete invoice #${inv.number} for ${inv.clientName || 'this client'}? This removes the A/R record.`),
