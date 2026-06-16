@@ -541,6 +541,42 @@ function drawList(body) {
 }
 
 // ── Drill-down ──
+// The Invoice2go cashflow entries (payments/payouts) are system bookings for fees —
+// they belong in the profit breakdown, not the "Linked expenses" (job-cost) list.
+const isI2gSystemTxn = (t) => t.source?.app === 'i2g-cashflow' || t.source?.app === 'i2g-cashflow-payout';
+
+// Drill-down: the full double-entry for one transaction.
+function txnDetailModal(t, accountsById) {
+  const m = modal(`Transaction · ${t.date || ''}`);
+  m.body.append(
+    el('p', { class: 'sub', style: 'margin-top:0' }, `${t.payee || '—'}${t.memo ? ' · ' + t.memo : ''}`),
+    el('table', { class: 'data' },
+      el('tr', {}, el('th', {}, 'Account'), el('th', { class: 'num' }, 'Debit'), el('th', { class: 'num' }, 'Credit')),
+      ...(t.lines || []).map(l => {
+        const a = accountsById.get(l.accountId);
+        return el('tr', {},
+          el('td', {}, a ? accountLabel(a, accountsById) : l.accountId),
+          el('td', { class: 'num' }, l.amountCents > 0 ? fmtMoney(l.amountCents) : ''),
+          el('td', { class: 'num' }, l.amountCents < 0 ? fmtMoney(-l.amountCents) : ''));
+      })),
+    el('div', { style: 'display:flex;justify-content:flex-end;margin-top:12px' }, el('button', { class: 'btn', onclick: m.close }, 'Close')));
+}
+
+// Drill-down: the transactions behind a profit-panel line (a fee or job-cost total).
+function txnListModal(title, txns, accountsById, amountFor) {
+  const m = modal(title);
+  m.body.append(txns.length
+    ? el('table', { class: 'data' },
+        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Payee'), el('th', { class: 'num' }, 'Amount'), el('th', {}, '')),
+        ...txns.map(t => el('tr', {},
+          el('td', {}, t.date || '—'),
+          el('td', {}, t.payee || '—'),
+          el('td', { class: 'num' }, fmtMoney(amountFor ? amountFor(t) : 0)),
+          el('td', {}, el('button', { class: 'linklike', onclick: () => txnDetailModal(t, accountsById) }, 'View')))))
+    : el('p', { class: 'sub' }, 'No entries.'));
+  m.body.append(el('div', { style: 'display:flex;justify-content:flex-end;margin-top:12px' }, el('button', { class: 'btn', onclick: m.close }, 'Close')));
+}
+
 function renderInvoiceDetail(root, id) {
   const biz = getActiveBiz();
   const inv = entities('invoice').find(i => i.id === id);
@@ -574,16 +610,26 @@ function renderInvoiceDetail(root, id) {
   for (const t of allTxns) if (t.status === 'posted' && t.invoiceId === inv.id)
     for (const l of t.lines) { if (l.accountId === i2gMap.feePassedId) feePassedTagged += l.amountCents; }
   const feePassed = feePassedTagged || Math.max(0, (inv.paidCents | 0) - (inv.totalCents | 0));
-  const linkedExpenses = allTxns.filter(t => t.status === 'posted' && t.invoiceId === inv.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  const candidates = allTxns.filter(t => t.status === 'posted' && t.invoiceId !== inv.id && isExpenseTxn(t)).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 100);
+  // Contributing entries behind each profit line (for the drill-downs).
+  const tagged = allTxns.filter(t => t.status === 'posted' && t.invoiceId === inv.id);
+  const lineSum = (t, pred) => t.lines.reduce((s, l) => s + (pred(accountsById.get(l.accountId), l) ? l.amountCents : 0), 0);
+  const isAbsorbedAcct = (a) => a && (a.id === i2gMap.feeAbsorbedId || (a.type === 'cogs' && /processing|card fee/i.test(a.name || '')));
+  const isPayoutAcct = (a) => a && /payout/i.test(a.name || '');
+  const absorbedTxns = tagged.filter(t => lineSum(t, isAbsorbedAcct) !== 0);
+  const payoutTxns = tagged.filter(t => lineSum(t, isPayoutAcct) !== 0);
+  const passedTxns = tagged.filter(t => t.lines.some(l => l.accountId === i2gMap.feePassedId));
+  // "Linked expenses" = genuine job costs only — not the Invoice2go fee bookings (those
+  // live in the profit lines above), and not zero-expense entries (confusing "$0.00").
+  const linkedExpenses = tagged.filter(t => !isI2gSystemTxn(t) && expenseAmt(t) !== 0).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const candidates = allTxns.filter(t => t.status === 'posted' && t.invoiceId !== inv.id && isExpenseTxn(t) && !isI2gSystemTxn(t)).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 100);
   const linkSel = el('select', { class: 'field-input', style: 'max-width:360px' },
     el('option', { value: '' }, '— pick an expense to link —'),
     ...candidates.map(t => el('option', { value: t.id }, `${t.date} · ${(t.payee || '—').slice(0, 30)} · ${fmtMoney(expenseAmt(t))}`)));
-  const expenseRows = linkedExpenses.map(t => el('tr', {},
+  const expenseRows = linkedExpenses.map(t => el('tr', { style: 'cursor:pointer', title: 'View transaction', onclick: () => txnDetailModal(t, accountsById) },
     el('td', {}, t.date),
     el('td', {}, t.payee || '—'),
     el('td', { class: 'num' }, fmtMoney(expenseAmt(t))),
-    el('td', {}, editable ? el('button', { class: 'linklike', onclick: () => { dispatch({ op: 'entity.upsert', kind: 'txn', value: { ...t, invoiceId: undefined } }); toast('Unlinked'); } }, 'Unlink') : '')));
+    el('td', {}, editable ? el('button', { class: 'linklike', onclick: (e) => { e.stopPropagation(); dispatch({ op: 'entity.upsert', kind: 'txn', value: { ...t, invoiceId: undefined } }); toast('Unlinked'); } }, 'Unlink') : '')));
   const expensesCard = (editable || linkedExpenses.length)
     ? el('div', { class: 'card', style: 'max-width:640px;margin-bottom:14px' },
         el('div', { class: 'cardtitle' }, 'Linked expenses'),
@@ -591,7 +637,7 @@ function renderInvoiceDetail(root, id) {
           ? el('table', { class: 'data' },
               el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Payee'), el('th', { class: 'num' }, 'Expense'), el('th', {}, '')),
               ...expenseRows)
-          : el('p', { class: 'sub' }, 'No expenses linked yet.'),
+          : el('p', { class: 'sub' }, 'No job expenses linked yet.'),
         editable ? el('div', { style: 'display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap' },
           linkSel,
           el('button', { class: 'btn sm', onclick: () => {
@@ -643,11 +689,11 @@ function renderInvoiceDetail(root, id) {
         el('tr', {}, el('td', {}, el('b', {}, 'Revenue (invoice total)')), el('td', { class: 'num' }, el('b', {}, fmtMoney(inv.totalCents)))),
         el('tr', {}, el('td', {}, 'Paid'), el('td', { class: 'num' }, fmtMoney(inv.paidCents))),
         inv.balanceCents ? el('tr', {}, el('td', {}, 'Open balance'), el('td', { class: 'num' }, fmtMoney(inv.balanceCents))) : null,
-        el('tr', {}, el('td', {}, 'Job expenses'), el('td', { class: 'num' }, fmtMoney(jobExpenses))),
-        cardAbsorbed ? el('tr', {}, el('td', {}, 'Card fee absorbed (COGS)'), el('td', { class: 'num' }, fmtMoney(cardAbsorbed))) : null,
-        payoutFee ? el('tr', {}, el('td', {}, 'Payout fee'), el('td', { class: 'num' }, fmtMoney(payoutFee))) : null,
+        el('tr', linkedExpenses.length ? { style: 'cursor:pointer', title: 'View linked expenses', onclick: () => txnListModal('Job expenses', linkedExpenses, accountsById, expenseAmt) } : {}, el('td', {}, 'Job expenses'), el('td', { class: 'num' }, fmtMoney(jobExpenses))),
+        cardAbsorbed ? el('tr', { style: 'cursor:pointer', title: 'View entries', onclick: () => txnListModal('Card fee absorbed (COGS)', absorbedTxns, accountsById, t => lineSum(t, isAbsorbedAcct)) }, el('td', {}, 'Card fee absorbed (COGS)'), el('td', { class: 'num' }, fmtMoney(cardAbsorbed))) : null,
+        payoutFee ? el('tr', { style: 'cursor:pointer', title: 'View entries', onclick: () => txnListModal('Payout fee', payoutTxns, accountsById, t => lineSum(t, isPayoutAcct)) }, el('td', {}, 'Payout fee'), el('td', { class: 'num' }, fmtMoney(payoutFee))) : null,
         el('tr', {}, el('td', {}, el('b', {}, 'Profit')), el('td', { class: 'num ' + (marginCents >= 0 ? 'pos' : 'neg') }, el('b', {}, fmtMoney(marginCents) + (marginPct != null ? ` (${marginPct}%)` : '')))),
-        feePassed ? el('tr', { style: 'color:var(--mut)' }, el('td', {}, 'Fee passed to customer (from Invoice2go)'), el('td', { class: 'num' }, fmtMoney(feePassed))) : null)),
+        feePassed ? el('tr', passedTxns.length ? { style: 'color:var(--mut);cursor:pointer', title: 'View entries', onclick: () => txnListModal('Fee passed to customer', passedTxns, accountsById, t => lineSum(t, a => a && a.id === i2gMap.feePassedId)) } : { style: 'color:var(--mut)' }, el('td', {}, 'Fee passed to customer (from Invoice2go)'), el('td', { class: 'num' }, fmtMoney(feePassed))) : null)),
     expensesCard,
     itemRows.length ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;margin-bottom:14px;max-width:640px' },
       el('table', { class: 'data' },

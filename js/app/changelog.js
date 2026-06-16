@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.51.0', items: [
+    { icon: 'search', t: 'Drill into an invoice’s costs and fees', d: 'On an invoice, the profit lines — Job expenses, Card fee absorbed, Payout fee, Fee passed to customer — are now clickable: each opens the exact transactions behind it, and you can open any one to see its full debit/credit detail. The “Linked expenses” list is clickable too.' },
+    { icon: 'cleaning_services', t: 'Cleaner “Linked expenses”', d: 'The Linked expenses card now shows only real job costs. The Invoice2go fee bookings (which already appear in the profit breakdown) and empty $0.00 entries no longer clutter the list.' },
+  ] },
   { v: '0.50.0', items: [
     { icon: 'bolt', t: 'One-file Invoice2go import — invoices + cashflow together', d: 'The Invoices tab now imports a single file: the one-click Invoice2go export brings in every invoice (client, total, balance, status) AND the real cashflow in one step — each payment posted with its actual fees (absorbed → cost of goods, passed-to-customer → contra-income, plus the 1% instant-payout fees), all tagged to their invoice. Each invoice shows an honest profit breakdown, and the fee the customer covered is read straight from the real data. Safe to re-run weekly; nothing duplicates.' },
     { icon: 'list_alt', t: 'Add line-item detail whenever you like', d: 'The one-click import doesn’t include itemized lines. A separate “Add line-item detail” tool lets you upload the Invoice2go invoice CSV monthly or quarterly to fill in line items on the invoices you already have — matched by number. It only adds line items; it never changes the totals or payments the weekly import owns.' },
