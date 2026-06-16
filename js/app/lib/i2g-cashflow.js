@@ -51,12 +51,14 @@ export function parseCashflow(raw) {
 // Parse the bundle's API-shaped invoices ({invoices:[...]}) into BackOffice invoice
 // entities. The list API gives totals/status/client but NO line items or per-payment
 // rows — those live in the cashflow feed (posted as ledger txns and tagged by id).
-export function parseBundleInvoices(raw, now = 0) {
+export function parseBundleInvoices(raw, now = 0, cutoff = '') {
   const arr = raw && Array.isArray(raw.invoices) ? raw.invoices : null;
   if (!arr) return null;
   const out = [];
   for (const v of arr) {
     if (!v || !v.id) continue;
+    const docDate = String(v.content?.doc_date || '').slice(0, 10);
+    if (cutoff && (!docDate || docDate < cutoff)) continue; // older periods are owned by QuickBooks
     const lcr = v.latest_calculation_results || {};
     const pay = lcr.payments || {};
     const total = lcr.total | 0;
@@ -69,7 +71,7 @@ export function parseBundleInvoices(raw, now = 0) {
     out.push({
       id: v.id, sourceId: v.id,
       number: String(v.content?.doc_number || '').trim(),
-      date: String(v.content?.doc_date || '').slice(0, 10),
+      date: docDate,
       createdDate: String(v.header?.created_date || '').slice(0, 10) || undefined,
       dueDate: String(st.due_date || '').slice(0, 10) || undefined,
       datePaid: String(st.date_paid || '').slice(0, 10) || undefined,
@@ -90,10 +92,13 @@ const cleanLines = (lines) => {
 };
 
 // mapping: { incomeId, clearingId, feePassedId, feeAbsorbedId, payoutFeeId }
-export function buildCashflowImport(raw, { existingInvoices = [], mapping = {}, existingTxnIds = new Set(), now = 0 } = {}) {
+export function buildCashflowImport(raw, { existingInvoices = [], mapping = {}, existingTxnIds = new Set(), now = 0, cutoff = '' } = {}) {
   const parsed = parseCashflow(raw);
   if (!parsed) return { errors: ['That file is not an Invoice2go cashflow export (no transactions array).'] };
-  const { payments, payouts } = parsed;
+  // Older periods are already booked in QuickBooks — posting Invoice2go that far back
+  // would double-count income. Only payments/payouts on/after the cutoff are posted.
+  const payments = cutoff ? parsed.payments.filter(p => p.date >= cutoff) : parsed.payments;
+  const payouts = cutoff ? parsed.payouts.filter(p => p.date >= cutoff) : parsed.payouts;
   const errors = [];
   if (!mapping.incomeId || !mapping.clearingId) errors.push('Pick the income and clearing accounts.');
 

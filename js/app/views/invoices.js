@@ -226,18 +226,20 @@ function postCard() {
     } }, 'Create / link the standard clearing + fee accounts');
 
     const file = el('input', { type: 'file', accept: '.json', class: 'field-input', style: 'max-width:300px' });
+    const cutoffInput = el('input', { type: 'date', class: 'field-input', style: 'max-width:170px', value: getState().meta?.i2gCutoff || '2025-10-01' });
     const preview = el('div', { style: 'margin-top:10px' });
     const importBtn = el('button', { class: 'btn sm green', disabled: true }, 'Import');
     let built = null; // { invoiceValues, invNew, invUpd, cf, hasInvoices }
 
-    file.addEventListener('change', async () => {
+    const scan = async () => {
       built = null; importBtn.disabled = true; clear(preview);
       const f = file.files?.[0]; if (!f) return;
       let raw;
       try { raw = JSON.parse(await f.text()); } catch { preview.append(el('p', { class: 'sub' }, 'Could not read that file — expected the one-click Invoice2go export (invoice2go-export.json).')); return; }
       const now = Date.now();
+      const cutoff = cutoffInput.value || '';
       // 1) invoices (bundle only — the plain cashflow file has none)
-      const parsedInv = parseBundleInvoices(raw, now);
+      const parsedInv = parseBundleInvoices(raw, now, cutoff);
       const resolve = invoiceResolver();
       const invoiceValues = []; let invNew = 0, invUpd = 0;
       if (parsedInv) for (const pInv of parsedInv) {
@@ -248,7 +250,7 @@ function postCard() {
       }
       // 2) cashflow — tag against the bundle's invoices (id match) + what's already here
       const existingForTag = parsedInv ? [...parsedInv, ...entities('invoice')] : entities('invoice');
-      const cf = buildCashflowImport(raw, { existingInvoices: existingForTag, mapping: curMapping(), existingTxnIds: new Set(entities('txn').map(t => t.id)), now });
+      const cf = buildCashflowImport(raw, { existingInvoices: existingForTag, mapping: curMapping(), existingTxnIds: new Set(entities('txn').map(t => t.id)), now, cutoff });
       built = { invoiceValues, invNew, invUpd, cf, hasInvoices: !!parsedInv };
       const p = cf.preview || {};
       if (cf.errors.length) preview.append(el('p', { style: 'color:var(--red)' }, cf.errors.join(' ')));
@@ -261,10 +263,13 @@ function postCard() {
       );
       if (!parsedInv && p.payments == null) preview.append(el('p', { class: 'sub' }, 'That file has no invoices or cashflow — is it the one-click export (invoice2go-export.json)?'));
       importBtn.disabled = (!invoiceValues.length && !p.toPost) || cf.errors.length > 0;
-    });
+    };
+    file.addEventListener('change', scan);
+    cutoffInput.addEventListener('change', scan);
 
     importBtn.addEventListener('click', () => {
       if (!built) return;
+      dispatch({ op: 'meta.set', value: { ...getState().meta, i2gMapping: curMapping(), i2gCutoff: cutoffInput.value || '' } });
       // 1) invoices
       if (built.invoiceValues.length) for (let i = 0; i < built.invoiceValues.length; i += 200) dispatch({ op: 'entity.bulkUpsert', kind: 'invoice', values: built.invoiceValues.slice(i, i + 200) });
       // 2) cashflow (only valid balanced entries; never into a locked period)
@@ -274,7 +279,6 @@ function postCard() {
         const good = built.cf.txns.filter(t => validateTxn(t, ctx).ok);
         bad = built.cf.txns.length - good.length;
         if (good.length) {
-          dispatch({ op: 'meta.set', value: { ...getState().meta, i2gMapping: curMapping() } });
           for (let i = 0; i < good.length; i += 200) dispatch({ op: 'entity.bulkUpsert', kind: 'txn', values: good.slice(i, i + 200) });
           posted = good.length;
         } else if (built.cf.txns.length) { toast('Could not post cashflow — check the accounts (and that the period isn’t locked)', 'err'); }
@@ -292,7 +296,9 @@ function postCard() {
         field('Income account', incomeSel), field('Clearing account', clearingSel),
         field('Fees passed (income)', feePassedSel), field('Fees absorbed (COGS)', feeAbsorbedSel), field('Payout fee (expense)', payoutSel)),
       el('div', { style: 'margin-top:6px' }, ensureBtn),
-      el('div', { style: 'display:flex;gap:10px;align-items:center;margin-top:10px' }, file, importBtn),
+      el('div', { style: 'display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:10px' },
+        field('Start date (skip anything QuickBooks already has)', cutoffInput),
+        el('div', { style: 'display:flex;gap:10px;align-items:center' }, file, importBtn)),
       preview,
     );
   };

@@ -140,3 +140,15 @@ test('parseBundleInvoices returns null for a non-bundle file', () => {
   assert.equal(parseBundleInvoices([absorbedPay]), null);
   assert.equal(parseBundleInvoices({ cashflow: [] }), null);
 });
+
+test('cutoff drops invoices + cashflow before the start date (avoids double-counting QB)', () => {
+  const old = { ...bundleInv, id: 'old-uuid', content: { ...bundleInv.content, doc_date: '2025-09-15' } };
+  const invs = parseBundleInvoices({ invoices: [old, bundleInv] }, 0, '2025-10-01');
+  assert.equal(invs.length, 1);
+  assert.equal(invs[0].id, '267d2440-uuid'); // the 2026 one kept, the Sept-2025 one dropped
+  // cashflow: absorbedPay is 2026-03-01 (kept); a pre-cutoff payment is dropped
+  const oldPay = { ...absorbedPay, id: 'pOld', created_date: '2025-08-01T00:00:00Z' };
+  const r = buildCashflowImport([oldPay, absorbedPay], { existingInvoices: invoices, mapping, cutoff: '2025-10-01' });
+  assert.equal(r.preview.payments, 1);
+  assert.equal(r.txns.find(t => t.id === cashflowPaymentTxnId('pOld')), undefined);
+});

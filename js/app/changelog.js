@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.53.0', items: [
+    { icon: 'event_busy', t: 'Start date on the Invoice2go import', d: 'The one-file import now has a “Start date” (defaults to Oct 1, 2025): invoices and cashflow dated before it are skipped, so periods already covered by your QuickBooks import aren’t double-counted. The date is remembered for next time.' },
+  ] },
   { v: '0.52.0', items: [
     { icon: 'event', t: 'Clearer invoice dates', d: 'An invoice now shows its dates in a clean, labeled row — Invoice date, Created, Due, and Paid — so there’s no guessing which date is which. The invoice list column is labeled “Invoice date.” (Invoice2go doesn’t export a separate event date — that lives in the line-item text.)' },
   ] },
