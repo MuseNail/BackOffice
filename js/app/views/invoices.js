@@ -565,12 +565,19 @@ function renderInvoiceDetail(root, id) {
     el('td', { class: 'num' }, fmtMoney(it.unitPriceCents)),
     el('td', { class: 'num' }, fmtMoney(it.amountCents))));
 
-  const payRows = (inv.payments || []).map(p => el('tr', {},
-    el('td', {}, p.date || '—'),
-    el('td', {}, (p.method || '').replace(/_/g, ' ')),
-    el('td', { class: 'num' }, fmtMoney(p.amountCents)),
-    el('td', { class: 'num' }, p.feeCents ? fmtMoney(p.feeCents) : '—'),
-    el('td', {}, el('span', { class: 'pill ' + (p.status === 'succeeded' ? 'green' : 'gray') }, p.status || '—'))));
+  // Per-payment fee view for review: the estimated Invoice2go cut (derived at the card
+  // rate) and the surcharge passed to the customer (real data, from the export).
+  const cardRate = i2gMap.cardRate != null ? i2gMap.cardRate : 0.029;
+  const payRows = (inv.payments || []).map(p => {
+    const estFee = /card/i.test(p.method || '') ? Math.round((p.amountCents | 0) * cardRate) : 0;
+    return el('tr', {},
+      el('td', {}, p.date || '—'),
+      el('td', {}, (p.method || '').replace(/_/g, ' ')),
+      el('td', { class: 'num' }, fmtMoney(p.amountCents)),
+      el('td', { class: 'num', title: 'Invoice2go card fee, estimated at ' + (cardRate * 100).toFixed(2).replace(/\.?0+$/, '') + '%' }, estFee ? fmtMoney(estFee) : '—'),
+      el('td', { class: 'num', title: 'Surcharge passed to the customer (from Invoice2go)' }, p.feeCents ? fmtMoney(p.feeCents) : '—'),
+      el('td', {}, el('span', { class: 'pill ' + (p.status === 'succeeded' ? 'green' : 'gray') }, p.status || '—')));
+  });
 
   root.append(
     back,
@@ -594,8 +601,8 @@ function renderInvoiceDetail(root, id) {
         ...itemRows)) : el('span'),
     payRows.length ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:640px' },
       el('table', { class: 'data' },
-        el('tr', {}, el('th', { colspan: '5', style: 'text-align:left' }, 'Payments')),
-        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Method'), el('th', { class: 'num' }, 'Amount'), el('th', { class: 'num' }, 'Fee'), el('th', {}, 'Status')),
+        el('tr', {}, el('th', { colspan: '6', style: 'text-align:left' }, 'Payments')),
+        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Method'), el('th', { class: 'num' }, 'Amount'), el('th', { class: 'num' }, 'Card fee (est.)'), el('th', { class: 'num' }, 'Passed'), el('th', {}, 'Status')),
         ...payRows)) : el('p', { class: 'sub' }, 'No payments recorded.'),
   );
 }
