@@ -8,6 +8,7 @@ import { validateTxn, simpleTxn, voidTxn, periodKey, accountBalance } from '../l
 import { accountLabel } from '../lib/coa-templates.js';
 import { vendorMatches } from './vendors.js';
 import { attachAddCategory, attachAddVendor } from '../pickers.js';
+import { categoryField, vendorField, memoField, invoiceField, categoryName, stackedEditor } from '../txn-inline.js';
 
 let unsub = null;
 
@@ -173,36 +174,70 @@ function drawTable(host, editable) {
     for (const t of chron) { run += lineSumOn(t, flt.accountId); balAfter.set(t.id, run); }
   }
 
+  const showInv = usesInvoices();
+  const invById = new Map(entities('invoice').map(i => [i.id, i]));
+  const vendById = new Map(entities('vendor').map(v => [v.id, v]));
+  const extraCols = showInv ? 4 : 3; // Category, Vendor, Memo, (Invoice)
+  const colCount = 2 + extraCols + 1 /*source*/ + 1 /*amount*/ + (scoped ? 1 : 0) + 1 /*actions*/;
+
   const filtered = applySort(applyFilters(allTxns));
   const txns = filtered.slice(0, 200);
-  const rows = txns.map(t => {
+  const rows = txns.flatMap(t => {
     const d = describe(t);
     const amt = rowAmount(t);
     const isVoid = t.status === 'void';
     const isRecon = !!t.reconciledIn;
+    const inlineEditable = editable && !isVoid;
     const actions = [];
     if (editable) {
+      // Edit opens the full modal — the only place to change date / amount / split lines.
       if (!isVoid) actions.push(el('button', { class: 'linklike', onclick: () => editTxnModal(t) }, 'Edit'));
-      // Delete is offered on voided rows too (purge a dead record); blocked only when reconciled.
       if (!isRecon) actions.push(el('button', { class: 'linklike', onclick: () => confirmDelete(t) }, 'Delete'));
       if (!isVoid) actions.push(el('button', { class: 'linklike', onclick: () => confirmVoid(t) }, 'Void'));
     }
-    // Whole row opens Edit (except voided rows, which can't be edited). The actions cell stops
-    // propagation so Edit/Delete/Void run on their own without also firing the row's edit.
-    const rowClickable = editable && !isVoid;
-    return el('tr', { style: (isVoid ? 'opacity:.45;' : '') + (rowClickable ? 'cursor:pointer' : ''),
-        onclick: rowClickable ? () => editTxnModal(t) : undefined },
-      el('td', {}, t.date),
-      el('td', {}, el('b', {}, t.payee || '—'), t.memo ? el('span', { style: 'color:var(--mut)' }, ` · ${t.memo}`) : '', t.checkNo ? el('span', { style: 'color:var(--mut)' }, ` · #${t.checkNo}`) : ''),
-      el('td', {}, d.category),
-      el('td', {},
-        el('span', { class: `pill ${isVoid ? 'gray' : sourceTag(t.source?.app).cls}` }, isVoid ? 'Void' : sourceTag(t.source?.app).label),
-        isRecon ? el('span', { class: 'pill gray', title: 'Amounts and accounts are locked — reconciled in a closed period', style: 'margin-left:4px' }, 'Reconciled') : ''),
-      el('td', { class: 'num ' + (amt > 0 ? 'pos' : amt < 0 ? 'neg' : '') }, amt == null ? '—' : fmtMoney(amt, { sign: amt > 0 })),
-      // Running balance only advances on posted entries; a voided row keeps no balance.
-      scoped ? el('td', { class: 'num' }, isVoid ? '—' : fmtMoney(balAfter.get(t.id) || 0)) : null,
-      el('td', { style: 'white-space:nowrap', onclick: (e) => e.stopPropagation() }, ...actions.flatMap((a, i) => i ? [' · ', a] : [a])),
-    );
+
+    // The four shared cells: live fields when editable, static text otherwise (void
+    // rows and read-only viewers) — kept in the same column slots so every row aligns.
+    let catCell, vendCell, memoCell, invCell;
+    if (inlineEditable) {
+      catCell = categoryField(t); vendCell = vendorField(t); memoCell = memoField(t);
+      invCell = showInv ? invoiceField(t) : null;
+    } else {
+      const vd = t.vendorId ? vendById.get(t.vendorId) : null;
+      const iv = t.invoiceId ? invById.get(t.invoiceId) : null;
+      catCell = el('span', { class: 'txi-static' }, categoryName(t) || d.category);
+      vendCell = el('span', { class: 'txi-static' }, vd ? vd.name : '—');
+      memoCell = el('span', { class: 'txi-static' }, t.memo || '—');
+      invCell = showInv ? el('span', { class: 'txi-static' }, iv ? `#${iv.number || iv.id}` : '—') : null;
+    }
+
+    const srcCell = el('td', {},
+      el('span', { class: `pill ${isVoid ? 'gray' : sourceTag(t.source?.app).cls}` }, isVoid ? 'Void' : sourceTag(t.source?.app).label),
+      isRecon ? el('span', { class: 'pill gray', title: 'Amounts and accounts are locked — reconciled in a closed period', style: 'margin-left:4px' }, 'Reconciled') : '');
+    const amtCell = el('td', { class: 'num ' + (amt > 0 ? 'pos' : amt < 0 ? 'neg' : ''), style: 'white-space:nowrap' }, amt == null ? '—' : fmtMoney(amt, { sign: amt > 0 }));
+    const balCell = scoped ? el('td', { class: 'num' }, isVoid ? '—' : fmtMoney(balAfter.get(t.id) || 0)) : null;
+    const actCell = el('td', { class: 'no-print', style: 'white-space:nowrap' }, ...actions.flatMap((a, i) => i ? [' · ', a] : [a]));
+
+    // Mobile compact line (category text + invoice pill + expand chevron). Only rows
+    // with editable inline fields get the tap-to-expand detail editor.
+    const iv = t.invoiceId ? invById.get(t.invoiceId) : null;
+    const chevron = inlineEditable ? el('i', { class: 'ti ti-chevron-down txchev' }) : '';
+    const detail = inlineEditable ? el('tr', { class: 'txrow-detail' },
+      el('td', { colspan: String(colCount), style: 'background:var(--bg);padding:12px 14px' }, stackedEditor(t))) : null;
+    const compact = el('div', { class: 'txcompact', onclick: inlineEditable ? () => { detail.classList.toggle('open'); chevron.className = detail.classList.contains('open') ? 'ti ti-chevron-up txchev' : 'ti ti-chevron-down txchev'; } : undefined },
+      el('span', { style: 'color:var(--mut)' }, categoryName(t) || d.category),
+      (showInv && iv) ? el('span', { class: 'pill blue', style: 'font-size:10px;padding:2px 7px' }, `#${iv.number || iv.id}`) : '',
+      chevron);
+
+    const summary = el('tr', { style: isVoid ? 'opacity:.45;' : '' },
+      el('td', { style: 'white-space:nowrap' }, t.date),
+      el('td', {}, el('b', {}, t.payee || '—'), t.checkNo ? el('span', { style: 'color:var(--mut)' }, ` · #${t.checkNo}`) : '', compact),
+      el('td', { class: 'txinline' }, catCell),
+      el('td', { class: 'txinline' }, vendCell),
+      el('td', { class: 'txinline' }, memoCell),
+      showInv ? el('td', { class: 'txinline' }, invCell) : null,
+      srcCell, amtCell, balCell, actCell);
+    return detail ? [summary, detail] : [summary];
   });
   const th = (key, label, cls) => el('th', { class: cls || '', style: 'cursor:pointer;user-select:none', title: 'Click to sort', onclick: () => { setSort(key); drawTable(host, editable); } }, label + arrow(key));
   const balance = scoped ? accountBalance(entities('txn'), flt.accountId) : 0;
@@ -213,13 +248,19 @@ function drawTable(host, editable) {
       el('div', { class: 'kpi' }, fmtMoney(balance)),
       el('div', { class: 'sub', style: 'margin:0' }, isBank
         ? 'Should match your bank/card statement once every transaction through this account is entered and approved.'
-        : 'Balance of all posted activity in this account.')) : null,
+        : 'Balance of all posted activity in this account.')) : el('span'),
     el('p', { class: 'sub', style: 'margin:0 0 8px' },
       `${filtered.length} of ${allTxns.length} transaction${allTxns.length === 1 ? '' : 's'}${filtered.length > 200 ? ' · showing the first 200 — narrow the filters to see the rest' : ''}`),
     filtered.length
-      ? el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
-          el('table', { class: 'data' },
-            el('tr', {}, th('date', 'Date'), th('payee', 'Payee / memo'), th('category', 'Category'), el('th', {}, 'Source'), th('amount', 'Amount', 'num'), scoped ? el('th', { class: 'num' }, 'Balance') : null, el('th', {}, '')),
+      ? el('div', { class: 'card', style: 'padding:0;overflow-x:auto' },
+          el('table', { class: 'data' + (editable ? ' txedit' : '') },
+            el('tr', {}, th('date', 'Date'), th('payee', 'Payee / memo'),
+              el('th', { class: 'txinline' }, 'Category'),
+              el('th', { class: 'txinline' }, 'Vendor'),
+              el('th', { class: 'txinline' }, 'Memo'),
+              showInv ? el('th', { class: 'txinline' }, 'Invoice') : null,
+              el('th', {}, 'Source'), th('amount', 'Amount', 'num'),
+              scoped ? el('th', { class: 'num' }, 'Balance') : null, el('th', { class: 'no-print' }, '')),
             ...rows))
       : el('p', { class: 'sub' }, 'No transactions match these filters.'),
   );

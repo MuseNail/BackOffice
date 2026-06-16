@@ -10,6 +10,7 @@ import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { buildIif } from '../lib/qb-iif.js';
 import { parseIifAccounts } from '../lib/qb-iif-import.js';
+import { buildQbImport } from '../lib/qb-history-import.js';
 import { ORIGIN, LS } from '../config.js';
 
 const ROLES = ['owner', 'manager', 'bookkeeper', 'viewer'];
@@ -31,14 +32,16 @@ export function render(root) {
   const museCard = el('div', { class: 'card', style: 'max-width:640px' });
   const qbCard = el('div', { class: 'card', style: 'max-width:560px' });
   const qbImportCard = el('div', { class: 'card', style: 'max-width:560px' });
+  const qbHistoryCard = el('div', { class: 'card', style: 'max-width:560px' });
   const locksCard = el('div', { class: 'card', style: 'max-width:560px' });
   const auditCard = el('div', { class: 'card', style: 'max-width:680px' });
   const failedCard = el('div', { class: 'card', style: 'max-width:560px' });
-  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, modules, AI spending, closing the books, the audit log, and the QuickBooks export for this business only.'), usersCard, devicesCard, featuresCard, aiCard, museCard, qbCard, qbImportCard, locksCard, auditCard, failedCard);
+  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, modules, AI spending, closing the books, the audit log, and the QuickBooks export for this business only.'), usersCard, devicesCard, featuresCard, aiCard, museCard, qbCard, qbImportCard, qbHistoryCard, locksCard, auditCard, failedCard);
   drawUsers(usersCard, biz);
   drawDevices(devicesCard, biz);
   drawAuditCard(auditCard, biz);       // async, fetched once (server-stored, not store-driven)
   drawQbImportCard(qbImportCard, biz); // not in the subscribe loop — a redraw would clear the chosen file
+  drawQbHistoryCard(qbHistoryCard, biz); // ditto — holds a chosen file + preview between renders
   const drawFeatures = () => drawFeaturesCard(featuresCard);
   const drawAI = () => drawAICard(aiCard);
   // Muse sync is salon-only — hide its mapping card entirely for businesses that don't use it.
@@ -358,6 +361,72 @@ function drawQbImportCard(card, biz) {
   clear(card).append(
     el('div', { class: 'cardtitle' }, 'Import chart of accounts (.IIF)'),
     el('p', { class: 'sub' }, 'Bring a client’s QuickBooks Desktop accounts in. In QuickBooks: File → Utilities → Export → Lists to IIF Files → Chart of Accounts. Accounts that already exist are skipped, so re-importing is safe. Transactions are not imported.'),
+    file, importBtn, preview,
+  );
+}
+
+// ── Import QuickBooks transaction history (reconstructed bundle) ──
+// One-time historical import: a JSON bundle reconstructed offline from a QuickBooks
+// "Transaction Detail by Account" export (chart of accounts + posted double-entry
+// transactions). Creates accounts + bank accounts, posts the transactions, pre-marks
+// QB-cleared ones reconciled, and tags expenses to invoices by their "Inv. ####" memo.
+// Deterministic ids → re-importing merges instead of duplicating.
+function drawQbHistoryCard(card, biz) {
+  const file = el('input', { type: 'file', accept: '.json', class: 'field-input', style: 'max-width:340px' });
+  const preview = el('div', { style: 'margin-top:10px' });
+  const importBtn = el('button', { class: 'btn sm', disabled: true }, 'Import history');
+  let built = null;
+
+  const money = (c) => fmtMoney(c);
+  file.addEventListener('change', async () => {
+    built = null; importBtn.disabled = true; clear(preview);
+    const f = file.files?.[0]; if (!f) return;
+    let bundle;
+    try { bundle = JSON.parse(await f.text()); }
+    catch { preview.append(el('p', { class: 'sub' }, 'Could not read that file — expected the reconstructed qb-import.json.')); return; }
+    built = buildQbImport(bundle, {
+      existingAccounts: entities('account'), existingBankaccts: entities('bankacct'),
+      existingInvoices: entities('invoice'), now: Date.now(),
+    });
+    if (built.errors?.length && !built.transactions) { preview.append(el('p', { style: 'color:var(--red)' }, built.errors[0])); return; }
+    const p = built.preview;
+    const unmatched = p.unmatchedInvoices;
+    preview.append(
+      el('p', {}, el('b', {}, `${p.totalTxns} transactions`), ` ready`, p.skipped ? ` · ${p.skipped} skipped (see below)` : '',
+        ` · ${p.newAccounts} new accounts (${p.existingAccounts} exist)`, ` · ${p.newBankaccts} bank accounts`),
+      el('p', { class: 'sub', style: 'margin:2px 0' }, `${p.reconciledTxns} will be marked reconciled · ${p.taggedInvoices} expenses tagged to invoices${unmatched.length ? ` · ${unmatched.length} invoice #s not found` : ''}`),
+      el('div', { style: 'margin:8px 0' }, el('div', { class: 'cardtitle', style: 'font-size:12px' }, 'Bank/credit-card balances (compare to QuickBooks)'),
+        el('table', { class: 'data' }, el('tr', {}, el('th', {}, 'Account'), el('th', { class: 'num' }, 'Computed balance')),
+          ...p.moneyBalances.map(m => el('tr', {}, el('td', {}, m.name), el('td', { class: 'num' }, money(m.cents)))))),
+      unmatched.length ? el('details', { style: 'margin-top:6px' },
+        el('summary', { class: 'sub', style: 'cursor:pointer' }, `${unmatched.length} referenced invoice #s aren’t imported yet (memo kept; tag later)`),
+        el('div', { class: 'sub', style: 'max-height:120px;overflow:auto' }, unmatched.map(u => `#${u.number}×${u.count}`).join(', '))) : el('span'),
+      built.errors?.length ? el('details', { style: 'margin-top:6px' },
+        el('summary', { class: 'sub', style: 'cursor:pointer;color:var(--amber)' }, `${built.errors.length} transactions skipped (validation)`),
+        el('div', { class: 'sub', style: 'max-height:120px;overflow:auto' }, ...built.errors.slice(0, 40).map(e => el('div', {}, e)))) : el('span'),
+    );
+    importBtn.disabled = !p.totalTxns;
+  });
+
+  importBtn.addEventListener('click', () => {
+    if (!built?.transactions?.length) return;
+    importBtn.disabled = true;
+    const meta = getState().meta || {};
+    dispatch({ op: 'meta.set', value: { ...meta, features: { ...(meta.features || {}), invoices: true } } });
+    const chunk = (kind, arr) => { for (let i = 0; i < arr.length; i += 200) dispatch({ op: 'entity.bulkUpsert', kind, values: arr.slice(i, i + 200) }); };
+    if (built.accountsToAdd.length) chunk('account', built.accountsToAdd);
+    for (const b of built.bankaccts) dispatch({ op: 'entity.upsert', kind: 'bankacct', value: b });
+    chunk('txn', built.transactions);
+    for (const r of built.recons) dispatch({ op: 'entity.upsert', kind: 'recon', value: r });
+    const p = built.preview;
+    toast(`Imported ${p.totalTxns} transactions`);
+    clear(preview).append(el('p', { class: 'sub' }, `Imported ${p.totalTxns} transactions, ${built.accountsToAdd.length} accounts, ${built.bankaccts.length} bank accounts. ${p.reconciledTxns} marked reconciled. Reconcile the open periods against your statements; recognize income via Invoice2go → Post payments (set its clearing account to “Undeposited Funds”).`));
+    file.value = ''; built = null;
+  });
+
+  clear(card).append(
+    el('div', { class: 'cardtitle' }, 'Import QuickBooks transaction history'),
+    el('p', { class: 'sub' }, 'One-time historical import from a QuickBooks “Transaction Detail by Account” export (reconstructed to qb-import.json). Posts every bank/credit-card transaction, pre-marks the QB-cleared ones reconciled, and tags expenses to invoices by their “Inv. ####” memo. Bank balances match QuickBooks to the penny; income stays in Undeposited/clearing for Invoice2go to recognize. Safe to re-run.'),
     file, importBtn, preview,
   );
 }

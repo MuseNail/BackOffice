@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.46.0', items: [
+    { icon: 'edit_note', t: 'Edit transactions right in the list', d: 'In the Ledger and in any account or vendor register, you can now change a transaction’s category, vendor, note, and linked invoice without opening a popup — the fields sit right in the row on a computer, and tuck behind a tap on a phone. Less clicking to fix or tag things.' },
+    { icon: 'account_balance', t: 'Import your QuickBooks history', d: 'A new tool in Settings imports a full QuickBooks “Transaction Detail by Account” export: it brings in your chart of accounts and every bank and credit-card transaction, marks the ones already cleared in QuickBooks as reconciled, and tags expenses to the job invoice written in their memo (“Inv. ####”). Your bank balances come in matching QuickBooks to the penny, so you can reconcile the open periods against your statements.' },
+  ] },
   { v: '0.45.0', items: [
     { icon: 'space_dashboard', t: 'A Dashboard you can click into', d: 'Each number on the Dashboard now opens a breakdown when you click it: Cash position lists every bank account, Income and Expenses break down by category, and Net shows a mini profit-and-loss. Each card also compares this month to last. A new “Bank accounts” panel lists your accounts — click one to jump straight into its register.' },
     { icon: 'request_quote', t: 'A clearer Invoices list', d: 'Click anywhere on an invoice row to open it. The list now has a “Source” column showing whether an invoice was entered by hand (Manual) or imported from Invoice2go, an “Overdue” status for past-due open balances, and A/R aging buttons you can tap to filter the list to just that age range.' },

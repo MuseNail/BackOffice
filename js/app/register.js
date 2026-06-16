@@ -5,7 +5,9 @@
 // filter, the table, a total, and Print / CSV export. Reuses the @media print rules.
 
 import { el, clear, fmtMoney } from './ui.js';
-import { entities, subscribe } from './store.js';
+import { entities, subscribe, usesInvoices } from './store.js';
+import { canEdit, getActiveBiz } from './session.js';
+import { categoryField, vendorField, memoField, invoiceField, categoryName, stackedEditor } from './txn-inline.js';
 
 const lineOn = (txn, acctId) => (txn.lines || []).filter(l => l.accountId === acctId).reduce((s, l) => s + l.amountCents, 0);
 const magnitude = (txn) => (txn.lines || []).reduce((s, l) => s + Math.max(0, l.amountCents), 0);
@@ -51,17 +53,44 @@ function drawRegister(body, opts, state) {
   })[state.sortKey] || ((a, b) => a.date.localeCompare(b.date));
   const rows = [...filtered].sort((a, b) => dir * cmp(a, b) || (a.id < b.id ? -1 : 1));
 
+  const editable = canEdit(getActiveBiz());
+  const showInv = usesInvoices();
+  const invById = new Map(entities('invoice').map(i => [i.id, i]));
+  // Editable mode adds inline Category/Vendor/Memo(/Invoice) columns before Amount.
+  const extraCols = editable ? (showInv ? 4 : 3) : 0;
+  const colCount = 2 + extraCols + 1 + (isAcct ? 1 : 0); // date,payee,…,amount,(balance)
+
   let total = 0;
-  const trs = rows.map(t => {
+  const trs = rows.flatMap(t => {
     const amt = amtOf(t);
     total += amt;
-    return el('tr', {},
-      el('td', {}, t.date),
-      el('td', {}, t.payee || '—'),
-      el('td', {}, otherSide(t, focusAccountId || '', byId)),
-      el('td', {}, t.memo || ''),
-      el('td', { class: 'num ' + (amt < 0 ? 'neg' : amt > 0 ? 'pos' : '') }, fmtMoney(amt, { sign: isAcct })),
+    if (!editable) {
+      return [el('tr', {},
+        el('td', {}, t.date),
+        el('td', {}, t.payee || '—'),
+        el('td', {}, otherSide(t, focusAccountId || '', byId)),
+        el('td', {}, t.memo || ''),
+        el('td', { class: 'num ' + (amt < 0 ? 'neg' : amt > 0 ? 'pos' : '') }, fmtMoney(amt, { sign: isAcct })),
+        isAcct ? el('td', { class: 'num' }, fmtMoney(balAfter.get(t.id) || 0)) : null)];
+    }
+    const detail = el('tr', { class: 'txrow-detail' },
+      el('td', { colspan: String(colCount), style: 'background:var(--bg);padding:12px 14px' }, stackedEditor(t)));
+    const inv = t.invoiceId ? invById.get(t.invoiceId) : null;
+    const chevron = el('i', { class: 'ti ti-chevron-down txchev' });
+    const compact = el('div', { class: 'txcompact', onclick: () => { detail.classList.toggle('open'); chevron.className = detail.classList.contains('open') ? 'ti ti-chevron-up txchev' : 'ti ti-chevron-down txchev'; } },
+      el('span', { style: 'color:var(--mut)' }, categoryName(t) || otherSide(t, focusAccountId || '', byId)),
+      (showInv && inv) ? el('span', { class: 'pill blue', style: 'font-size:10px;padding:2px 7px' }, `#${inv.number || inv.id}`) : '',
+      chevron);
+    const summary = el('tr', {},
+      el('td', { style: 'white-space:nowrap' }, t.date),
+      el('td', {}, el('b', {}, t.payee || '—'), compact),
+      el('td', { class: 'txinline' }, categoryField(t)),
+      el('td', { class: 'txinline' }, vendorField(t)),
+      el('td', { class: 'txinline' }, memoField(t)),
+      showInv ? el('td', { class: 'txinline' }, invoiceField(t)) : null,
+      el('td', { class: 'num ' + (amt < 0 ? 'neg' : amt > 0 ? 'pos' : ''), style: 'white-space:nowrap' }, fmtMoney(amt, { sign: isAcct })),
       isAcct ? el('td', { class: 'num' }, fmtMoney(balAfter.get(t.id) || 0)) : null);
+    return [summary, detail];
   });
 
   const arrow = (key) => state.sortKey === key ? (state.sortDir === 'desc' ? ' ▼' : ' ▲') : '';
@@ -82,17 +111,22 @@ function drawRegister(body, opts, state) {
       el('button', { class: 'btn sm ghost', onclick: () => downloadCsv(filename, buildCsv(title, subtitle, rows, focusAccountId, byId)) }, 'Export CSV')),
     el('h2', {}, title),
     subtitle ? el('p', { class: 'sub' }, subtitle) : null,
-    el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
+    el('div', { class: 'card', style: 'padding:0;overflow-x:auto' },
       rows.length
-        ? el('table', { class: 'data' },
+        ? el('table', { class: 'data' + (editable ? ' txedit' : '') },
             el('tr', {},
               th('date', 'Date'), th('payee', 'Payee'),
-              el('th', {}, isAcct ? 'Category / account' : 'Category'), el('th', {}, 'Memo'),
+              editable
+                ? [el('th', { class: 'txinline' }, isAcct ? 'Category / account' : 'Category'),
+                   el('th', { class: 'txinline' }, 'Vendor'),
+                   el('th', { class: 'txinline' }, 'Memo'),
+                   showInv ? el('th', { class: 'txinline' }, 'Invoice') : null]
+                : [el('th', {}, isAcct ? 'Category / account' : 'Category'), el('th', {}, 'Memo')],
               th('amount', isAcct ? 'Amount' : 'Spent', 'num'),
               isAcct ? el('th', { class: 'num' }, 'Balance') : null),
             ...trs,
             el('tr', { style: 'background:var(--brand-soft)' },
-              el('td', { colspan: '4' }, el('b', {}, `Total — ${rows.length} transaction${rows.length === 1 ? '' : 's'}`)),
+              el('td', { colspan: String(editable ? 2 + extraCols : 4) }, el('b', {}, `Total — ${rows.length} transaction${rows.length === 1 ? '' : 's'}`)),
               el('td', { class: 'num' }, el('b', {}, fmtMoney(total, { sign: isAcct }))),
               isAcct ? el('td', {}) : null))
         : el('p', { class: 'sub', style: 'padding:14px' }, 'No transactions in this range.')),
