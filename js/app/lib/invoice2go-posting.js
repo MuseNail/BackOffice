@@ -41,6 +41,9 @@ export function buildPaymentTxn({ invoice, payment, mapping }) {
     date: payment.date,
     payee: `${who}${num}`,
     memo: `Invoice2go payment${method}${feeNote}`,
+    // tag to the invoice so the processing-fee expense line counts toward this
+    // invoice's profit margin (invoiceExpensesTotal sums expense lines by invoiceId).
+    invoiceId: invoice?.id || undefined,
     lines,
     status: 'posted',
     source: { app: 'invoice2go', sourceId: payment.txId },

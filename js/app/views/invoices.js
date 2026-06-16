@@ -336,6 +336,65 @@ function paymentModal(inv) {
   setTimeout(() => amount.focus(), 0);
 }
 
+// Instant-payout fee shortcut — Invoice2go's 1% "get paid now" charge, which isn't in
+// any export. Books a Payout-Fee expense TAGGED to this invoice (so it counts in the
+// job's profit margin), offset against a clearing account (not the bank — the bank
+// balance is already correct from the QuickBooks import). Defaults to 1% of the net paid.
+function payoutFeeModal(inv) {
+  const accts = entities('account');
+  const byId = new Map(accts.map(a => [a.id, a]));
+  const bankish = (a) => a.qbType === 'BANK' || a.qbType === 'CCARD';
+  const findBy = (re, ok) => accts.find(a => a.active !== false && ok(a) && (re.test(a.name || '') || re.test(a.qbName || '')));
+  const feeAccts = accts.filter(a => a.active !== false && ['expense', 'cogs', 'other-expense'].includes(a.type));
+  const clearingAccts = accts.filter(a => a.active !== false && a.type === 'asset' && !bankish(a));
+  if (!feeAccts.length || !clearingAccts.length) { toast('Add an expense account and a non-bank asset (clearing) account first', 'err'); return; }
+  const defFee = findBy(/payout/i, a => ['expense', 'cogs', 'other-expense'].includes(a.type)) || findBy(/fee/i, a => ['expense', 'cogs', 'other-expense'].includes(a.type)) || feeAccts[0];
+  const i2gClear = byId.get(getState().meta?.i2gMapping?.clearingId);
+  const defClear = findBy(/undeposited/i, a => a.type === 'asset' && !bankish(a)) || (i2gClear && !bankish(i2gClear) ? i2gClear : null) || clearingAccts[0];
+
+  const succeeded = (inv.payments || []).filter(p => p.status === 'succeeded');
+  const netCents = succeeded.reduce((s, p) => s + (p.amountCents | 0) - (p.feeCents | 0), 0) || inv.paidCents || 0;
+  const lastDate = succeeded.map(p => p.date).filter(Boolean).sort().at(-1) || todayIso();
+
+  const m = modal(`Instant-payout fee — #${inv.number}`);
+  const payout = el('input', { class: 'field-input', inputmode: 'decimal', value: (netCents / 100).toFixed(2) });
+  const feeIn = el('input', { class: 'field-input', inputmode: 'decimal', value: (Math.round(netCents * 0.01) / 100).toFixed(2) });
+  payout.addEventListener('input', () => { const p = parseMoney(payout.value); if (p != null) feeIn.value = (Math.round(p * 0.01) / 100).toFixed(2); });
+  const feeSel = el('select', { class: 'field-input' }, ...feeAccts.map(a => el('option', { value: a.id, selected: a.id === defFee?.id }, accountLabel(a, byId))));
+  const clrSel = el('select', { class: 'field-input' }, ...clearingAccts.map(a => el('option', { value: a.id, selected: a.id === defClear?.id }, accountLabel(a, byId))));
+  const date = el('input', { type: 'date', class: 'field-input', style: 'max-width:170px', value: lastDate });
+
+  m.body.append(
+    el('p', { class: 'sub' }, 'Invoice2go’s 1% instant-payout fee. Booked as a Payout-Fee expense tagged to this invoice (counts against its profit), taken from the clearing account so your bank balance isn’t touched.'),
+    el('label', { class: 'field-label' }, 'Amount paid out ($)'), payout,
+    el('label', { class: 'field-label' }, 'Fee (1%) ($)'), feeIn,
+    el('label', { class: 'field-label' }, 'Fee account'), feeSel,
+    el('label', { class: 'field-label' }, 'Taken from (clearing)'), clrSel,
+    el('label', { class: 'field-label' }, 'Date'), date,
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
+      el('button', { class: 'btn green', onclick: () => {
+        const feeCents = parseMoney(feeIn.value);
+        if (feeCents == null || feeCents <= 0) { toast('Enter a fee amount', 'err'); return; }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date.value)) { toast('Pick a date', 'err'); return; }
+        if (feeSel.value === clrSel.value) { toast('Fee and clearing accounts must differ', 'err'); return; }
+        const txn = {
+          id: 'i2gpf-' + (inv.id || inv.sourceId) + '-' + date.value + '-' + feeCents,
+          date: date.value, payee: (inv.clientName || 'Customer') + (inv.number ? ' — #' + inv.number : ''),
+          memo: 'Invoice2go instant-payout fee (1%)', invoiceId: inv.id,
+          lines: [{ accountId: feeSel.value, amountCents: feeCents }, { accountId: clrSel.value, amountCents: -feeCents }],
+          status: 'posted', source: { app: 'manual' },
+        };
+        const v = validateTxn(txn, { accountsById: byId, locks: new Set(entities('lock').map(l => l.id)) });
+        if (!v.ok) { toast(v.error, 'err'); return; }
+        dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
+        toast('Payout fee recorded');
+        m.close();
+      } }, 'Record fee')),
+  );
+  setTimeout(() => feeIn.focus(), 0);
+}
+
 function confirmDeleteInvoice(inv) {
   const posted = (inv.payments || []).some(p => entities('txn').some(t => t.id === paymentTxnId(p.txId)));
   const m = modal('Delete this invoice?');
@@ -467,7 +526,8 @@ function renderInvoiceDetail(root, id) {
             if (!t) { toast('Pick an expense to link', 'err'); return; }
             dispatch({ op: 'entity.upsert', kind: 'txn', value: { ...t, invoiceId: inv.id } });
             toast('Expense linked');
-          } }, 'Link expense')) : el('span'))
+          } }, 'Link expense'),
+          el('button', { class: 'btn sm ghost', title: 'Record Invoice2go’s 1% instant-payout fee against this invoice', onclick: () => payoutFeeModal(inv) }, '＋ Payout fee')) : el('span'))
     : el('span');
 
   const actions = el('div', { style: 'display:flex;gap:8px;margin:10px 0 4px;flex-wrap:wrap' });

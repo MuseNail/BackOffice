@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.47.0', items: [
+    { icon: 'percent', t: 'Invoice2go fees now count toward each job’s profit', d: 'When you post Invoice2go payments, the card processing fee is tagged to that invoice, so it shows in the job’s profit margin. And every invoice now has a “＋ Payout fee” button to record Invoice2go’s 1% instant-payout fee — it pre-fills 1% of the payment, books it to your Payout Fee account against that invoice, and leaves your bank balance untouched.' },
+  ] },
   { v: '0.46.0', items: [
     { icon: 'edit_note', t: 'Edit transactions right in the list', d: 'In the Ledger and in any account or vendor register, you can now change a transaction’s category, vendor, note, and linked invoice without opening a popup — the fields sit right in the row on a computer, and tuck behind a tap on a phone. Less clicking to fix or tag things.' },
     { icon: 'account_balance', t: 'Import your QuickBooks history', d: 'A new tool in Settings imports a full QuickBooks “Transaction Detail by Account” export: it brings in your chart of accounts and every bank and credit-card transaction, marks the ones already cleared in QuickBooks as reconciled, and tags expenses to the job invoice written in their memo (“Inv. ####”). Your bank balances come in matching QuickBooks to the penny, so you can reconcile the open periods against your statements.' },
