@@ -26,7 +26,9 @@ export const cashflowPaymentTxnId = (id) => 'i2gc-' + id;
 export const cashflowPayoutTxnId = (id) => 'i2gpo-' + id;
 
 export function parseCashflow(raw) {
-  const arr = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.transactions) ? raw.transactions : null);
+  const arr = Array.isArray(raw) ? raw
+    : (raw && Array.isArray(raw.transactions) ? raw.transactions
+      : (raw && Array.isArray(raw.cashflow) ? raw.cashflow : null));
   if (!arr) return null;
   const payments = [], payouts = [];
   for (const t of arr) {
@@ -44,6 +46,39 @@ export function parseCashflow(raw) {
     }
   }
   return { payments, payouts };
+}
+
+// Parse the bundle's API-shaped invoices ({invoices:[...]}) into BackOffice invoice
+// entities. The list API gives totals/status/client but NO line items or per-payment
+// rows — those live in the cashflow feed (posted as ledger txns and tagged by id).
+export function parseBundleInvoices(raw, now = 0) {
+  const arr = raw && Array.isArray(raw.invoices) ? raw.invoices : null;
+  if (!arr) return null;
+  const out = [];
+  for (const v of arr) {
+    if (!v || !v.id) continue;
+    const lcr = v.latest_calculation_results || {};
+    const pay = lcr.payments || {};
+    const total = lcr.total | 0;
+    const balance = (pay.outstanding_balance != null ? pay.outstanding_balance : total) | 0;
+    const paid = Math.max(0, total - balance);
+    const st = v.states || {};
+    const docStatus = pay.is_fully_paid ? 'fully_paid'
+      : (paid > 0 ? 'partially_paid'
+        : (st.list_category === 'unsent' || st.overall === 'unsent' ? 'unsent' : 'sent'));
+    out.push({
+      id: v.id, sourceId: v.id,
+      number: String(v.content?.doc_number || '').trim(),
+      date: String(v.content?.doc_date || '').slice(0, 10),
+      dueDate: String(st.due_date || '').slice(0, 10) || undefined,
+      clientName: v.content?.billing?.name || '', clientEmail: v.content?.billing?.email || '',
+      totalCents: total, subtotalCents: total, taxCents: 0, paidCents: paid, balanceCents: balance,
+      docStatus, docType: v.header?.type || 'invoice',
+      lineItems: [], payments: [],
+      source: { app: 'invoice2go-api', sourceId: v.id }, importedAt: now, updatedAt: now,
+    });
+  }
+  return out;
 }
 
 const cleanLines = (lines) => {

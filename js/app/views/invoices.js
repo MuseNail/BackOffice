@@ -8,14 +8,13 @@ import { entities, subscribe, getState, usesInvoices } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseInvoices } from '../lib/invoice2go.js';
-import { buildCashflowImport, cashflowPaymentTxnId } from '../lib/i2g-cashflow.js';
+import { buildCashflowImport, cashflowPaymentTxnId, parseBundleInvoices } from '../lib/i2g-cashflow.js';
 import { validateTxn, invoiceExpensesTotal } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { blankInvoice, recompute, nextInvoiceNumber, addManualPayment } from '../lib/invoice-edit.js';
 import { parseMoney } from '../lib/money.js';
 
 let unsub = null;
-const DEFAULT_CUTOFF = '2025-10-01';
 
 // Display status from the money, not Invoice2go's label (so it always matches
 // what we show for total/paid/open). An open balance more than 30 days past the
@@ -67,7 +66,7 @@ export function render(root, detail) {
   );
   if (editable) root.append(
     el('div', { style: 'margin-bottom:14px' }, el('button', { class: 'btn sm', onclick: () => invoiceModal(null) }, '＋ New invoice')),
-    importCard(), postCard());
+    postCard(), importCard());
   const body = el('div');
   root.append(body);
   const draw = () => drawList(body);
@@ -77,66 +76,104 @@ export function render(root, detail) {
 
 export function unmount() { unsub?.(); unsub = null; }
 
-// ── Import ──
+// ── Invoice2go import: bundle (money) + CSV (line items) — neither clobbers the other ──
+// Ownership split, since entity.upsert is a full replace: the one-click API bundle
+// owns the money (total/paid/balance/status — always the current truth), the CSV
+// owns line-item detail. So a weekly bundle re-import keeps any line items a CSV
+// backfill added, and a CSV backfill never overwrites the money the bundle posted.
+function invoiceResolver() {
+  const byId = new Map(), byNum = new Map();
+  for (const e of entities('invoice')) { byId.set(e.id, e); if (e.number) byNum.set(String(e.number).trim(), e); }
+  return (id, number) => byId.get(id) || (number ? byNum.get(String(number).trim()) : null) || null;
+}
+
+function mergeBundleInvoice(p, resolve, now) {
+  const ex = resolve(p.id, p.number);
+  if (ex && ex.source?.app === 'manual') return null; // never overwrite a hand-made invoice
+  if (!ex) return { ...p, updatedAt: now };
+  const keepLines = Array.isArray(ex.lineItems) && ex.lineItems.length > 0; // preserve CSV-backfilled lines
+  return {
+    ...ex, id: ex.id,
+    number: p.number || ex.number, date: p.date || ex.date, dueDate: p.dueDate || ex.dueDate,
+    clientName: p.clientName || ex.clientName, clientEmail: p.clientEmail || ex.clientEmail,
+    totalCents: p.totalCents, paidCents: p.paidCents, balanceCents: p.balanceCents,
+    docStatus: p.docStatus, docType: p.docType,
+    lineItems: keepLines ? ex.lineItems : [],
+    subtotalCents: keepLines ? ex.subtotalCents : p.subtotalCents,
+    taxCents: keepLines ? (ex.taxCents || 0) : p.taxCents,
+    source: { app: 'invoice2go-api', sourceId: p.id }, // marks money as bundle-owned
+    importedAt: ex.importedAt || now, updatedAt: now,
+  };
+}
+
+function mergeCsvInvoice(c, resolve, now) {
+  const ex = resolve(c.sourceId, c.number);
+  const hasLines = Array.isArray(c.lineItems) && c.lineItems.length > 0;
+  if (!ex) return { ...c, id: c.sourceId, importedAt: now, updatedAt: now }; // CSV-first: full create
+  if (ex.source?.app === 'manual') return null;
+  const bundleOwnsMoney = ex.source?.app === 'invoice2go-api';
+  return {
+    ...ex, id: ex.id,
+    lineItems: hasLines ? c.lineItems : ex.lineItems,
+    subtotalCents: hasLines ? c.subtotalCents : ex.subtotalCents,
+    taxCents: hasLines ? c.taxCents : ex.taxCents,
+    clientName: ex.clientName || c.clientName, clientEmail: ex.clientEmail || c.clientEmail,
+    date: ex.date || c.date, number: ex.number || c.number,
+    ...(bundleOwnsMoney ? {} : { totalCents: c.totalCents, paidCents: c.paidCents, balanceCents: c.balanceCents, docStatus: c.docStatus }),
+    source: ex.source, updatedAt: now, // keep the ownership marker
+  };
+}
+
+// ── Add line-item detail (Invoice2go CSV) ──
+// The one-click JSON brings every invoice and its money but no line items (the
+// list API omits them). This optional card layers line-item detail onto invoices
+// you already have — matched by number/id — and only ever fills line items.
 function importCard() {
   const card = el('div', { class: 'card', style: 'max-width:640px;margin-bottom:16px' });
   const file = el('input', { type: 'file', accept: '.csv', class: 'field-input', style: 'max-width:320px' });
-  const cutoff = el('input', { type: 'date', class: 'field-input', style: 'max-width:170px', value: DEFAULT_CUTOFF });
   const preview = el('div', { style: 'margin-top:10px' });
-  const importBtn = el('button', { class: 'btn sm', disabled: true }, 'Import');
-  let pending = null; // { invoices, newCount, updCount, payCount }
+  const importBtn = el('button', { class: 'btn sm', disabled: true }, 'Add line items');
+  let pending = null;
 
   const scan = async () => {
     pending = null; importBtn.disabled = true; clear(preview);
-    const f = file.files?.[0];
-    if (!f) return;
+    const f = file.files?.[0]; if (!f) return;
     let all;
     try { all = parseInvoices(await f.text()); }
     catch { preview.append(el('p', { class: 'sub' }, 'Could not read that file.')); return; }
-    const cut = cutoff.value || DEFAULT_CUTOFF;
-    // keep invoices that received a succeeded payment on/after the cutoff
-    const kept = all.filter(inv => inv.payments.some(p => p.status === 'succeeded' && p.date && p.date >= cut));
-    if (!kept.length) {
-      preview.append(el('p', { class: 'sub' }, `No invoices with a payment on or after ${cut} found in that file (${all.length} invoices scanned).`));
-      return;
+    if (!all.length) { preview.append(el('p', { class: 'sub' }, 'No invoices found in that file.')); return; }
+    const resolve = invoiceResolver();
+    let matched = 0, created = 0, withLines = 0;
+    for (const inv of all) {
+      if (resolve(inv.sourceId, inv.number)) matched++; else created++;
+      if (inv.lineItems?.length) withLines++;
     }
-    const have = new Set(entities('invoice').map(i => i.id));
-    let newCount = 0, payCount = 0, openCents = 0;
-    for (const inv of kept) {
-      if (!have.has(inv.sourceId)) newCount++;
-      payCount += inv.payments.filter(p => p.status === 'succeeded' && p.date >= cut).length;
-      openCents += inv.balanceCents;
-    }
-    pending = { invoices: kept, newCount, updCount: kept.length - newCount };
+    pending = { invoices: all };
     preview.append(
-      el('p', {}, el('b', {}, `${kept.length} invoices`), ` since ${cut} — `,
-        el('b', {}, `${newCount} new`), `, ${kept.length - newCount} updated · ${payCount} payments · ${fmtMoney(openCents)} still open`),
-      el('p', { class: 'sub', style: 'margin:2px 0 0' }, `(${all.length} total in the file; older-only invoices skipped)`),
+      el('p', {}, el('b', {}, `${all.length} invoices in the file`), ' — ',
+        el('b', {}, `${matched} matched`), ` (line items added), ${created} not yet in Back Office`),
+      el('p', { class: 'sub', style: 'margin:2px 0 0' }, `${withLines} have line-item detail · money is never changed here`),
     );
     importBtn.disabled = false;
   };
-
   file.addEventListener('change', scan);
-  cutoff.addEventListener('change', scan);
 
   importBtn.addEventListener('click', () => {
     if (!pending) return;
     const now = Date.now();
-    const values = pending.invoices.map(inv => ({ ...inv, id: inv.sourceId, importedAt: now, updatedAt: now }));
-    for (let i = 0; i < values.length; i += 200) {
-      dispatch({ op: 'entity.bulkUpsert', kind: 'invoice', values: values.slice(i, i + 200) });
-    }
-    toast(`Imported ${values.length} invoices (${pending.newCount} new)`);
-    clear(preview).append(el('p', { class: 'sub' }, `Imported ${values.length} invoices. ${pending.newCount} new, ${pending.updCount} updated with any new payments.`));
+    const resolve = invoiceResolver();
+    const values = pending.invoices.map(inv => mergeCsvInvoice(inv, resolve, now)).filter(Boolean);
+    for (let i = 0; i < values.length; i += 200) dispatch({ op: 'entity.bulkUpsert', kind: 'invoice', values: values.slice(i, i + 200) });
+    toast(`Line items added to ${values.length} invoices`);
+    clear(preview).append(el('p', { class: 'sub' }, `Updated ${values.length} invoices with line-item detail. Totals and payments were left untouched.`));
     importBtn.disabled = true; pending = null; file.value = '';
   });
 
   card.append(
-    el('div', { class: 'cardtitle' }, 'Import from Invoice2go'),
-    el('p', { class: 'sub' }, 'Upload the invoice CSV from your Invoice2go export. Only invoices that received a payment on or after the cutoff date are imported.'),
+    el('div', { class: 'cardtitle' }, 'Add line-item detail (Invoice2go CSV)'),
+    el('p', { class: 'sub' }, 'Optional. The one-click import brings every invoice and its money, but not the itemized lines. Upload the Invoice2go invoice CSV whenever you like (monthly or quarterly is fine) to fill in line items on the invoices you already have — matched by number. It only adds line items; it never changes totals or payments.'),
     el('div', { style: 'display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap' },
       el('div', {}, el('label', { class: 'field-label' }, 'Invoice CSV'), file),
-      el('div', {}, el('label', { class: 'field-label' }, 'Only payments since'), cutoff),
       importBtn),
     preview,
   );
@@ -189,43 +226,67 @@ function postCard() {
 
     const file = el('input', { type: 'file', accept: '.json', class: 'field-input', style: 'max-width:300px' });
     const preview = el('div', { style: 'margin-top:10px' });
-    const importBtn = el('button', { class: 'btn sm green', disabled: true }, 'Post cashflow');
-    let built = null;
+    const importBtn = el('button', { class: 'btn sm green', disabled: true }, 'Import');
+    let built = null; // { invoiceValues, invNew, invUpd, cf, hasInvoices }
 
     file.addEventListener('change', async () => {
       built = null; importBtn.disabled = true; clear(preview);
       const f = file.files?.[0]; if (!f) return;
       let raw;
-      try { raw = JSON.parse(await f.text()); } catch { preview.append(el('p', { class: 'sub' }, 'Could not read that file — expected the Invoice2go cashflow export (i2g-cashflow.json).')); return; }
-      built = buildCashflowImport(raw, { existingInvoices: entities('invoice'), mapping: curMapping(), existingTxnIds: new Set(entities('txn').map(t => t.id)), now: Date.now() });
-      const p = built.preview || {};
-      if (built.errors.length) preview.append(el('p', { style: 'color:var(--red)' }, built.errors.join(' ')));
+      try { raw = JSON.parse(await f.text()); } catch { preview.append(el('p', { class: 'sub' }, 'Could not read that file — expected the one-click Invoice2go export (invoice2go-export.json).')); return; }
+      const now = Date.now();
+      // 1) invoices (bundle only — the plain cashflow file has none)
+      const parsedInv = parseBundleInvoices(raw, now);
+      const resolve = invoiceResolver();
+      const invoiceValues = []; let invNew = 0, invUpd = 0;
+      if (parsedInv) for (const pInv of parsedInv) {
+        const existed = !!resolve(pInv.id, pInv.number);
+        const m = mergeBundleInvoice(pInv, resolve, now);
+        if (!m) continue;
+        invoiceValues.push(m); existed ? invUpd++ : invNew++;
+      }
+      // 2) cashflow — tag against the bundle's invoices (id match) + what's already here
+      const existingForTag = parsedInv ? [...parsedInv, ...entities('invoice')] : entities('invoice');
+      const cf = buildCashflowImport(raw, { existingInvoices: existingForTag, mapping: curMapping(), existingTxnIds: new Set(entities('txn').map(t => t.id)), now });
+      built = { invoiceValues, invNew, invUpd, cf, hasInvoices: !!parsedInv };
+      const p = cf.preview || {};
+      if (cf.errors.length) preview.append(el('p', { style: 'color:var(--red)' }, cf.errors.join(' ')));
+      if (parsedInv) preview.append(el('p', {}, el('b', {}, `${parsedInv.length} invoices`), ' — ', el('b', {}, `${invNew} new`), `, ${invUpd} updated`));
       if (p.payments != null) preview.append(
         el('p', {}, el('b', {}, `${p.payments} payments`), `, ${p.payouts} payouts (${p.payoutsWithFee} with a 1% fee) · `, el('b', {}, `${p.toPost} to post`), p.alreadyPosted ? `, ${p.alreadyPosted} already posted` : ''),
         el('p', { class: 'sub', style: 'margin:2px 0' }, `income ${fmtMoney(p.income)} · absorbed ${fmtMoney(p.absorbed)} (COGS) · passed ${fmtMoney(p.passed)} (contra-income) · payout fees ${fmtMoney(p.payoutFees)}`),
         el('p', { class: 'sub', style: 'margin:2px 0' }, `${p.tagged} tagged to invoices${p.unmatchedInvoices.length ? ` · ${p.unmatchedInvoices.length} not matched (income still posts)` : ''}${p.dateRange ? ` · ${p.dateRange[0]} → ${p.dateRange[1]}` : ''}`),
         p.unmatchedInvoices.length ? el('details', {}, el('summary', { class: 'sub', style: 'cursor:pointer' }, `${p.unmatchedInvoices.length} invoice/estimate #s not matched`), el('div', { class: 'sub', style: 'max-height:120px;overflow:auto' }, p.unmatchedInvoices.slice(0, 100).map(u => '#' + u.number).join(', '))) : el('span'),
       );
-      importBtn.disabled = !p.toPost || built.errors.length > 0;
+      if (!parsedInv && p.payments == null) preview.append(el('p', { class: 'sub' }, 'That file has no invoices or cashflow — is it the one-click export (invoice2go-export.json)?'));
+      importBtn.disabled = (!invoiceValues.length && !p.toPost) || cf.errors.length > 0;
     });
 
     importBtn.addEventListener('click', () => {
-      if (!built?.txns?.length) return;
-      const ctx = { accountsById: new Map(entities('account').map(a => [a.id, a])), locks: new Set(entities('lock').map(l => l.id)) };
-      const good = built.txns.filter(t => validateTxn(t, ctx).ok);
-      const bad = built.txns.length - good.length;
-      if (!good.length) { toast('Could not post — check the accounts (and that the period isn’t locked)', 'err'); return; }
-      dispatch({ op: 'meta.set', value: { ...getState().meta, i2gMapping: curMapping() } });
-      for (let i = 0; i < good.length; i += 200) dispatch({ op: 'entity.bulkUpsert', kind: 'txn', values: good.slice(i, i + 200) });
-      toast(`Posted ${good.length} cashflow entries${bad ? ` · ${bad} skipped` : ''}`);
+      if (!built) return;
+      // 1) invoices
+      if (built.invoiceValues.length) for (let i = 0; i < built.invoiceValues.length; i += 200) dispatch({ op: 'entity.bulkUpsert', kind: 'invoice', values: built.invoiceValues.slice(i, i + 200) });
+      // 2) cashflow (only valid balanced entries; never into a locked period)
+      let posted = 0, bad = 0;
+      if (built.cf?.txns?.length) {
+        const ctx = { accountsById: new Map(entities('account').map(a => [a.id, a])), locks: new Set(entities('lock').map(l => l.id)) };
+        const good = built.cf.txns.filter(t => validateTxn(t, ctx).ok);
+        bad = built.cf.txns.length - good.length;
+        if (good.length) {
+          dispatch({ op: 'meta.set', value: { ...getState().meta, i2gMapping: curMapping() } });
+          for (let i = 0; i < good.length; i += 200) dispatch({ op: 'entity.bulkUpsert', kind: 'txn', values: good.slice(i, i + 200) });
+          posted = good.length;
+        } else if (built.cf.txns.length) { toast('Could not post cashflow — check the accounts (and that the period isn’t locked)', 'err'); }
+      }
+      toast(`Imported ${built.invoiceValues.length} invoices · posted ${posted} cashflow entries${bad ? ` · ${bad} skipped` : ''}`);
       importBtn.disabled = true; built = null; file.value = '';
-      clear(preview).append(el('p', { class: 'sub' }, `Posted ${good.length}. Income + real fees are on the books; your bank deposits relieve the clearing account — when it nets to $0, every payment is matched to a deposit.`));
+      clear(preview).append(el('p', { class: 'sub' }, 'Done — invoices and their real fees are on the books. Your bank deposits relieve the clearing account; when it nets to $0, every payment is matched to a deposit.'));
     });
 
     const field = (label, node) => el('div', {}, el('label', { class: 'field-label' }, label), node);
     clear(card).append(
-      el('div', { class: 'cardtitle' }, 'Post Invoice2go cashflow (payments & payouts)'),
-      el('p', { class: 'sub' }, 'Upload the Invoice2go cashflow export (i2g-cashflow.json). Posts each payment with its REAL fees — the part you absorbed to COGS, the part the customer covered as contra-income — plus the 1% instant-payout fees, all tagged to their invoices. Income lands net in the clearing account; your bank deposits relieve it. Safe to re-run after each export.'),
+      el('div', { class: 'cardtitle' }, 'Import from Invoice2go (one file)'),
+      el('p', { class: 'sub' }, 'Upload the one-click Invoice2go export (invoice2go-export.json) — it brings in every invoice plus the real cashflow in one step. Each payment posts with its actual fees: the part you absorbed to COGS, the part the customer covered as contra-income, plus the 1% instant-payout fees, all tagged to their invoice. Income lands net in the clearing account; your bank deposits relieve it. Safe to re-run weekly — nothing duplicates.'),
       el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end' },
         field('Income account', incomeSel), field('Clearing account', clearingSel),
         field('Fees passed (income)', feePassedSel), field('Fees absorbed (COGS)', feeAbsorbedSel), field('Payout fee (expense)', payoutSel)),
@@ -507,7 +568,12 @@ function renderInvoiceDetail(root, id) {
   const cardAbsorbed = sumWhere(a => a.id === i2gMap.feeAbsorbedId || (a.type === 'cogs' && /processing|card fee/i.test(a.name || '')));
   const payoutFee = sumWhere(a => /payout/i.test(a.name || ''));
   const jobExpenses = expensesTotal - cardAbsorbed - payoutFee;
-  const feePassed = Math.max(0, (inv.paidCents | 0) - (inv.totalCents | 0)); // surcharge the customer covered
+  // Fee the customer covered = the contra-income tagged to this invoice (real, from the
+  // cashflow). Falls back to the CSV surcharge (paid over total) for CSV-only invoices.
+  let feePassedTagged = 0;
+  for (const t of allTxns) if (t.status === 'posted' && t.invoiceId === inv.id)
+    for (const l of t.lines) { if (l.accountId === i2gMap.feePassedId) feePassedTagged += l.amountCents; }
+  const feePassed = feePassedTagged || Math.max(0, (inv.paidCents | 0) - (inv.totalCents | 0));
   const linkedExpenses = allTxns.filter(t => t.status === 'posted' && t.invoiceId === inv.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const candidates = allTxns.filter(t => t.status === 'posted' && t.invoiceId !== inv.id && isExpenseTxn(t)).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 100);
   const linkSel = el('select', { class: 'field-input', style: 'max-width:360px' },
@@ -578,7 +644,7 @@ function renderInvoiceDetail(root, id) {
         el('tr', {}, el('td', {}, 'Paid'), el('td', { class: 'num' }, fmtMoney(inv.paidCents))),
         inv.balanceCents ? el('tr', {}, el('td', {}, 'Open balance'), el('td', { class: 'num' }, fmtMoney(inv.balanceCents))) : null,
         el('tr', {}, el('td', {}, 'Job expenses'), el('td', { class: 'num' }, fmtMoney(jobExpenses))),
-        cardAbsorbed ? el('tr', {}, el('td', {}, 'Card fee absorbed (COGS · est.)'), el('td', { class: 'num' }, fmtMoney(cardAbsorbed))) : null,
+        cardAbsorbed ? el('tr', {}, el('td', {}, 'Card fee absorbed (COGS)'), el('td', { class: 'num' }, fmtMoney(cardAbsorbed))) : null,
         payoutFee ? el('tr', {}, el('td', {}, 'Payout fee'), el('td', { class: 'num' }, fmtMoney(payoutFee))) : null,
         el('tr', {}, el('td', {}, el('b', {}, 'Profit')), el('td', { class: 'num ' + (marginCents >= 0 ? 'pos' : 'neg') }, el('b', {}, fmtMoney(marginCents) + (marginPct != null ? ` (${marginPct}%)` : '')))),
         feePassed ? el('tr', { style: 'color:var(--mut)' }, el('td', {}, 'Fee passed to customer (from Invoice2go)'), el('td', { class: 'num' }, fmtMoney(feePassed))) : null)),

@@ -1,7 +1,7 @@
 // node --test tests/i2g-cashflow.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCashflow, buildCashflowImport, cashflowPaymentTxnId, cashflowPayoutTxnId } from '../js/app/lib/i2g-cashflow.js';
+import { parseCashflow, buildCashflowImport, cashflowPaymentTxnId, cashflowPayoutTxnId, parseBundleInvoices } from '../js/app/lib/i2g-cashflow.js';
 import { validateTxn } from '../js/app/lib/posting.js';
 
 const mapping = { incomeId: 'inc', clearingId: 'clr', feePassedId: 'passed', feeAbsorbedId: 'cogs', payoutFeeId: 'payout' };
@@ -96,4 +96,43 @@ test('totals tie out and idempotency skips already-posted', () => {
   const ids = new Set(r.allTxns.map(t => t.id));
   const r2 = buildCashflowImport(raw, { existingInvoices: invoices, mapping, existingTxnIds: ids });
   assert.equal(r2.txns.length, 0);
+});
+
+test('parseCashflow accepts the one-click bundle { cashflow: [...] }', () => {
+  const { payments, payouts } = parseCashflow({ invoices: [], cashflow: [absorbedPay, instantPayout] });
+  assert.equal(payments.length, 1);
+  assert.equal(payouts.length, 1);
+});
+
+const bundleInv = {
+  id: '267d2440-uuid', header: { type: 'invoice' },
+  content: { doc_number: '4196', doc_date: '2026-06-15', billing: { name: 'Hangar 21', email: 'mike@h21.com' } },
+  states: { list_category: 'sent', overall: 'sent', due_date: '2026-06-20' },
+  latest_calculation_results: { total: 322000, total_payable: 322000, payments: { is_fully_paid: false, outstanding_balance: 122000 } },
+};
+
+test('parseBundleInvoices maps money/identity, leaves line items empty, marks bundle-owned', () => {
+  const [inv] = parseBundleInvoices({ invoices: [bundleInv] }, 999);
+  assert.equal(inv.id, '267d2440-uuid');
+  assert.equal(inv.number, '4196');
+  assert.equal(inv.clientName, 'Hangar 21');
+  assert.equal(inv.totalCents, 322000);
+  assert.equal(inv.balanceCents, 122000);
+  assert.equal(inv.paidCents, 200000);          // total − outstanding
+  assert.equal(inv.docStatus, 'partially_paid'); // paid > 0 but not fully paid
+  assert.deepEqual(inv.lineItems, []);
+  assert.equal(inv.source.app, 'invoice2go-api');
+  assert.equal(inv.updatedAt, 999);
+});
+
+test('parseBundleInvoices: fully paid + unsent statuses', () => {
+  const paid = { ...bundleInv, latest_calculation_results: { total: 5000, payments: { is_fully_paid: true, outstanding_balance: 0 } } };
+  const unsent = { ...bundleInv, states: { list_category: 'unsent', overall: 'unsent' }, latest_calculation_results: { total: 5000, payments: { is_fully_paid: false, outstanding_balance: 5000 } } };
+  assert.equal(parseBundleInvoices({ invoices: [paid] })[0].docStatus, 'fully_paid');
+  assert.equal(parseBundleInvoices({ invoices: [unsent] })[0].docStatus, 'unsent');
+});
+
+test('parseBundleInvoices returns null for a non-bundle file', () => {
+  assert.equal(parseBundleInvoices([absorbedPay]), null);
+  assert.equal(parseBundleInvoices({ cashflow: [] }), null);
 });

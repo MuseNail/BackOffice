@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.50.0', items: [
+    { icon: 'bolt', t: 'One-file Invoice2go import — invoices + cashflow together', d: 'The Invoices tab now imports a single file: the one-click Invoice2go export brings in every invoice (client, total, balance, status) AND the real cashflow in one step — each payment posted with its actual fees (absorbed → cost of goods, passed-to-customer → contra-income, plus the 1% instant-payout fees), all tagged to their invoice. Each invoice shows an honest profit breakdown, and the fee the customer covered is read straight from the real data. Safe to re-run weekly; nothing duplicates.' },
+    { icon: 'list_alt', t: 'Add line-item detail whenever you like', d: 'The one-click import doesn’t include itemized lines. A separate “Add line-item detail” tool lets you upload the Invoice2go invoice CSV monthly or quarterly to fill in line items on the invoices you already have — matched by number. It only adds line items; it never changes the totals or payments the weekly import owns.' },
+  ] },
   { v: '0.49.0', items: [
     { icon: 'paid', t: 'Invoice2go cashflow import + honest per-invoice profit', d: 'A new “Post Invoice2go cashflow” tool (Invoices tab) imports your Invoice2go transactions export and books payments with their REAL fees — no estimates: the part a customer covered (a surcharge) is recorded as contra-income (nets out, no profit hit), the part you absorbed goes to cost of goods, and the 1% instant-payout fees are booked too, each tagged to its invoice. Every invoice then shows a clean profit breakdown — revenue, job expenses, card fee absorbed, payout fee, profit and profit %, plus what you passed to the customer. Each payment’s net lands in a clearing account; when your bank deposits relieve it to $0, your invoices are matched to your deposits to the penny.' },
   ] },
