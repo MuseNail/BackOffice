@@ -95,6 +95,7 @@ function mergeBundleInvoice(p, resolve, now) {
   return {
     ...ex, id: ex.id,
     number: p.number || ex.number, date: p.date || ex.date, dueDate: p.dueDate || ex.dueDate,
+    createdDate: p.createdDate || ex.createdDate, datePaid: p.datePaid || ex.datePaid,
     clientName: p.clientName || ex.clientName, clientEmail: p.clientEmail || ex.clientEmail,
     totalCents: p.totalCents, paidCents: p.paidCents, balanceCents: p.balanceCents,
     docStatus: p.docStatus, docType: p.docType,
@@ -533,7 +534,7 @@ function drawList(body) {
     agingChips,
     el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
       el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'Invoice'), el('th', {}, 'Date'), el('th', {}, 'Client'), el('th', {}, 'Source'),
+        el('tr', {}, el('th', {}, 'Invoice'), el('th', {}, 'Invoice date'), el('th', {}, 'Client'), el('th', {}, 'Source'),
           el('th', { class: 'num' }, 'Total'), el('th', { class: 'num' }, 'Paid'), el('th', { class: 'num' }, 'Open'), el('th', {}, 'Status')),
         ...rows)),
     agingFilter != null && !rows.length ? el('p', { class: 'sub', style: 'margin:12px 0 0' }, 'No open invoices in this aging bucket.') : null,
@@ -575,6 +576,20 @@ function txnListModal(title, txns, accountsById, amountFor) {
           el('td', {}, el('button', { class: 'linklike', onclick: () => txnDetailModal(t, accountsById) }, 'View')))))
     : el('p', { class: 'sub' }, 'No entries.'));
   m.body.append(el('div', { style: 'display:flex;justify-content:flex-end;margin-top:12px' }, el('button', { class: 'btn', onclick: m.close }, 'Close')));
+}
+
+// Clearly labeled dates — Invoice2go gives an invoice date, a created date, a due
+// date, and (when paid) a paid date. "Created" is hidden when it equals the invoice
+// date (the common case) to avoid noise. There is no structured "event date".
+function dateBlock(inv) {
+  const chip = (label, val) => el('div', {},
+    el('div', { class: 'field-label', style: 'margin:0' }, label),
+    el('div', { style: 'font-weight:600' }, val || '—'));
+  const chips = [chip('Invoice date', inv.date)];
+  if (inv.createdDate && inv.createdDate !== inv.date) chips.push(chip('Created', inv.createdDate));
+  if (inv.dueDate) chips.push(chip('Due', inv.dueDate));
+  if (inv.datePaid) chips.push(chip('Paid', inv.datePaid));
+  return el('div', { style: 'display:flex;flex-wrap:wrap;gap:24px;margin:8px 0 2px' }, ...chips);
 }
 
 function renderInvoiceDetail(root, id) {
@@ -682,7 +697,8 @@ function renderInvoiceDetail(root, id) {
   root.append(
     back,
     el('h2', { style: 'margin-top:10px' }, `Invoice #${inv.number || '—'} `, el('span', { class: 'pill ' + st.cls, style: 'font-size:.5em;vertical-align:middle' }, st.label)),
-    el('p', { class: 'sub' }, `${inv.clientName || ''}${inv.clientEmail ? ' · ' + inv.clientEmail : ''} · ${inv.date || ''}`),
+    el('p', { class: 'sub' }, `${inv.clientName || ''}${inv.clientEmail ? ' · ' + inv.clientEmail : ''}`),
+    dateBlock(inv),
     actions,
     el('div', { class: 'card', style: 'max-width:460px;margin-bottom:14px' },
       el('table', { class: 'data' },

@@ -105,13 +105,13 @@ test('parseCashflow accepts the one-click bundle { cashflow: [...] }', () => {
 });
 
 const bundleInv = {
-  id: '267d2440-uuid', header: { type: 'invoice' },
+  id: '267d2440-uuid', header: { type: 'invoice', created_date: '2026-06-10T17:52:50Z' },
   content: { doc_number: '4196', doc_date: '2026-06-15', billing: { name: 'Hangar 21', email: 'mike@h21.com' } },
-  states: { list_category: 'sent', overall: 'sent', due_date: '2026-06-20' },
+  states: { list_category: 'sent', overall: 'sent', due_date: '2026-06-20', date_paid: '2026-06-18' },
   latest_calculation_results: { total: 322000, total_payable: 322000, payments: { is_fully_paid: false, outstanding_balance: 122000 } },
 };
 
-test('parseBundleInvoices maps money/identity, leaves line items empty, marks bundle-owned', () => {
+test('parseBundleInvoices maps money/identity/dates, leaves line items empty, marks bundle-owned', () => {
   const [inv] = parseBundleInvoices({ invoices: [bundleInv] }, 999);
   assert.equal(inv.id, '267d2440-uuid');
   assert.equal(inv.number, '4196');
@@ -120,6 +120,10 @@ test('parseBundleInvoices maps money/identity, leaves line items empty, marks bu
   assert.equal(inv.balanceCents, 122000);
   assert.equal(inv.paidCents, 200000);          // total − outstanding
   assert.equal(inv.docStatus, 'partially_paid'); // paid > 0 but not fully paid
+  assert.equal(inv.date, '2026-06-15');         // invoice date (doc_date)
+  assert.equal(inv.createdDate, '2026-06-10');  // header.created_date, day only
+  assert.equal(inv.dueDate, '2026-06-20');
+  assert.equal(inv.datePaid, '2026-06-18');
   assert.deepEqual(inv.lineItems, []);
   assert.equal(inv.source.app, 'invoice2go-api');
   assert.equal(inv.updatedAt, 999);

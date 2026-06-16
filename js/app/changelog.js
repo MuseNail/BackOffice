@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.52.0', items: [
+    { icon: 'event', t: 'Clearer invoice dates', d: 'An invoice now shows its dates in a clean, labeled row — Invoice date, Created, Due, and Paid — so there’s no guessing which date is which. The invoice list column is labeled “Invoice date.” (Invoice2go doesn’t export a separate event date — that lives in the line-item text.)' },
+  ] },
   { v: '0.51.0', items: [
     { icon: 'search', t: 'Drill into an invoice’s costs and fees', d: 'On an invoice, the profit lines — Job expenses, Card fee absorbed, Payout fee, Fee passed to customer — are now clickable: each opens the exact transactions behind it, and you can open any one to see its full debit/credit detail. The “Linked expenses” list is clickable too.' },
     { icon: 'cleaning_services', t: 'Cleaner “Linked expenses”', d: 'The Linked expenses card now shows only real job costs. The Invoice2go fee bookings (which already appear in the profit breakdown) and empty $0.00 entries no longer clutter the list.' },
