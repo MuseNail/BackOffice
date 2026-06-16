@@ -163,6 +163,7 @@ function postCard() {
     const clearingSel = opts('asset', map.clearingId);
     const feePassedSel = opts('income', map.feePassedId);   // contra-income: fee covered by a customer surcharge
     const feeAbsorbedSel = opts('cogs', map.feeAbsorbedId);  // COGS: fee you absorbed
+    const cardRateIn = el('input', { class: 'field-input', inputmode: 'decimal', style: 'max-width:90px', value: ((map.cardRate != null ? map.cardRate : 0.029) * 100).toFixed(2).replace(/\.?0+$/, '') });
     const startDate = el('input', { type: 'date', class: 'field-input', style: 'max-width:170px', value: map.startDate || DEFAULT_CUTOFF });
 
     // live counts for the window
@@ -199,14 +200,15 @@ function postCard() {
     } }, 'Create / link the standard clearing + fee accounts');
 
     const postBtn = el('button', { class: 'btn sm green', onclick: () => {
-      const mapping = { incomeId: incomeSel.value, clearingId: clearingSel.value, feePassedId: feePassedSel.value, feeAbsorbedId: feeAbsorbedSel.value, startDate: startDate.value };
+      const rate = (parseFloat(cardRateIn.value) || 2.9) / 100;
+      const mapping = { incomeId: incomeSel.value, clearingId: clearingSel.value, feePassedId: feePassedSel.value, feeAbsorbedId: feeAbsorbedSel.value, cardRate: rate, startDate: startDate.value };
       if (!mapping.incomeId || !mapping.clearingId) { toast('Pick an income and a clearing account', 'err'); return; }
       const invoices = entities('invoice');
       const existing = new Set(entities('txn').map(t => t.id));
-      // fee accounts are needed only if some unposted payment in the window has a fee
+      // card payments incur a derived fee, so both fee accounts are needed when any are in the window
       const needFee = invoices.some(inv => (inv.payments || []).some(p =>
-        p.status === 'succeeded' && p.txId && p.date >= mapping.startDate && (p.feeCents | 0) > 0 && !existing.has(paymentTxnId(p.txId))));
-      if (needFee && (!mapping.feePassedId || !mapping.feeAbsorbedId)) { toast('Some payments have a fee — pick the “passed to customer” (income) and “absorbed” (COGS) accounts', 'err'); return; }
+        p.status === 'succeeded' && p.txId && p.date >= mapping.startDate && /card/i.test(p.method || '') && !existing.has(paymentTxnId(p.txId))));
+      if (needFee && (!mapping.feePassedId || !mapping.feeAbsorbedId)) { toast('Card payments need the “passed to customer” (income) and “absorbed” (COGS) fee accounts', 'err'); return; }
 
       const { txns, skipped } = buildPaymentTxns(invoices, mapping, { startDate: mapping.startDate, existingTxnIds: existing });
       if (!txns.length) { if (skipped) toast('All payments in this window are already posted'); else toast('No payments to post', 'err'); return; }
@@ -237,7 +239,7 @@ function postCard() {
       el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end' },
         field('Income account', incomeSel), field('Clearing account', clearingSel),
         field('Fees passed to customer (income)', feePassedSel), field('Fees absorbed (COGS)', feeAbsorbedSel),
-        field('Post payments since', startDate)),
+        field('Card fee %', cardRateIn), field('Post payments since', startDate)),
       el('div', { style: 'margin-top:6px' }, ensureBtn),
       el('div', { style: 'margin-top:10px' }, postBtn),
       status,
@@ -581,10 +583,10 @@ function renderInvoiceDetail(root, id) {
         el('tr', {}, el('td', {}, 'Paid'), el('td', { class: 'num' }, fmtMoney(inv.paidCents))),
         inv.balanceCents ? el('tr', {}, el('td', {}, 'Open balance'), el('td', { class: 'num' }, fmtMoney(inv.balanceCents))) : null,
         el('tr', {}, el('td', {}, 'Job expenses'), el('td', { class: 'num' }, fmtMoney(jobExpenses))),
-        cardAbsorbed ? el('tr', {}, el('td', {}, 'Card fee absorbed (COGS)'), el('td', { class: 'num' }, fmtMoney(cardAbsorbed))) : null,
+        cardAbsorbed ? el('tr', {}, el('td', {}, 'Card fee absorbed (COGS · est.)'), el('td', { class: 'num' }, fmtMoney(cardAbsorbed))) : null,
         payoutFee ? el('tr', {}, el('td', {}, 'Payout fee'), el('td', { class: 'num' }, fmtMoney(payoutFee))) : null,
         el('tr', {}, el('td', {}, el('b', {}, 'Profit')), el('td', { class: 'num ' + (marginCents >= 0 ? 'pos' : 'neg') }, el('b', {}, fmtMoney(marginCents) + (marginPct != null ? ` (${marginPct}%)` : '')))),
-        feePassed ? el('tr', { style: 'color:var(--mut)' }, el('td', {}, 'Fee passed to customer'), el('td', { class: 'num' }, fmtMoney(feePassed))) : null)),
+        feePassed ? el('tr', { style: 'color:var(--mut)' }, el('td', {}, 'Fee passed to customer (from Invoice2go)'), el('td', { class: 'num' }, fmtMoney(feePassed))) : null)),
     expensesCard,
     itemRows.length ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;margin-bottom:14px;max-width:640px' },
       el('table', { class: 'data' },
