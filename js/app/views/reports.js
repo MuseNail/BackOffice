@@ -19,7 +19,12 @@ let s = null;
 let plExpanded = new Set();
 
 export function render(root) {
-  s = { asOf: new Date().toISOString().slice(0, 10), range: presetRange('month') };
+  s = {
+    asOf: new Date().toISOString().slice(0, 10),
+    range: presetRange('month'),
+    compare: 'none',       // 'none' | 'prev' | 'ly' | 'trend'
+    pctOfIncome: false,    // common-size column (each line as % of total income)
+  };
   const body = el('div');
   // Built once so the smart date picker keeps its state across the redraws that
   // store changes trigger.
@@ -35,6 +40,58 @@ export function render(root) {
 }
 
 export function unmount() { unsub?.(); unsub = null; s = null; plExpanded = new Set(); }
+
+// ── Comparison-period helpers (pure date math, local-time to avoid TZ drift) ──
+const MABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const pad2 = (n) => String(n).padStart(2, '0');
+const fmtLocal = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const parseIso = (iso) => new Date(iso + 'T00:00:00');
+function addDaysIso(iso, n) { const d = parseIso(iso); d.setDate(d.getDate() + n); return fmtLocal(d); }
+function addYearsIso(iso, n) { const d = parseIso(iso); d.setFullYear(d.getFullYear() + n); return fmtLocal(d); }
+
+// The period to compare the selected range against. 'ly' = same dates a year back;
+// 'prev' = the same-length window immediately before. Null when the range is unbounded
+// (All time) — there's nothing meaningful to compare against.
+function comparisonRange(range, mode) {
+  if (!range.from || !range.to) return null;
+  if (mode === 'ly') return { from: addYearsIso(range.from, -1), to: addYearsIso(range.to, -1) };
+  const days = Math.round((parseIso(range.to) - parseIso(range.from)) / 86400000) + 1;
+  return { from: addDaysIso(range.from, -days), to: addDaysIso(range.to, -days) };
+}
+
+// One {label, from, to} bucket per calendar month in the range (≤12, most-recent kept).
+// Unbounded range → the last 12 months ending today.
+function monthBuckets(range) {
+  let sy, sm, ey, em;
+  if (range.from && range.to) {
+    const f = parseIso(range.from), t = parseIso(range.to);
+    sy = f.getFullYear(); sm = f.getMonth(); ey = t.getFullYear(); em = t.getMonth();
+  } else {
+    const now = new Date(); ey = now.getFullYear(); em = now.getMonth();
+    const s0 = new Date(ey, em - 11, 1); sy = s0.getFullYear(); sm = s0.getMonth();
+  }
+  const out = [];
+  let y = sy, m = sm;
+  while (y < ey || (y === ey && m <= em)) {
+    const last = new Date(y, m + 1, 0).getDate();
+    out.push({ label: `${MABBR[m]} ’${String(y).slice(2)}`, from: `${y}-${pad2(m + 1)}-01`, to: `${y}-${pad2(m + 1)}-${pad2(last)}` });
+    m++; if (m > 11) { m = 0; y++; }
+  }
+  return out.length > 12 ? out.slice(out.length - 12) : out;
+}
+
+// Compact label for a column header: "Jun 2026" / "2026" / "Jun 1 – Jul 15" / "All time".
+function compactRangeLabel(range) {
+  if (!range || (!range.from && !range.to)) return 'All time';
+  const f = parseIso(range.from), t = parseIso(range.to);
+  const firstOf = f.getDate() === 1;
+  const lastOf = t.getDate() === new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate();
+  const sameMonth = f.getFullYear() === t.getFullYear() && f.getMonth() === t.getMonth();
+  if (firstOf && lastOf && sameMonth) return `${MABBR[f.getMonth()]} ${f.getFullYear()}`;
+  if (firstOf && lastOf && f.getMonth() === 0 && t.getMonth() === 11 && f.getFullYear() === t.getFullYear()) return `${f.getFullYear()}`;
+  const sd = (d) => `${MABBR[d.getMonth()]} ${d.getDate()}`;
+  return `${sd(f)} – ${sd(t)}`;
+}
 
 // Drill-down: every posted transaction hitting an account within the current range.
 // Each row opens the Ledger's transaction editor; the list re-renders on any change.
@@ -68,23 +125,68 @@ function openAccountTxns(account, label) {
 }
 
 // Build a CSV of the P&L + Balance Sheet from the same grouped data the view renders.
-function buildReportsCsv(presetLabel, asOf, pl, bs) {
+// `cmp` carries the active comparison so the export columns mirror what's on screen.
+function buildReportsCsv(presetLabel, asOf, pl, bs, cmp) {
   const esc = (v) => { const t = String(v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
   const d = (cents) => (cents / 100).toFixed(2);
   const lines = [];
   const row = (...cols) => lines.push(cols.map(esc).join(','));
-  row('Profit & Loss', presetLabel);
-  row('Section', 'Account', 'Amount');
-  const plSec = (title, g, totalLabel) => {
-    if (!g.rows.length) return;
-    for (const r of g.rows) row(title, r.name, d(r.cents));
-    row('', totalLabel, d(g.total));
-  };
-  plSec('Income', pl.income, 'Total income');
-  plSec('Cost of goods', pl.cogs, 'Total cost of goods');
-  plSec('Expenses', pl.expenses, 'Total expenses');
-  plSec('Other expenses', pl.otherExp, 'Total other expenses');
-  row('', 'Net income', d(pl.net));
+  const pctOf = (c) => (cmp.incomeTotal ? (c / cmp.incomeTotal * 100).toFixed(1) : '');
+  const pctChg = (c, cm) => (cm ? ((c - cm) / cm * 100).toFixed(1) : '');
+
+  if (cmp.mode === 'trend') {
+    row('Profit & Loss', 'Monthly trend');
+    row('Section', 'Account', ...cmp.bucketLabels);
+    const sec = (title, g, totalLabel) => {
+      if (!g.nodes.length) return;
+      for (const r of g.rows) row(title, r.name, ...r.trend.map(d));
+      row('', totalLabel, ...g.totalTrend.map(d));
+    };
+    sec('Income', pl.income, 'Total income');
+    if (pl.cogs.nodes.length) { sec('Cost of goods', pl.cogs, 'Total cost of goods'); row('', 'Gross profit', ...pl.grossTrend.map(d)); }
+    sec('Expenses', pl.expenses, 'Total expenses');
+    sec('Other expenses', pl.otherExp, 'Total other expenses');
+    row('', 'Net income', ...pl.netTrend.map(d));
+  } else if (cmp.mode === 'prev' || cmp.mode === 'ly') {
+    row('Profit & Loss', `${cmp.curLabel} vs ${cmp.cmpLabel}`);
+    const head = ['Section', 'Account', cmp.curLabel];
+    if (cmp.pctOn) head.push('% of income');
+    head.push(cmp.cmpLabel, 'Change ($)', 'Change (%)');
+    row(...head);
+    const line = (title, name, c, cm) => {
+      const cols = [title, name, d(c)];
+      if (cmp.pctOn) cols.push(pctOf(c));
+      cols.push(d(cm), d(c - cm), pctChg(c, cm));
+      row(...cols);
+    };
+    const sec = (title, g, totalLabel) => {
+      if (!g.nodes.length) return;
+      for (const r of g.rows) line(title, r.name, r.cents, r.centsCmp);
+      line('', totalLabel, g.total, g.totalCmp);
+    };
+    sec('Income', pl.income, 'Total income');
+    if (pl.cogs.nodes.length) { sec('Cost of goods', pl.cogs, 'Total cost of goods'); line('', 'Gross profit', pl.gross, pl.grossCmp); }
+    sec('Expenses', pl.expenses, 'Total expenses');
+    sec('Other expenses', pl.otherExp, 'Total other expenses');
+    line('', 'Net income', pl.net, pl.netCmp);
+  } else {
+    row('Profit & Loss', presetLabel);
+    const head = ['Section', 'Account', 'Amount'];
+    if (cmp.pctOn) head.push('% of income');
+    row(...head);
+    const line = (title, name, c) => { const cols = [title, name, d(c)]; if (cmp.pctOn) cols.push(pctOf(c)); row(...cols); };
+    const sec = (title, g, totalLabel) => {
+      if (!g.nodes.length) return;
+      for (const r of g.rows) line(title, r.name, r.cents);
+      line('', totalLabel, g.total);
+    };
+    sec('Income', pl.income, 'Total income');
+    if (pl.cogs.nodes.length) { sec('Cost of goods', pl.cogs, 'Total cost of goods'); line('', 'Gross profit', pl.gross); }
+    sec('Expenses', pl.expenses, 'Total expenses');
+    sec('Other expenses', pl.otherExp, 'Total other expenses');
+    line('', 'Net income', pl.net);
+  }
+
   row('');
   row('Balance Sheet', 'as of ' + asOf);
   row('Section', 'Account', 'Amount');
@@ -113,101 +215,171 @@ function drawBody(body) {
   const accountsById = new Map(accounts.map(a => [a.id, a]));
   const range = s.range || presetRange('month');
 
-  // ── P&L ──
+  // ── comparison context ──
+  const cmpMode = s.compare;
+  const cmpRange = (cmpMode === 'prev' || cmpMode === 'ly') ? comparisonRange(range, cmpMode) : null;
+  const modeTrend = cmpMode === 'trend';
+  const buckets = modeTrend ? monthBuckets(range) : [];
   const act = activityByAccount(txns, range);
+  const actCmp = cmpRange ? activityByAccount(txns, cmpRange) : null;
+  const actBuckets = modeTrend ? buckets.map(b => activityByAccount(txns, b)) : null;
+  const mode2 = !!actCmp;                       // a two-period (prev / last-year) comparison
+  const pctOn = s.pctOfIncome && !modeTrend;    // % of income column
+  const colspan = modeTrend ? (1 + buckets.length) : (mode2 ? (pctOn ? 5 : 4) : (pctOn ? 3 : 2));
+
+  const nz = (...xs) => xs.some(x => x !== 0);
   // Display amount for an account in P&L sign convention (income shown positive).
-  const displayCents = (a) => { const c = act.get(a.id) || 0; return a.type === 'income' ? -c : c; };
+  const dispFrom = (m, a) => a.type === 'income' ? -(m.get(a.id) || 0) : (m.get(a.id) || 0);
+
   // Hierarchical group: top-level accounts each carry their own activity + a rolled-up
-  // total of their children. `nodes` drives the (expandable) display; `rows` is the
-  // flat list the CSV export uses.
+  // total of their children, for the current period (own/total), the comparison period
+  // (ownCmp/totalCmp) and the month buckets (ownTrend/totalTrend). `nodes` drives the
+  // (expandable) display; `rows` is the flat list the CSV export uses.
   const group = (types) => {
     const tops = accounts.filter(a => types.includes(a.type) && !a.parentId);
     const topIds = new Set(tops.map(a => a.id));
     const orphans = accounts.filter(a => types.includes(a.type) && a.parentId && !topIds.has(a.parentId));
+    const cur = (a) => dispFrom(act, a);
+    const cmp = (a) => actCmp ? dispFrom(actCmp, a) : 0;
+    const trd = (a) => actBuckets ? actBuckets.map(m => dispFrom(m, a)) : [];
     const nodes = [], rows = [];
-    let total = 0;
+    let total = 0, totalCmp = 0;
+    const totalTrend = actBuckets ? actBuckets.map(() => 0) : [];
+    const pushRow = (name, cents, centsCmp, trend) => rows.push({ name, cents, centsCmp, trend });
     for (const a of tops) {
-      const own = displayCents(a);
+      const own = cur(a), ownCmp = cmp(a), ownTrend = trd(a);
       const kids = accounts.filter(x => x.parentId === a.id && types.includes(x.type))
-        .map(k => ({ account: k, amount: displayCents(k) }))
+        .map(k => ({ account: k, amount: cur(k), amountCmp: cmp(k), trend: trd(k) }))
         .sort((x, y) => y.amount - x.amount);
-      const childSum = kids.reduce((s, k) => s + k.amount, 0);
-      const nodeTotal = own + childSum;
-      const visibleKids = kids.filter(k => k.amount !== 0);
-      if (nodeTotal === 0 && !visibleKids.length) continue;
-      nodes.push({ account: a, own, total: nodeTotal, children: visibleKids });
-      total += nodeTotal;
+      const sumKids = kids.reduce((sm, k) => sm + k.amount, 0);
+      const sumKidsCmp = kids.reduce((sm, k) => sm + k.amountCmp, 0);
+      const nodeTotal = own + sumKids, nodeTotalCmp = ownCmp + sumKidsCmp;
+      const nodeTrend = ownTrend.map((v, i) => v + kids.reduce((sm, k) => sm + (k.trend[i] || 0), 0));
+      const visibleKids = kids.filter(k => nz(k.amount, k.amountCmp, ...(k.trend || [])));
+      if (!nz(nodeTotal, nodeTotalCmp, ...nodeTrend) && !visibleKids.length) continue;
+      nodes.push({ account: a, own, ownCmp, ownTrend, total: nodeTotal, totalCmp: nodeTotalCmp, totalTrend: nodeTrend, children: visibleKids });
+      total += nodeTotal; totalCmp += nodeTotalCmp; nodeTrend.forEach((v, i) => totalTrend[i] += v);
       if (visibleKids.length) {
-        if (own !== 0) rows.push({ name: accountLabel(a, accountsById) + ' (direct)', cents: own });
-        for (const k of visibleKids) rows.push({ name: accountLabel(k.account, accountsById), cents: k.amount });
+        if (nz(own, ownCmp, ...(ownTrend || []))) pushRow(accountLabel(a, accountsById) + ' (direct)', own, ownCmp, ownTrend);
+        for (const k of visibleKids) pushRow(accountLabel(k.account, accountsById), k.amount, k.amountCmp, k.trend);
       } else {
-        rows.push({ name: accountLabel(a, accountsById), cents: nodeTotal });
+        pushRow(accountLabel(a, accountsById), nodeTotal, nodeTotalCmp, nodeTrend);
       }
     }
     for (const o of orphans) {
-      const amt = displayCents(o);
-      if (amt === 0) continue;
-      nodes.push({ account: o, own: amt, total: amt, children: [] });
-      total += amt;
-      rows.push({ name: accountLabel(o, accountsById), cents: amt });
+      const amt = cur(o), amtCmp = cmp(o), tr = trd(o);
+      if (!nz(amt, amtCmp, ...(tr || []))) continue;
+      nodes.push({ account: o, own: amt, ownCmp: amtCmp, ownTrend: tr, total: amt, totalCmp: amtCmp, totalTrend: tr, children: [] });
+      total += amt; totalCmp += amtCmp; tr.forEach((v, i) => totalTrend[i] += v);
+      pushRow(accountLabel(o, accountsById), amt, amtCmp, tr);
     }
     nodes.sort((x, y) => y.total - x.total);
     rows.sort((x, y) => y.cents - x.cents);
-    return { nodes, rows, total };
+    return { nodes, rows, total, totalCmp, totalTrend };
   };
   const income = group(['income']);
   const cogs = group(['cogs']);
   const expenses = group(['expense']);
   const otherExp = group(['other-expense', 'personal-expense']);
   const gross = income.total - cogs.total;
-  const netOrdinary = gross - expenses.total;          // before below-the-line items
-  const net = netOrdinary - otherExp.total;            // adjusted net income
+  const grossCmp = income.totalCmp - cogs.totalCmp;
+  const grossTrend = income.totalTrend.map((v, i) => v - (cogs.totalTrend[i] || 0));
+  const netOrdinary = gross - expenses.total;
+  const netOrdinaryCmp = grossCmp - expenses.totalCmp;
+  const netOrdinaryTrend = grossTrend.map((v, i) => v - (expenses.totalTrend[i] || 0));
+  const net = netOrdinary - otherExp.total;
+  const netCmp = netOrdinaryCmp - otherExp.totalCmp;
+  const netTrend = netOrdinaryTrend.map((v, i) => v - (otherExp.totalTrend[i] || 0));
+
+  const incTot = income.total;
+  const pctStr = (c) => (incTot ? (c / incTot * 100).toFixed(1) + '%' : '—');
+
+  // Variance cell: colored by impact on profit (favorable = green, unfavorable = red).
+  // For income/gross/net a rise is favorable; for cost/expense a rise is unfavorable.
+  const changeCell = (c, cm, good) => {
+    const dd = c - cm;
+    if (dd === 0) return el('td', { class: 'num', style: 'color:var(--mut)' }, fmtMoney(0));
+    const fav = good === 'up' ? dd > 0 : dd < 0;
+    const col = fav ? 'var(--green)' : 'var(--red)';
+    const tri = dd > 0 ? '▲' : '▼';
+    const pctText = cm ? `${tri}${Math.abs(dd / cm * 100).toFixed(1)}%` : 'new';
+    return el('td', { class: 'num' },
+      el('span', { style: `color:${col}` }, fmtMoney(dd, { sign: true })),
+      el('span', { style: `color:${col};font-size:11px;margin-left:4px` }, pctText));
+  };
+
+  // Trailing money cells for a row, per the active mode. `bold` for totals.
+  const valueCells = (cur, cmp, trend, good, bold, colorVal) => {
+    const tds = [];
+    const m = (v) => bold ? el('b', colorVal ? { style: `color:${v >= 0 ? 'var(--green)' : 'var(--red)'}` } : {}, fmtMoney(v))
+      : (colorVal ? el('span', { style: `color:${v >= 0 ? 'var(--green)' : 'var(--red)'}` }, fmtMoney(v)) : fmtMoney(v));
+    if (modeTrend) { (trend || []).forEach(v => tds.push(el('td', { class: 'num' }, m(v)))); return tds; }
+    tds.push(el('td', { class: 'num' }, m(cur)));
+    if (pctOn) tds.push(el('td', { class: 'num', style: 'color:var(--mut)' }, pctStr(cur)));
+    if (mode2) { tds.push(el('td', { class: 'num', style: 'color:var(--mut)' }, fmtMoney(cmp))); tds.push(changeCell(cur, cmp, good)); }
+    return tds;
+  };
 
   const plRows = [];
-  // A clickable leaf row → opens the account's transactions for the range.
-  const leafRow = (account, cents, label, padLeft) => el('tr', { style: 'cursor:pointer', title: 'View transactions', onclick: () => openAccountTxns(account, label) },
-    el('td', { style: `padding-left:${padLeft}px` }, label, el('span', { class: 'linklike', style: 'margin-left:6px;font-size:11px' }, '›')),
-    el('td', { class: 'num' }, fmtMoney(cents)));
-  const section = (title, g, totalLabel) => {
+  // Column header — only when a comparison adds columns to label (single view keeps the
+  // headerless two-column look it has today).
+  if (modeTrend) plRows.push(el('tr', {}, el('th', {}, 'Account'), ...buckets.map(b => el('th', { class: 'num' }, b.label))));
+  else if (mode2) {
+    const h = [el('th', {}, 'Account'), el('th', { class: 'num' }, compactRangeLabel(range))];
+    if (pctOn) h.push(el('th', { class: 'num' }, '% inc'));
+    h.push(el('th', { class: 'num' }, compactRangeLabel(cmpRange)), el('th', { class: 'num' }, 'Change'));
+    plRows.push(el('tr', {}, ...h));
+  } else if (pctOn) plRows.push(el('tr', {}, el('th', {}, 'Account'), el('th', { class: 'num' }, 'Amount'), el('th', { class: 'num' }, '% inc')));
+
+  // A clickable leaf row → opens the account's transactions for the current range.
+  // (Trend leaves aren't clickable — there's no single period to drill into.)
+  const leafRow = (account, cur, cmp, trend, label, good, padLeft) => {
+    const clickable = !modeTrend;
+    const name = el('td', { style: `padding-left:${padLeft}px` }, label,
+      clickable ? el('span', { class: 'linklike', style: 'margin-left:6px;font-size:11px' }, '›') : null);
+    const attrs = clickable ? { style: 'cursor:pointer', title: 'View transactions', onclick: () => openAccountTxns(account, label) } : {};
+    return el('tr', attrs, name, ...valueCells(cur, cmp, trend, good, false, false));
+  };
+  const totalRow = (label, cur, cmp, trend, good, rowStyle, colorVal) =>
+    el('tr', rowStyle ? { style: rowStyle } : {}, el('td', {}, el('b', {}, label)), ...valueCells(cur, cmp, trend, good, true, colorVal));
+
+  const section = (title, g, totalLabel, good) => {
     if (!g.nodes.length) return;
-    plRows.push(el('tr', {}, el('td', { class: 'coatype', colspan: '2', style: 'padding-top:12px' }, title)));
+    plRows.push(el('tr', {}, el('td', { class: 'coatype', colspan: String(colspan), style: 'padding-top:12px' }, title)));
     for (const node of g.nodes) {
       if (node.children.length) {
         const open = plExpanded.has(node.account.id);
+        const name = el('td', { style: 'padding-left:4px' },
+          el('span', { class: 'ms', style: 'font-size:18px;vertical-align:-4px;color:var(--mut)' }, open ? 'expand_more' : 'chevron_right'),
+          ' ', el('b', {}, node.account.name));
         plRows.push(el('tr', { style: 'cursor:pointer', title: open ? 'Collapse' : 'Show sub-accounts',
           onclick: () => { open ? plExpanded.delete(node.account.id) : plExpanded.add(node.account.id); drawBody(body); } },
-          el('td', { style: 'padding-left:4px' },
-            el('span', { class: 'ms', style: 'font-size:18px;vertical-align:-4px;color:var(--mut)' }, open ? 'expand_more' : 'chevron_right'),
-            ' ', el('b', {}, node.account.name)),
-          el('td', { class: 'num' }, el('b', {}, fmtMoney(node.total)))));
+          name, ...valueCells(node.total, node.totalCmp, node.totalTrend, good, true, false)));
         if (open) {
-          if (node.own !== 0) plRows.push(leafRow(node.account, node.own, node.account.name + ' (direct)', 36));
-          for (const k of node.children) plRows.push(leafRow(k.account, k.amount, k.account.name, 36));
+          if (nz(node.own, node.ownCmp, ...(node.ownTrend || []))) plRows.push(leafRow(node.account, node.own, node.ownCmp, node.ownTrend, node.account.name + ' (direct)', good, 36));
+          for (const k of node.children) plRows.push(leafRow(k.account, k.amount, k.amountCmp, k.trend, k.account.name, good, 36));
         }
       } else {
-        plRows.push(leafRow(node.account, node.total, node.account.name, 24));
+        plRows.push(leafRow(node.account, node.total, node.totalCmp, node.totalTrend, node.account.name, good, 24));
       }
     }
-    plRows.push(el('tr', {}, el('td', {}, el('b', {}, totalLabel)), el('td', { class: 'num' }, el('b', {}, fmtMoney(g.total)))));
+    plRows.push(totalRow(totalLabel, g.total, g.totalCmp, g.totalTrend, good, '', false));
   };
-  const netRow = (label, value, soft) => plRows.push(el('tr', { style: soft },
-    el('td', {}, el('b', {}, label)),
-    el('td', { class: 'num' }, el('b', { style: value >= 0 ? 'color:var(--green)' : 'color:var(--red)' }, fmtMoney(value)))));
-  section('Income', income, 'Total income');
-  if (cogs.rows.length) {
-    section('Cost of goods', cogs, 'Total cost of goods');
-    plRows.push(el('tr', { style: 'background:var(--brand-soft)' }, el('td', {}, el('b', {}, 'Gross profit')), el('td', { class: 'num' }, el('b', {}, fmtMoney(gross)))));
+
+  section('Income', income, 'Total income', 'up');
+  if (cogs.nodes.length) {
+    section('Cost of goods', cogs, 'Total cost of goods', 'down');
+    plRows.push(totalRow('Gross profit', gross, grossCmp, grossTrend, 'up', 'background:var(--brand-soft)', false));
   }
-  section('Expenses', expenses, 'Total expenses');
-  if (otherExp.rows.length) {
-    // Below-the-line: net ordinary income first, then other/personal expenses,
-    // then the adjusted net income.
-    netRow('Net ordinary income', netOrdinary, 'background:var(--brand-soft)');
-    section('Other expenses', otherExp, 'Total other expenses');
-    netRow('Net income', net, net >= 0 ? 'background:var(--green-soft)' : 'background:var(--red-soft)');
+  section('Expenses', expenses, 'Total expenses', 'down');
+  if (otherExp.nodes.length) {
+    plRows.push(totalRow('Net ordinary income', netOrdinary, netOrdinaryCmp, netOrdinaryTrend, 'up', 'background:var(--brand-soft)', true));
+    section('Other expenses', otherExp, 'Total other expenses', 'down');
+    plRows.push(totalRow('Net income', net, netCmp, netTrend, 'up', net >= 0 ? 'background:var(--green-soft)' : 'background:var(--red-soft)', true));
   } else {
-    netRow('Net profit', net, net >= 0 ? 'background:var(--green-soft)' : 'background:var(--red-soft)');
+    plRows.push(totalRow('Net profit', net, netCmp, netTrend, 'up', net >= 0 ? 'background:var(--green-soft)' : 'background:var(--red-soft)', true));
   }
+  const hasActivity = income.nodes.length || cogs.nodes.length || expenses.nodes.length || otherExp.nodes.length;
 
   // ── Balance Sheet (as of s.asOf) ──
   const bal = (a) => accountBalance(txns, a.id, { to: s.asOf });
@@ -265,26 +437,44 @@ function drawBody(body) {
       drawBody(body);
     } });
 
+  // ── P&L comparison controls (one line: period · compare-to · % of income) ──
+  const compareSel = el('select', { class: 'cmp-select', onchange: (e) => { s.compare = e.target.value; drawBody(body); } },
+    el('option', { value: 'none' }, 'No comparison'),
+    el('option', { value: 'prev' }, 'Previous period'),
+    el('option', { value: 'ly' }, 'Same period last year'),
+    el('option', { value: 'trend' }, 'Monthly trend'));
+  compareSel.value = s.compare;
+  const pctChk = el('input', { type: 'checkbox', id: 'pl-pct', checked: s.pctOfIncome, disabled: modeTrend,
+    onchange: (e) => { s.pctOfIncome = e.target.checked; drawBody(body); } });
+  const pctToggle = el('label', { class: 'pct-toggle' + (modeTrend ? ' off' : ''), for: 'pl-pct', title: modeTrend ? 'Not shown in trend view' : '' }, pctChk, ' % of income');
+
   const presetLabel = rangeLabel(range);
+  const plCardStyle = (cmpMode === 'none') ? 'flex:1;min-width:330px;max-width:460px' : 'flex:1 1 100%;min-width:330px';
+  const csvCmp = {
+    mode: mode2 ? cmpMode : (modeTrend ? 'trend' : 'none'),
+    pctOn, incomeTotal: incTot,
+    curLabel: compactRangeLabel(range), cmpLabel: cmpRange ? compactRangeLabel(cmpRange) : '',
+    bucketLabels: buckets.map(b => b.label),
+  };
+  const plData = { income, cogs, expenses, otherExp, net, netCmp, netTrend, gross, grossCmp, grossTrend };
+
   clear(body).append(
     el('div', { class: 'no-print', style: 'display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center' },
       el('span', { style: 'flex:1' }),
       el('button', { class: 'btn sm ghost', onclick: () => window.print() }, 'Print / PDF'),
       el('button', { class: 'btn sm ghost', onclick: () => downloadCsv(
         `${getActiveBiz()}-reports.csv`,
-        buildReportsCsv(presetLabel, s.asOf, { income, cogs, expenses, otherExp, net }, { assets, liabilities, equity, netToDate })) }, 'Export CSV')),
+        buildReportsCsv(presetLabel, s.asOf, plData, { assets, liabilities, equity, netToDate }, csvCmp)) }, 'Export CSV')),
     el('div', { class: 'row' },
-      // P&L and Balance Sheet headers share the same flex layout (title left, date
-      // picker right) so their first section rows — Income / Assets — line up.
-      // Both headers are two rows — title, then the date picker — so each panel's
-      // first section row (Income / Assets) starts at the same height.
-      el('div', { class: 'card', style: 'flex:1;min-width:330px;max-width:460px' },
+      el('div', { class: 'card', style: plCardStyle },
         el('div', { style: 'margin-bottom:10px' },
           el('div', { class: 'cardtitle', style: 'margin:0 0 6px' }, 'Profit & Loss'),
-          el('div', { style: 'display:flex;gap:6px;align-items:center' },
-            el('span', { class: 'field-label', style: 'margin:0' }, 'Period'),
-            s.rangeCtl.el)),
-        plRows.length > 1 ? el('table', { class: 'data' }, ...plRows) : el('p', { class: 'sub' }, 'No activity in this range.')),
+          el('div', { class: 'sub print-only', style: 'margin:0 0 6px' },
+            presetLabel + (mode2 ? ` vs ${compactRangeLabel(cmpRange)}` : modeTrend ? ' · monthly trend' : '')),
+          el('div', { class: 'pl-controls no-print' }, s.rangeCtl.el,
+            el('span', { class: 'field-label', style: 'margin:0;white-space:nowrap' }, 'Compare to'),
+            compareSel, pctToggle)),
+        hasActivity ? el('div', { style: 'overflow-x:auto' }, el('table', { class: 'data' }, ...plRows)) : el('p', { class: 'sub' }, 'No activity in this range.')),
       el('div', { class: 'card', style: 'flex:1;min-width:330px;max-width:460px' },
         el('div', { style: 'margin-bottom:10px' },
           el('div', { class: 'cardtitle', style: 'margin:0 0 6px' }, 'Balance Sheet'),

@@ -240,3 +240,13 @@ select.txi { background-position: right 7px center; padding-right: 24px; }
   .txcompact, .txrow-detail { display: none !important; }
   .txi { border: none !important; padding: 0 !important; -webkit-appearance: none; appearance: none; }
 }
+
+/* Reports — P&L period-comparison controls */
+select.cmp-select{font:inherit;font-weight:700;font-size:12px;color:var(--ink);background:#fff;border:1.5px solid var(--line);border-radius:10px;padding:7px 28px 7px 11px;cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%236b6e78' stroke-width='3'><path d='M6 9l6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 10px center;background-size:11px}
+select.cmp-select:hover{border-color:var(--brand)}
+label.pct-toggle{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#3c3f48;cursor:pointer;white-space:nowrap;user-select:none}
+label.pct-toggle.off{opacity:.45;cursor:default}
+label.pct-toggle input{width:15px;height:15px;accent-color:var(--brand);cursor:pointer}
+.pl-controls{display:flex;gap:10px;align-items:center;flex-wrap:nowrap;overflow-x:auto}
+.print-only{display:none}
+@media print{ .print-only{display:block !important} }

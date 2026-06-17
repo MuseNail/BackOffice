@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.3', items: [
+    { icon: 'compare_arrows', t: 'Compare Profit & Loss against another period', d: 'On Reports, a new “Compare to” menu lets you put this period next to the previous period or the same period last year — with a Change column that’s green when it helps your profit and red when it hurts (so rising expenses show red, falling ones green). Or pick Monthly trend to see each month side by side. There’s also a “% of income” toggle to show every line as a share of total income. The comparison carries through to the CSV export and the printout.' },
+  ] },
   { v: '0.68.2', items: [
     { icon: 'splitscreen', t: 'Review filters in two rows', d: 'The Review filter bar is now a tidy two-row layout — show/order filters on top, amount + date + clear on the bottom — so it no longer overflows.' },
   ] },
