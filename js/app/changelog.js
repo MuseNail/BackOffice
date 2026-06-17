@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.8', items: [
+    { icon: 'view_column', t: 'Clearer Reports columns', d: 'On the Profit & Loss comparison, the column headings now line up right above their numbers, and light vertical dividers separate the columns so it’s easier to read across a row.' },
+  ] },
   { v: '0.68.7', items: [
     { icon: 'rule', t: 'Smarter auto-categorize rules', d: 'When you build a ⚡ rule (in Review or on the Vendors tab) you can now match the bank description by “contains”, “starts with”, “is exactly”, or a pattern — and add more than one condition. You can also limit a rule to deposits only, withdrawals only, or an amount range, so the same name (like Venmo) can go to different accounts depending on the amount. A live preview shows how many of your transactions the rule would catch before you save. The Vendors tab now lists each vendor’s rule at a glance.' },
   ] },
