@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.56.0', items: [
+    { icon: 'task_alt', t: 'One-click deposit matching', d: 'On the “Reconcile to bank” screen, a button now posts all matched Invoice2go deposits at once — each is recorded in your bank and relieves the Invoice2go Clearing account, which drains toward $0 (the proof every Invoice2go dollar landed as a real deposit). The clearing balance shows live as you go. Also relabeled payout methods to plain English (“instant payout”, “same-day ACH”).' },
+  ] },
   { v: '0.55.0', items: [
     { icon: 'compare_arrows', t: 'Reconcile Invoice2go to your bank', d: 'A new “Reconcile to bank” screen (Invoices tab) automatically matches each Invoice2go payout to the bank deposit it produced — same amount, right timeframe — and shows you the two things that need attention: Invoice2go payouts with no matching deposit, and bank deposits that aren’t Invoice2go (your other income). Read-only for now; one-click matching is next.' },
   ] },

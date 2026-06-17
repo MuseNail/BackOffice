@@ -10,7 +10,7 @@ import { getActiveBiz, canEdit } from '../session.js';
 import { parseInvoices } from '../lib/invoice2go.js';
 import { buildCashflowImport, cashflowPaymentTxnId, parseBundleInvoices } from '../lib/i2g-cashflow.js';
 import { reconcilePayouts } from '../lib/i2g-reconcile.js';
-import { validateTxn, invoiceExpensesTotal } from '../lib/posting.js';
+import { validateTxn, invoiceExpensesTotal, simpleTxn } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { blankInvoice, recompute, nextInvoiceNumber, addManualPayment } from '../lib/invoice-edit.js';
 import { parseMoney } from '../lib/money.js';
@@ -612,6 +612,7 @@ function dateBlock(inv) {
 }
 
 // ── Reconcile Invoice2go payouts ↔ bank deposits ──
+const payoutMethodLabel = (m) => ({ rtp: 'instant payout', same_day_ach: 'same-day ACH' }[m] || (m || '').replace(/_/g, ' '));
 const kpiCard = (label, value, note) => el('div', { class: 'card', style: 'flex:1;min-width:190px' },
   el('div', { class: 'kpilbl' }, label), el('div', { class: 'kpi' }, value),
   note ? el('div', { class: 'sub', style: 'margin:0' }, note) : null);
@@ -657,13 +658,40 @@ function renderReconcile(root) {
     const sumP = arr => arr.reduce((s, x) => s + (x.netToBankCents || 0), 0);
     const sumD = arr => arr.reduce((s, x) => s + (x.amountCents || 0), 0);
 
+    // Post matched deposits → relieve the Invoice2go Clearing account. Only the
+    // not-yet-posted (staged) matches need posting; already-posted ones are done.
+    const ctx = { accountsById: new Map(entities('account').map(a => [a.id, a])), locks: new Set(entities('lock').map(l => l.id)) };
+    const clearingId = getState().meta?.i2gMapping?.clearingId;
+    const clearingName = (entities('account').find(a => a.id === clearingId) || {}).name || 'clearing';
+    const clearingBal = entities('txn').reduce((s, t) => s + (t.lines || []).reduce((a, l) => a + (l.accountId === clearingId ? l.amountCents : 0), 0), 0);
+    const toPost = matches.filter(m => m.deposit.kind === 'new');
+    const postMatches = () => {
+      if (!clearingId) { toast('Set the clearing account first (Invoices → Import card).', 'err'); return; }
+      if (!confirm(`Post ${toPost.length} matched deposits to “${clearingName}”? Each is recorded in your bank and relieves the clearing account.`)) return;
+      let n = 0;
+      for (const m of toPost) {
+        const row = entities('staged').find(s => s.id === m.deposit.id);
+        if (!row || row.status !== 'pending') continue;
+        const txn = simpleTxn({ id: 't-' + row.id, date: row.date, payee: row.desc || 'Invoice2go payout', memo: 'Invoice2go payout (matched)', amountCents: Math.abs(row.amountCents), direction: 'in', bankAccountId: acct, categoryAccountId: clearingId, source: { app: 'csv', importId: row.importId, sourceId: row.id } });
+        if (!validateTxn(txn, ctx).ok) continue;
+        dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
+        dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'approved', txnId: txn.id, categoryId: clearingId } });
+        n++;
+      }
+      toast(`Posted ${n} matched deposits to ${clearingName}`);
+      draw();
+    };
+
     clear(body).append(
       el('div', { class: 'row', style: 'margin-bottom:14px' },
         kpiCard('Payouts matched', `${matches.length} / ${payouts.length}`, fmtMoney(matches.reduce((s, m) => s + m.payout.netToBankCents, 0))),
         kpiCard('Payouts not matched', String(unmatchedPayouts.length), fmtMoney(sumP(unmatchedPayouts)) + ' — investigate'),
         kpiCard('Deposits not Invoice2go', String(unmatchedDeposits.length), fmtMoney(sumD(unmatchedDeposits)) + ' — other income')),
+      el('div', { style: 'display:flex;gap:14px;align-items:center;margin-bottom:16px;flex-wrap:wrap' },
+        el('button', { class: 'btn green', disabled: !toPost.length || !clearingId, onclick: postMatches }, toPost.length ? `Post ${toPost.length} matched deposits → ${clearingName}` : 'All matched deposits posted ✓'),
+        el('span', { class: 'sub' }, `${clearingName} balance: `, el('b', {}, fmtMoney(clearingBal)), ' — drains toward $0 as matches post')),
       reconTable('⚠️ Invoice2go payouts with no matching bank deposit', ['Payout date', 'Amount', 'Method'],
-        unmatchedPayouts.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '')).map(p => [p.date, fmtMoney(p.netToBankCents), (p.method || '').replace(/_/g, ' ')]),
+        unmatchedPayouts.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '')).map(p => [p.date, fmtMoney(p.netToBankCents), payoutMethodLabel(p.method)]),
         'These need either the bank statement for that period imported, or a manual match (coming next). Each should eventually tie to a real deposit.'),
       reconTable('⚠️ Bank deposits that aren’t Invoice2go (other income)', ['Deposit date', 'Amount', 'Source', 'Description'],
         unmatchedDeposits.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 200).map(d => [d.date, fmtMoney(d.amountCents), d.kind === 'new' ? 'new import' : 'on file', d.payee]),
