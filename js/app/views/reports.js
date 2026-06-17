@@ -9,7 +9,7 @@ import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { activityByAccount, accountBalance } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
-import { dateRangeControl, presetRange, rangeLabel } from '../daterange.js';
+import { dateRangeControl, dateControl, presetRange, rangeLabel } from '../daterange.js';
 
 let unsub = null;
 let s = null;
@@ -202,8 +202,7 @@ function drawBody(body) {
         el('div', { class: 'cardtitle' }, 'Balance Sheet'),
         el('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:8px' },
           el('span', { class: 'field-label', style: 'margin:0' }, 'As of'),
-          el('input', { class: 'field-input', type: 'date', style: 'max-width:160px;margin:0', value: s.asOf,
-            onchange: (e) => { s.asOf = e.target.value; drawBody(body); } })),
+          dateControl({ value: s.asOf, onPick: (iso) => { s.asOf = iso; drawBody(body); } }).el),
         el('table', { class: 'data' }, ...bsRows)),
       el('div', { class: 'card', style: 'flex:1;min-width:240px;max-width:300px' },
         el('div', { class: 'cardtitle' }, 'Tax set-aside estimate'),

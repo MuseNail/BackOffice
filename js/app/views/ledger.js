@@ -193,8 +193,7 @@ function drawTable(host, editable) {
   const showInv = usesInvoices();
   const invById = new Map(entities('invoice').map(i => [i.id, i]));
   const vendById = new Map(entities('vendor').map(v => [v.id, v]));
-  const extraCols = showInv ? 4 : 3; // Category, Vendor, Memo, (Invoice)
-  const colCount = 2 + extraCols + 1 /*source*/ + 1 /*amount*/ + (scoped ? 1 : 0) + 1 /*actions*/;
+  const colCount = 2 + 1 /*details*/ + 1 /*source*/ + 1 /*amount*/ + (scoped ? 1 : 0);
 
   const filtered = applySort(applyFilters(allTxns));
   const txns = filtered.slice(0, 200);
@@ -204,55 +203,58 @@ function drawTable(host, editable) {
     const isVoid = t.status === 'void';
     const isRecon = !!t.reconciledIn;
     const inlineEditable = editable && !isVoid;
-    const actions = [];
-    if (editable) {
-      // Edit opens the full modal — the only place to change date / amount / split lines.
-      if (!isVoid) actions.push(el('button', { class: 'linklike', onclick: () => editTxnModal(t) }, 'Edit'));
-      if (!isRecon) actions.push(el('button', { class: 'linklike', onclick: () => confirmDelete(t) }, 'Delete'));
-      if (!isVoid) actions.push(el('button', { class: 'linklike', onclick: () => confirmVoid(t) }, 'Void'));
-    }
 
-    // The four shared cells: live fields when editable, static text otherwise (void
-    // rows and read-only viewers) — kept in the same column slots so every row aligns.
+    // The four editable fields, live when editable / static text otherwise. They're
+    // laid out 2×2 inside ONE "Details" cell (Vendor·Account / Invoice·Memo) so the
+    // table is narrow enough to never need horizontal scrolling.
     let catCell, vendCell, memoCell, invCell;
     if (inlineEditable) {
       catCell = categoryField(t); vendCell = vendorField(t); memoCell = memoField(t);
       invCell = showInv ? invoiceField(t) : null;
     } else {
       const vd = t.vendorId ? vendById.get(t.vendorId) : null;
-      const iv = t.invoiceId ? invById.get(t.invoiceId) : null;
+      const iv0 = t.invoiceId ? invById.get(t.invoiceId) : null;
       catCell = el('span', { class: 'txi-static' }, categoryName(t) || d.category);
       vendCell = el('span', { class: 'txi-static' }, vd ? vd.name : '—');
       memoCell = el('span', { class: 'txi-static' }, t.memo || '—');
-      invCell = showInv ? el('span', { class: 'txi-static' }, iv ? `#${iv.number || iv.id}` : '—') : null;
+      invCell = showInv ? el('span', { class: 'txi-static' }, iv0 ? `#${iv0.number || iv0.id}` : '—') : null;
     }
+    const gcell = (lbl, node) => el('div', {}, el('span', { class: 'txglbl' }, lbl), node);
+    // Clicks inside the details cell drive the inline fields — they must NOT also
+    // trigger the row's "click to edit".
+    const detailsCell = el('td', { class: 'txinline txdetails', onclick: (e) => e.stopPropagation() },
+      el('div', { class: 'txgrid' },
+        gcell('Vendor', vendCell),
+        gcell('Account', catCell),
+        showInv ? gcell('Invoice', invCell) : el('div', {}),
+        gcell('Memo', memoCell)));
 
     const srcCell = el('td', {},
       el('span', { class: `pill ${isVoid ? 'gray' : sourceTag(t.source?.app).cls}` }, isVoid ? 'Void' : sourceTag(t.source?.app).label),
       isRecon ? el('span', { class: 'pill gray', title: 'Amounts and accounts are locked — reconciled in a closed period', style: 'margin-left:4px' }, 'Reconciled') : '');
     const amtCell = el('td', { class: 'num ' + (amt > 0 ? 'pos' : amt < 0 ? 'neg' : ''), style: 'white-space:nowrap' }, amt == null ? '—' : fmtMoney(amt, { sign: amt > 0 }));
     const balCell = scoped ? el('td', { class: 'num' }, isVoid ? '—' : fmtMoney(balAfter.get(t.id) || 0)) : null;
-    const actCell = el('td', { class: 'no-print', style: 'white-space:nowrap' }, ...actions.flatMap((a, i) => i ? [' · ', a] : [a]));
 
-    // Mobile compact line (category text + invoice pill + expand chevron). Only rows
-    // with editable inline fields get the tap-to-expand detail editor.
+    // Mobile compact line + tap-to-expand stacked editor.
     const iv = t.invoiceId ? invById.get(t.invoiceId) : null;
     const chevron = inlineEditable ? el('i', { class: 'ti ti-chevron-down txchev' }) : '';
     const detail = inlineEditable ? el('tr', { class: 'txrow-detail' },
       el('td', { colspan: String(colCount), style: 'background:var(--bg);padding:12px 14px' }, stackedEditor(t))) : null;
-    const compact = el('div', { class: 'txcompact', onclick: inlineEditable ? () => { detail.classList.toggle('open'); chevron.className = detail.classList.contains('open') ? 'ti ti-chevron-up txchev' : 'ti ti-chevron-down txchev'; } : undefined },
+    const compact = el('div', { class: 'txcompact', onclick: inlineEditable ? (e) => { e.stopPropagation(); detail.classList.toggle('open'); chevron.className = detail.classList.contains('open') ? 'ti ti-chevron-up txchev' : 'ti ti-chevron-down txchev'; } : undefined },
       el('span', { style: 'color:var(--mut)' }, categoryName(t) || d.category),
       (showInv && iv) ? el('span', { class: 'pill blue', style: 'font-size:10px;padding:2px 7px' }, `#${iv.number || iv.id}`) : '',
       chevron);
 
-    const summary = el('tr', { style: isVoid ? 'opacity:.45;' : '' },
+    // The whole row is the Edit button (Delete / Void now live inside that modal).
+    // The dropdowns above stopPropagation so they edit inline instead of opening it.
+    const summary = el('tr', {
+        style: isVoid ? 'opacity:.45;' : (inlineEditable ? 'cursor:pointer' : ''),
+        title: inlineEditable ? 'Click to edit (date, amount) · delete / void inside' : '',
+        onclick: inlineEditable ? () => editTxnModal(t) : undefined },
       el('td', { style: 'white-space:nowrap' }, t.date),
       el('td', {}, el('b', {}, t.payee || '—'), t.checkNo ? el('span', { style: 'color:var(--mut)' }, ` · #${t.checkNo}`) : '', compact),
-      el('td', { class: 'txinline' }, catCell),
-      el('td', { class: 'txinline' }, vendCell),
-      el('td', { class: 'txinline' }, memoCell),
-      showInv ? el('td', { class: 'txinline' }, invCell) : null,
-      srcCell, amtCell, balCell, actCell);
+      detailsCell,
+      srcCell, amtCell, balCell);
     return detail ? [summary, detail] : [summary];
   });
   const th = (key, label, cls) => el('th', { class: cls || '', style: 'cursor:pointer;user-select:none', title: 'Click to sort', onclick: () => { setSort(key); drawTable(host, editable); } }, label + arrow(key));
@@ -271,12 +273,9 @@ function drawTable(host, editable) {
       ? el('div', { class: 'card', style: 'padding:0;overflow-x:auto' },
           el('table', { class: 'data' + (editable ? ' txedit' : '') },
             el('tr', {}, th('date', 'Date'), th('payee', 'Payee / memo'),
-              el('th', { class: 'txinline' }, 'Category'),
-              el('th', { class: 'txinline' }, 'Vendor'),
-              el('th', { class: 'txinline' }, 'Memo'),
-              showInv ? el('th', { class: 'txinline' }, 'Invoice') : null,
+              el('th', { class: 'txinline' }, 'Details'),
               el('th', {}, 'Source'), th('amount', 'Amount', 'num'),
-              scoped ? el('th', { class: 'num' }, 'Balance') : null, el('th', { class: 'no-print' }, '')),
+              scoped ? el('th', { class: 'num' }, 'Balance') : null),
             ...rows))
       : el('p', { class: 'sub' }, 'No transactions match these filters.'),
   );
@@ -355,7 +354,7 @@ function editTxnModal(t) {
         .filter(a => a.active !== false && !bankish(a))
         .sort((a, b) => (a.type + accountLabel(a, byId)).localeCompare(b.type + accountLabel(b, byId)))
         .map(a => el('option', { value: a.id, selected: a.id === catLine.accountId }, accountLabel(a, byId))),
-      el('option', { value: '__new__' }, '＋ Add category…'));
+      el('option', { value: '__new__' }, '＋ Add account…'));
     attachAddCategory(catSel, catLine.accountId);
   }
 
@@ -374,17 +373,21 @@ function editTxnModal(t) {
     el('label', { class: 'field-label' }, 'Date'), date,
     el('label', { class: 'field-label' }, 'Payee'), payee,
     el('label', { class: 'field-label' }, 'Memo / notes'), memo,
-    catSel ? el('label', { class: 'field-label' }, 'Category') : null,
+    catSel ? el('label', { class: 'field-label' }, 'Account') : null,
     catSel || null,
     el('label', { class: 'field-label' }, 'Vendor'), vendSel,
     invSel ? el('label', { class: 'field-label' }, 'Invoice (for margin)') : null,
     invSel || null,
-    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+    el('div', { style: 'display:flex;gap:9px;align-items:center;margin-top:12px' },
+      // Delete / Void live here now (no per-row buttons). Blocked when reconciled.
+      !isRecon ? el('button', { class: 'btn sm ghost', style: 'color:var(--red)', onclick: () => { m.close(); confirmDelete(t); } }, 'Delete') : el('span'),
+      !isRecon ? el('button', { class: 'btn sm ghost', onclick: () => { m.close(); confirmVoid(t); } }, 'Void') : el('span'),
+      el('span', { style: 'flex:1' }),
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn green', onclick: () => {
         const newDate = isRecon ? t.date : date.value;
         if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) { toast('Bad date', 'err'); return; }
-        if (catSel && catSel.value === '__new__') { toast('Pick a category', 'err'); return; }
+        if (catSel && catSel.value === '__new__') { toast('Pick an account', 'err'); return; }
         const newLines = (!isRecon && catSel && catLine)
           ? t.lines.map(l => l === catLine ? { ...l, accountId: catSel.value } : l)
           : t.lines;
@@ -446,7 +449,7 @@ function addTxnModal() {
   const redrawCategory = () => {
     clear(category).append(
       ...accountOptions(a => !bankish(a) && (direction === 'out' ? a.type !== 'income' : a.type !== 'expense' && a.type !== 'cogs')),
-      el('option', { value: '__new__' }, '＋ Add category…'));
+      el('option', { value: '__new__' }, '＋ Add account…'));
   };
   redrawCategory();
   attachAddCategory(category);
@@ -462,7 +465,7 @@ function addTxnModal() {
     el('div', { class: 'f2' },
       el('div', {}, el('label', { class: 'field-label' }, 'Account (paid from / into)'), bank),
       el('div', {}, el('label', { class: 'field-label' }, 'Check #'), checkNo)),
-    el('label', { class: 'field-label' }, 'Category'), category,
+    el('label', { class: 'field-label' }, 'Account'), category,
     el('label', { class: 'field-label' }, 'Vendor (optional)'), vendor,
     el('label', { class: 'field-label' }, 'Memo'), memo,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },

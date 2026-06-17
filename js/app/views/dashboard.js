@@ -4,6 +4,7 @@ import { getState, subscribe, entities } from '../store.js';
 import { getActiveBiz } from '../session.js';
 import { industryLabel, accountLabel } from '../lib/coa-templates.js';
 import { profitAndLoss } from '../lib/posting.js';
+import { dateControl } from '../daterange.js';
 
 let unsub = null;
 
@@ -26,7 +27,7 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 export function render(root) {
   let asOf = todayIso();
   const body = el('div');
-  const asOfInput = el('input', { class: 'field-input', type: 'date', value: asOf, max: todayIso(), style: 'max-width:160px', onchange: (e) => { asOf = e.target.value || todayIso(); draw(); } });
+  const asOfInput = dateControl({ value: asOf, onPick: (iso) => { asOf = iso || todayIso(); draw(); } }).el;
   const draw = () => {
     const s = getState();
     const biz = getActiveBiz();

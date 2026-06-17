@@ -18,6 +18,7 @@ import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 import { helcimDayTotals, ledgerDayDebits, matchDeposit } from '../lib/processor-match.js';
 import { attachAddCategory, attachAddVendor } from '../pickers.js';
 import { combobox } from '../combobox.js';
+import { dateRangeControl } from '../daterange.js';
 import { quickAddAccountModal } from './accounts.js';
 import { quickAddVendorModal } from './vendors.js';
 import { logAudit } from '../audit.js';
@@ -28,7 +29,10 @@ let aiBusy = false;
 let showSkipped = false;
 // Review filter/sort (bank-row sections only). dir: all|in|out · status: all|needs|ready
 // · bank: all|<bankId> · sort: date-desc|date-asc|amount-desc|amount-asc.
-let reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc' };
+let reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc', amountMin: '', amountMax: '', from: '', to: '' };
+// The shared date picker, built once (the filter bar is rebuilt on every redraw).
+let reviewDateCtl = null;
+const REVIEW_FILTER_DEFAULT = () => ({ dir: 'all', status: 'all', bank: 'all', sort: 'date-desc', amountMin: '', amountMax: '', from: '', to: '' });
 // Preserve per-row category / vendor selection across drawBody re-renders (store
 // changes trigger a full redraw, so we save the user's pick here and restore it).
 let lastCategory = new Map();
@@ -53,11 +57,12 @@ export function render(root) {
     body,
   );
   const draw = () => drawBody(body, editable);
+  reviewDateCtl = dateRangeControl({ initial: 'all', onChange: (r) => { reviewFilter.from = r.from || ''; reviewFilter.to = r.to || ''; draw(); } });
   unsub = subscribe(draw);
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); collapsedBanks = new Set(); bankPage = new Map(); reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc' }; }
+export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); collapsedBanks = new Set(); bankPage = new Map(); reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; }
 
 // A row is "ready" if it has a resolved category — a valid rule/history suggestion,
 // an AI suggestion, or a manual pick (lastCategory). Drives the needs/ready filter.
@@ -74,6 +79,11 @@ function applyReviewFilter(rows, matchCtx, accountsById) {
     if (reviewFilter.dir === 'out' && !(r.amountCents < 0)) return false;
     if (reviewFilter.status === 'ready' && !rowReady(r, matchCtx, accountsById)) return false;
     if (reviewFilter.status === 'needs' && rowReady(r, matchCtx, accountsById)) return false;
+    if (reviewFilter.from && r.date < reviewFilter.from) return false;
+    if (reviewFilter.to && r.date > reviewFilter.to) return false;
+    const absC = Math.abs(r.amountCents);
+    if (reviewFilter.amountMin && absC < reviewFilter.amountMin) return false;
+    if (reviewFilter.amountMax && absC > reviewFilter.amountMax) return false;
     return true;
   });
   const [key, dir] = reviewFilter.sort.split('-');
@@ -107,7 +117,7 @@ function categoryGroups(row, categories, accountsById) {
 
 function categorySelect(row, categories, accountsById, preselect, afterAdd) {
   return combobox({ groups: categoryGroups(row, categories, accountsById), value: preselect || '',
-    placeholder: 'Search categories…', minWidth: 180, addLabel: 'Add category…',
+    placeholder: 'Search accounts…', minWidth: 180, addLabel: 'Add account…',
     onAdd: () => quickAddAccountModal((account) => afterAdd?.(account)) });
 }
 
@@ -265,13 +275,13 @@ function drawBody(body, editable) {
       const bal = balId ? accountsById.get(balId) : null;
       const preselect = mapping.category?.[row.syncType];
       const sel = el('select', { class: 'field-input', style: 'margin:0;min-width:190px' },
-        el('option', { value: '' }, '— pick a category —'),
+        el('option', { value: '' }, '— pick an account —'),
         ...TYPE_GROUPS.map(([type, label]) => {
           const accts = categories.filter(a => a.type === type)
             .sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)));
           return accts.length ? el('optgroup', { label }, ...accts.map(a => el('option', { value: a.id, selected: a.id === preselect }, accountLabel(a, accountsById)))) : null;
         }).filter(Boolean),
-        el('option', { value: '__new__' }, '＋ Add category…'));
+        el('option', { value: '__new__' }, '＋ Add account…'));
       attachAddCategory(sel, preselect);
       const approve = el('button', { class: 'btn sm green', disabled: !bal || !sel.value || sel.value === '__new__', onclick: () => approveSyncRow(row, sel.value) }, 'Approve');
       sel.addEventListener('change', () => { approve.disabled = !bal || !sel.value || sel.value === '__new__'; });
@@ -303,14 +313,22 @@ function drawBody(body, editable) {
   ];
   const fsel = (key, opts) => el('select', { class: 'field-input', style: 'margin:0;width:auto;min-width:120px', onchange: (e) => { reviewFilter[key] = e.target.value; drawBody(body, editable); } },
     ...opts.map(([v, l]) => el('option', { value: v, selected: reviewFilter[key] === v }, l)));
-  const filtersOn = reviewFilter.dir !== 'all' || reviewFilter.status !== 'all' || reviewFilter.bank !== 'all' || reviewFilter.sort !== 'date-desc';
+  // Amount filter — min/max on the absolute amount, committed on blur/Enter (so
+  // typing doesn't redraw mid-keystroke). Stored as cents.
+  const amtIn = (key, ph) => el('input', { class: 'field-input', inputmode: 'decimal', placeholder: ph, style: 'margin:0;width:84px',
+    value: reviewFilter[key] ? (reviewFilter[key] / 100).toFixed(2) : '',
+    onchange: (e) => { const c = parseMoney(e.target.value); reviewFilter[key] = (c != null && c > 0) ? c : ''; drawBody(body, editable); } });
+  if (reviewDateCtl) reviewDateCtl.setRange({ from: reviewFilter.from || null, to: reviewFilter.to || null });
+  const filtersOn = reviewFilter.dir !== 'all' || reviewFilter.status !== 'all' || reviewFilter.bank !== 'all' || reviewFilter.sort !== 'date-desc' || reviewFilter.amountMin !== '' || reviewFilter.amountMax !== '' || reviewFilter.from !== '' || reviewFilter.to !== '';
   const filterBar = el('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px' },
     el('span', { class: 'sub', style: 'margin:0' }, 'Filter'),
     fsel('dir', [['all', 'All'], ['in', 'Money in'], ['out', 'Money out']]),
-    fsel('status', [['all', 'Any status'], ['needs', 'Needs a category'], ['ready', 'Ready']]),
+    fsel('status', [['all', 'Any status'], ['needs', 'Needs an account'], ['ready', 'Ready']]),
     fsel('bank', [['all', 'All accounts'], ...entities('bankacct').map(b => [b.id, b.name])]),
+    el('span', { class: 'sub', style: 'margin:0' }, 'Amount'), amtIn('amountMin', 'min $'), el('span', { class: 'sub', style: 'margin:0' }, '–'), amtIn('amountMax', 'max $'),
+    reviewDateCtl ? reviewDateCtl.el : el('span'),
     fsel('sort', [['date-desc', 'Newest first'], ['date-asc', 'Oldest first'], ['amount-desc', 'Largest first'], ['amount-asc', 'Smallest first']]),
-    el('button', { class: 'btn sm ghost', disabled: !filtersOn, onclick: () => { reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc' }; drawBody(body, editable); } }, 'Clear filters'));
+    el('button', { class: 'btn sm ghost', disabled: !filtersOn, onclick: () => { reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl?.setRange({ from: null, to: null }); drawBody(body, editable); } }, 'Clear filters'));
   clear(body).append(
     filterBar,
     el('div', { style: 'display:flex;gap:9px;align-items:center;margin-bottom:12px;flex-wrap:wrap' },
@@ -336,7 +354,7 @@ const postCtx = () => ({
 function approveSyncRow(row, categoryId) {
   const mapping = getState().meta?.museMapping || {};
   const balId = mapping.balancing?.[row.syncType];
-  if (!balId || !categoryId) { toast(balId ? 'Pick a category first' : 'Set the Muse mapping in Settings first', 'err'); return; }
+  if (!balId || !categoryId) { toast(balId ? 'Pick an account first' : 'Set the Muse mapping in Settings first', 'err'); return; }
   const txn = simpleTxn({
     id: 't-' + row.id,
     date: row.date,
@@ -358,7 +376,7 @@ function approveSyncRow(row, categoryId) {
 
 function approveRow(row, categoryId, sug, { quiet = false, memo = '', vendorId = '', invoiceId = '' } = {}) {
   const bankacct = entities('bankacct').find(b => b.id === row.bankacctId);
-  if (!bankacct || !categoryId) { toast('Pick a category first', 'err'); return; }
+  if (!bankacct || !categoryId) { toast('Pick an account first', 'err'); return; }
   const target = entities('account').find(a => a.id === categoryId);
   const isTransfer = target && bankish(target);
   const txn = simpleTxn({
@@ -424,11 +442,11 @@ function feeSplitModal(row, accountsById) {
   const gross = el('input', { class: 'field-input', inputmode: 'decimal', placeholder: 'what you actually charged customers' });
   const incomeSel = el('select', { class: 'field-input' },
     ...incomeAccts.map(a => el('option', { value: a.id }, accountLabel(a, accountsById))),
-    el('option', { value: '__new__' }, '＋ Add category…'));
+    el('option', { value: '__new__' }, '＋ Add account…'));
   attachAddCategory(incomeSel, incomeAccts[0]?.id);
   const feeSel = el('select', { class: 'field-input' },
     ...feeAccts.map(a => el('option', { value: a.id, selected: a.id === defaultFee.id }, accountLabel(a, accountsById))),
-    el('option', { value: '__new__' }, '＋ Add category…'));
+    el('option', { value: '__new__' }, '＋ Add account…'));
   attachAddCategory(feeSel, defaultFee.id);
   const feeLine = el('p', { style: 'font-weight:700' }, '');
   gross.addEventListener('input', () => {
@@ -441,15 +459,15 @@ function feeSplitModal(row, accountsById) {
   m.body.append(
     el('p', { class: 'sub' }, `The bank received ${fmtMoney(row.amountCents)}. Enter the gross sales this payout covers — the difference posts as a processing-fee expense, so your income and fees both stay honest.`),
     el('label', { class: 'field-label' }, 'Gross amount ($)'), gross,
-    el('label', { class: 'field-label' }, 'Income category'), incomeSel,
-    el('label', { class: 'field-label' }, 'Fee category'), feeSel,
+    el('label', { class: 'field-label' }, 'Income account'), incomeSel,
+    el('label', { class: 'field-label' }, 'Fee account'), feeSel,
     feeLine,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn green', onclick: () => {
         const g = parseMoney(gross.value);
         if (g == null || g < row.amountCents) { toast('Gross must be at least the deposited amount', 'err'); return; }
-        if (!incomeSel.value || incomeSel.value === '__new__') { toast('Pick an income category', 'err'); return; }
+        if (!incomeSel.value || incomeSel.value === '__new__') { toast('Pick an income account', 'err'); return; }
         if (!feeSel.value || feeSel.value === '__new__') { toast('Pick a fee category', 'err'); return; }
         const feeCents = g - row.amountCents;
         const bankacct = entities('bankacct').find(b => b.id === row.bankacctId);
@@ -524,7 +542,7 @@ async function matchDepositModal(row, accountsById) {
   }
   const feeSel = el('select', { class: 'field-input' },
     ...feeAccts.map(a => el('option', { value: a.id, selected: a.id === feeDefault?.id }, accountLabel(a, accountsById))),
-    el('option', { value: '__new__' }, '＋ Add category…'));
+    el('option', { value: '__new__' }, '＋ Add account…'));
   attachAddCategory(feeSel, feeDefault?.id);
 
   const daysLabel = match.days.length === 1 ? match.days[0] : `${match.days[0]} – ${match.days[match.days.length - 1]}`;
@@ -537,7 +555,7 @@ async function matchDepositModal(row, accountsById) {
     clearing
       ? el('p', { class: 'sub' }, `Posts against “${clearing.name}” — the synced sales rows already booked the income, so this just moves the money to the bank.`)
       : el('p', { class: 'sub' }, 'No Muse clearing account is mapped (Settings → Muse sync), so this will post as income minus the fee — same as the % button.'),
-    match.feeCents > 0 ? el('div', {}, el('label', { class: 'field-label' }, 'Fee category'), feeSel) : el('span'),
+    match.feeCents > 0 ? el('div', {}, el('label', { class: 'field-label' }, 'Fee account'), feeSel) : el('span'),
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn green', onclick: () => {
@@ -641,8 +659,8 @@ function makeRuleModal(row, pickedCategoryId, categories, accountsById) {
   catGroups.push({ label: 'Categories', items: categories
     .sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)))
     .map(a => ({ value: a.id, label: accountLabel(a, accountsById) })) });
-  const cat = combobox({ groups: catGroups, value: pickedCategoryId || '', placeholder: 'Search categories…', minWidth: 240,
-    addLabel: 'Add category…', onAdd: () => quickAddAccountModal((account) => {
+  const cat = combobox({ groups: catGroups, value: pickedCategoryId || '', placeholder: 'Search accounts…', minWidth: 240,
+    addLabel: 'Add account…', onAdd: () => quickAddAccountModal((account) => {
       catGroups.find(g => g.label === 'Categories').items.push({ value: account.id, label: account.name });
       cat.setGroups(catGroups); cat.value = account.id;
     }) });

@@ -8,6 +8,7 @@ import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseMoney } from '../lib/money.js';
+import { dateControl } from '../daterange.js';
 import { logAudit } from '../audit.js';
 
 let unsub = null;
@@ -44,17 +45,15 @@ function drawBody(body) {
 
   const acctSel = el('select', { class: 'field-input', style: 'max-width:240px', onchange: (e) => { s.bankacctId = e.target.value; s.checked = new Set(); drawBody(body); } },
     ...bankaccts.map(b => el('option', { value: b.id, selected: b.id === s.bankacctId }, b.name)));
-  const dateIn = el('input', { class: 'field-input', type: 'date', value: s.endDate, style: 'max-width:170px;margin:0', onchange: (e) => { s.endDate = e.target.value; drawBody(body); } });
-  // Quick set-tos for the statement end date — statements almost always close at a
-  // month end, so these save typing.
+  // Statement end date — the Muse-style day picker, with month-end quick presets
+  // (statements almost always close at a month end).
   const isoD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const setEnd = (iso) => { s.endDate = iso; drawBody(body); };
   const now = new Date();
-  const endDateGroup = el('div', { style: 'display:flex;gap:6px;align-items:center;flex-wrap:wrap' },
-    dateIn,
-    el('button', { class: 'btn sm ghost', onclick: () => setEnd(isoD(new Date(now.getFullYear(), now.getMonth() + 1, 0))) }, 'End of this month'),
-    el('button', { class: 'btn sm ghost', onclick: () => setEnd(isoD(new Date(now.getFullYear(), now.getMonth(), 0))) }, 'End of last month'),
-    el('button', { class: 'btn sm ghost', onclick: () => setEnd(isoD(now)) }, 'Today'));
+  const endDateGroup = dateControl({ value: s.endDate, onPick: (iso) => { s.endDate = iso; drawBody(body); }, presets: [
+    { label: 'End of this month', date: isoD(new Date(now.getFullYear(), now.getMonth() + 1, 0)) },
+    { label: 'End of last month', date: isoD(new Date(now.getFullYear(), now.getMonth(), 0)) },
+    { label: 'Today', date: isoD(now) },
+  ] }).el;
   const balIn = el('input', { class: 'field-input', placeholder: 'Statement ending balance', style: 'max-width:220px', inputmode: 'decimal',
     value: s.stmtCents == null ? '' : (s.stmtCents / 100).toFixed(2),
     onchange: (e) => { s.stmtCents = parseMoney(e.target.value); drawBody(body); } });

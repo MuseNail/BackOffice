@@ -6,6 +6,13 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.67.0', items: [
+    { icon: 'calendar_month', t: 'A real calendar date picker — everywhere', d: 'Every date control is now one button that opens a calendar with smart ranges down the side: Today, This/Last week, This/Last month, This/Last quarter, Year to date, This/Last year, or All time — plus ‹ › arrows to step a period at a time. Click a day for that day, or a start then an end for a custom range. It’s the same picker on Reports, the Ledger, Review, account/vendor registers, Reconcile, and the Dashboard.' },
+    { icon: 'filter_alt', t: 'Filter Review by amount and date', d: 'The Review screen gained a min/max amount filter and the same calendar date filter as the rest of the app, so you can zero in on exactly the transactions you want to work through.' },
+    { icon: 'table_rows', t: 'Tidier Ledger rows', d: 'The Ledger no longer scrolls sideways: Vendor, Account, Invoice, and Memo are packed into a compact 2×2 block on each row. Click anywhere on a row (except the dropdowns) to open it for editing, and Delete / Void now live inside that edit window instead of crowding every row.' },
+    { icon: 'account_tree', t: '“Category” is now “Account”', d: 'To match your chart of accounts, the pickers and labels that used to say “Category” now say “Account” throughout the app.' },
+    { icon: 'unfold_more', t: 'Dropdown arrows always visible', d: 'Long names in a dropdown no longer overlap the little arrow — every dropdown keeps its arrow clear.' },
+  ] },
   { v: '0.66.0', items: [
     { icon: 'search', t: 'Type-to-search category & vendor pickers', d: 'On the Review screen, the Category and Vendor pickers are now search boxes — start typing to filter the list instead of scrolling a long dropdown. “＋ Add category / vendor” is still pinned at the bottom.' },
     { icon: 'bolt', t: 'Rules and transactions stay in sync', d: 'When you make a ⚡ Rule from a transaction in Review, the category (and vendor) you choose now carries straight back onto that transaction, ready to approve — and if the row already had a category, the Rule pop-up starts pre-filled with it.' },

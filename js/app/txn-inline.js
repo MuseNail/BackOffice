@@ -46,7 +46,7 @@ export function categoryName(t) {
 function commit(t, patch) {
   let updated = { ...t };
   if ('categoryId' in patch) {
-    if (t.reconciledIn) { toast('Reconciled — category is locked. Use a journal entry.', 'err'); return false; }
+    if (t.reconciledIn) { toast('Reconciled — account is locked. Use a journal entry.', 'err'); return false; }
     const line = categoryLine(t);
     if (!line || !patch.categoryId) return false;
     updated.lines = t.lines.map(l => l === line ? { ...l, accountId: patch.categoryId } : l);
@@ -107,13 +107,13 @@ export function categoryField(t) {
   }
   const line = categoryLine(t);
   return lazySelect(t, {
-    value: line.accountId, text: categoryName(t) || 'Category', addKind: 'category',
+    value: line.accountId, text: categoryName(t) || 'Account', addKind: 'category',
     populate: (sel) => {
       const byId = new Map(entities('account').map(a => [a.id, a]));
       const cats = sortAccts(entities('account').filter(a => a.active !== false && !bankish(a)), byId);
       if (!cats.some(a => a.id === line.accountId) && byId.get(line.accountId)) cats.unshift(byId.get(line.accountId));
       for (const a of cats) sel.append(el('option', { value: a.id, selected: a.id === line.accountId }, accountLabel(a, byId)));
-      sel.append(el('option', { value: NEW_CATEGORY }, '＋ Add category…'));
+      sel.append(el('option', { value: NEW_CATEGORY }, '＋ Add account…'));
     },
   });
 }
@@ -167,7 +167,7 @@ function describeFallback(t) {
 export function stackedEditor(t) {
   const field = (label, node) => node ? el('div', { style: 'margin-bottom:8px' }, el('label', { class: 'field-label', style: 'margin:0 0 2px' }, label), node) : null;
   return el('div', {},
-    field('Category', categoryField(t)),
+    field('Account', categoryField(t)),
     field('Vendor', vendorField(t)),
     field('Memo', memoField(t)),
     field('Invoice', invoiceField(t)));

@@ -8,6 +8,7 @@ import { el, clear, fmtMoney } from './ui.js';
 import { entities, subscribe, usesInvoices } from './store.js';
 import { canEdit, getActiveBiz } from './session.js';
 import { categoryField, vendorField, memoField, invoiceField, categoryName, stackedEditor } from './txn-inline.js';
+import { dateRangeControl } from './daterange.js';
 
 const lineOn = (txn, acctId) => (txn.lines || []).filter(l => l.accountId === acctId).reduce((s, l) => s + l.amountCents, 0);
 const magnitude = (txn) => (txn.lines || []).reduce((s, l) => s + Math.max(0, l.amountCents), 0);
@@ -24,6 +25,8 @@ export function renderRegister(opts) {
   const state = { from: '', to: '', sortKey: 'date', sortDir: 'asc' };
   const body = el('div');
   opts.root.append(body);
+  // Built once so the date picker keeps its state across the redraws store changes trigger.
+  state.rangeCtl = dateRangeControl({ initial: 'all', onChange: (r) => { state.from = r.from || ''; state.to = r.to || ''; drawRegister(body, opts, state); } });
   const draw = () => drawRegister(body, opts, state);
   const unsub = subscribe(draw);
   draw();
@@ -98,16 +101,12 @@ function drawRegister(body, opts, state) {
     onclick: () => { if (state.sortKey === key) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc'; else { state.sortKey = key; state.sortDir = key === 'amount' ? 'desc' : 'asc'; } drawRegister(body, opts, state); } },
     label + arrow(key));
 
-  const dateIn = (key) => el('input', { class: 'field-input', type: 'date', value: state[key], style: 'max-width:155px',
-    onchange: (e) => { state[key] = e.target.value; drawRegister(body, opts, state); } });
-
   clear(body).append(
     el('div', { class: 'no-print', style: 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px' },
       // In a modal the X closes it — the back link only matters on the full-page route.
       opts.modal ? el('span') : el('a', { class: 'btn sm ghost', href: '#' + backHash }, '← ' + (backLabel || 'Back')),
       el('span', { style: 'flex:1' }),
-      el('span', { class: 'field-label', style: 'margin:0' }, 'From'), dateIn('from'),
-      el('span', { class: 'field-label', style: 'margin:0' }, 'To'), dateIn('to'),
+      el('span', { class: 'field-label', style: 'margin:0' }, 'Period'), state.rangeCtl.el,
       el('button', { class: 'btn sm ghost', onclick: () => window.print() }, 'Print / PDF'),
       el('button', { class: 'btn sm ghost', onclick: () => downloadCsv(filename, buildCsv(title, subtitle, rows, focusAccountId, byId)) }, 'Export CSV')),
     opts.modal ? null : el('h2', {}, title),   // the modal head already shows the title
@@ -118,11 +117,11 @@ function drawRegister(body, opts, state) {
             el('tr', {},
               th('date', 'Date'), th('payee', 'Payee'),
               editable
-                ? [el('th', { class: 'txinline' }, isAcct ? 'Category / account' : 'Category'),
+                ? [el('th', { class: 'txinline' }, 'Account'),
                    el('th', { class: 'txinline' }, 'Vendor'),
                    el('th', { class: 'txinline' }, 'Memo'),
                    showInv ? el('th', { class: 'txinline' }, 'Invoice') : null]
-                : [el('th', {}, isAcct ? 'Category / account' : 'Category'), el('th', {}, 'Memo')],
+                : [el('th', {}, 'Account'), el('th', {}, 'Memo')],
               th('amount', isAcct ? 'Amount' : 'Spent', 'num'),
               isAcct ? el('th', { class: 'num' }, 'Balance') : null),
             ...trs,
@@ -142,12 +141,12 @@ function buildCsv(title, subtitle, rows, focusAccountId, byId) {
   const line = (...c) => out.push(c.map(esc).join(','));
   line(title); if (subtitle) line(subtitle);
   if (isAcct) {
-    line('Date', 'Payee', 'Category/account', 'Memo', 'Amount', 'Balance');
+    line('Date', 'Payee', 'Account', 'Memo', 'Amount', 'Balance');
     let running = 0, total = 0;
     for (const t of rows) { const a = lineOn(t, focusAccountId); running += a; total += a; line(t.date, t.payee || '', otherSide(t, focusAccountId, byId), t.memo || '', d(a), d(running)); }
     line('', '', '', 'Total', d(total), '');
   } else {
-    line('Date', 'Payee', 'Category', 'Memo', 'Spent');
+    line('Date', 'Payee', 'Account', 'Memo', 'Spent');
     let total = 0;
     for (const t of rows) { const a = magnitude(t); total += a; line(t.date, t.payee || '', otherSide(t, '', byId), t.memo || '', d(a)); }
     line('', '', '', 'Total', d(total));

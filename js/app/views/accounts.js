@@ -126,7 +126,7 @@ function drawTable(body, editable) {
 // Exported so other views (review) can open a quick "add category" modal inline
 // without navigating away. Only creates — the full edit lives in editAccount().
 export function quickAddAccountModal(oncreate, defaultType = 'expense') {
-  const m = modal('Add category');
+  const m = modal('Add account');
   const name = el('input', { class: 'field-input', placeholder: 'Account name' });
   const type = el('select', { class: 'field-input' },
     ...['income', 'cogs', 'expense', 'other-expense', 'personal-expense', 'asset', 'liability', 'equity'].map(t =>
@@ -154,11 +154,11 @@ export function quickAddAccountModal(oncreate, defaultType = 'expense') {
         const value = { id: uniqueId(n), name: n, type: type.value,
           qbType: QB_BY_TYPE[type.value], qbName: n, parentId: parent.value || null, active: true };
         dispatch({ op: 'entity.upsert', kind: 'account', value });
-        logAudit('account', { summary: `Added category “${n}”`, kind: 'account', entityId: value.id });
-        toast('Category added');
+        logAudit('account', { summary: `Added account “${n}”`, kind: 'account', entityId: value.id });
+        toast('Account added');
         m.close();
         oncreate(value);
-      } }, 'Add category')),
+      } }, 'Add account')),
   );
   setTimeout(() => name.focus(), 0);
 }

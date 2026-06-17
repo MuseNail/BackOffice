@@ -84,7 +84,7 @@ function customerDrilldown(c) {
     el('div', { style: 'font-weight:800;font-size:18px;margin:2px 0 10px' }, fmtMoney(total), el('span', { class: 'sub', style: 'font-weight:400;margin-left:8px' }, `received · ${txns.length} transactions`)),
     txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
       el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', {}, 'Category'), el('th', { class: 'num' }, 'Amount')),
+        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', {}, 'Account'), el('th', { class: 'num' }, 'Amount')),
         ...txns.map(t => el('tr', {}, el('td', {}, t.date), el('td', {}, t.payee || t.memo || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, fmtMoney(Math.abs(incomeOf(t))))))))
       : el('p', { class: 'sub' }, 'No transactions yet.'),
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
