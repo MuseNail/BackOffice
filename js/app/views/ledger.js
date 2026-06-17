@@ -9,6 +9,7 @@ import { accountLabel } from '../lib/coa-templates.js';
 import { vendorMatches } from './vendors.js';
 import { attachAddCategory, attachAddVendor } from '../pickers.js';
 import { categoryField, vendorField, memoField, invoiceField, categoryName, stackedEditor } from '../txn-inline.js';
+import { dateRangeControl } from '../daterange.js';
 
 let unsub = null;
 
@@ -24,15 +25,31 @@ const SOURCE_TAGS = {
 };
 const sourceTag = (app) => SOURCE_TAGS[app] || { label: 'Import', cls: 'blue' };
 
-const flt = { q: '', from: '', to: '', accountId: '', vendorId: '', source: '' };
+const flt = { q: '', from: '', to: '', accountId: '', vendorId: '', source: '', type: '' };
 const sort = { key: 'date', dir: 'desc' };
-// Reference to the account-filter <select> so the per-account tab bar (re-rendered
-// inside the table) can keep the dropdown in sync when it changes the scope.
-let acctFilterEl = null;
 // A global-search transaction result deep-links the ledger to a query (set before navigating).
 let _pendingQuery = '';
 export function setLedgerQuery(q) { _pendingQuery = q || ''; }
-const resetFilters = () => { Object.assign(flt, { q: '', from: '', to: '', accountId: '', vendorId: '', source: '' }); sort.key = 'date'; sort.dir = 'desc'; };
+const resetFilters = () => { Object.assign(flt, { q: '', from: '', to: '', accountId: '', vendorId: '', source: '', type: '' }); sort.key = 'date'; sort.dir = 'desc'; };
+
+// Transaction-type filter — derived from the bank description + the amount sign.
+const TYPE_FILTERS = [['', 'All types'], ['in', 'Deposits (money in)'], ['out', 'Money out'],
+  ['zelle', 'Zelle'], ['ach', 'ACH'], ['card', 'Card'], ['atm', 'ATM'], ['check', 'Check'], ['transfer', 'Transfer / wire']];
+function typeMatch(t, type) {
+  if (!type) return true;
+  const d = `${t.payee || ''} ${t.memo || ''}`.toLowerCase();
+  switch (type) {
+    case 'in': return rowAmount(t) > 0;
+    case 'out': return rowAmount(t) < 0;
+    case 'zelle': return /zelle/.test(d);
+    case 'ach': return /\bach\b/.test(d);
+    case 'card': return /\b(card|pos|debit|purchase)\b/.test(d);
+    case 'atm': return /\batm\b/.test(d);
+    case 'check': return !!t.checkNo || /\b(check|chk|cheque)\b/.test(d);
+    case 'transfer': return /\b(transfer|xfer|wire)\b/.test(d);
+    default: return true;
+  }
+}
 
 export function render(root, detail) {
   const editable = canEdit(getActiveBiz());
@@ -59,26 +76,23 @@ export function unmount() { unsub?.(); unsub = null; resetFilters(); }
 
 // The filter bar is rendered ONCE and persists; only the table re-renders on change.
 function filterBar(redraw) {
-  const byId = new Map(entities('account').map(a => [a.id, a]));
-  const accts = entities('account').filter(a => a.active !== false).sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)));
+  // Account scope is the tab bar (in the table) — no redundant dropdown here.
   const vendors = entities('vendor').slice().sort((a, b) => a.name.localeCompare(b.name));
   const search = el('input', { class: 'field-input', placeholder: 'Search payee / memo…', value: flt.q, style: 'max-width:190px', oninput: (e) => { flt.q = e.target.value; redraw(); } });
-  const from = el('input', { class: 'field-input', type: 'date', value: flt.from, style: 'max-width:150px', title: 'From date', onchange: (e) => { flt.from = e.target.value; redraw(); } });
-  const to = el('input', { class: 'field-input', type: 'date', value: flt.to, style: 'max-width:150px', title: 'To date', onchange: (e) => { flt.to = e.target.value; redraw(); } });
-  const acct = el('select', { class: 'field-input', style: 'max-width:175px', onchange: (e) => { flt.accountId = e.target.value; redraw(); } },
-    el('option', { value: '' }, 'All accounts'), ...accts.map(a => el('option', { value: a.id, selected: a.id === flt.accountId }, accountLabel(a, byId))));
-  acctFilterEl = acct;
+  const rangeCtl = dateRangeControl({ initial: 'all', onChange: (r) => { flt.from = r.from || ''; flt.to = r.to || ''; redraw(); } });
+  const typeSel = el('select', { class: 'field-input', style: 'max-width:160px', onchange: (e) => { flt.type = e.target.value; redraw(); } },
+    ...TYPE_FILTERS.map(([v, l]) => el('option', { value: v, selected: v === flt.type }, l)));
   const vend = el('select', { class: 'field-input', style: 'max-width:160px', onchange: (e) => { flt.vendorId = e.target.value; redraw(); } },
     el('option', { value: '' }, 'All vendors'), ...vendors.map(v => el('option', { value: v.id, selected: v.id === flt.vendorId }, v.name)));
   const src = el('select', { class: 'field-input', style: 'max-width:140px', onchange: (e) => { flt.source = e.target.value; redraw(); } },
     el('option', { value: '' }, 'All sources'), ...Object.keys(SOURCE_TAGS).map(k => el('option', { value: k, selected: k === flt.source }, SOURCE_TAGS[k].label)));
   const clear = el('button', { class: 'btn sm ghost', onclick: () => {
     resetFilters();
-    search.value = ''; from.value = ''; to.value = ''; acct.value = ''; vend.value = ''; src.value = '';
+    search.value = ''; typeSel.value = ''; vend.value = ''; src.value = ''; rangeCtl.reset();
     redraw();
   } }, 'Clear');
   return el('div', { class: 'no-print', style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px' },
-    search, from, to, acct, vend, src, clear);
+    search, rangeCtl.el, typeSel, vend, src, clear);
 }
 
 function applyFilters(txns) {
@@ -89,6 +103,7 @@ function applyFilters(txns) {
     if (flt.to && t.date > flt.to) return false;
     if (flt.accountId && !(t.lines || []).some(l => l.accountId === flt.accountId)) return false;
     if (flt.source && (t.source?.app || '') !== flt.source) return false;
+    if (flt.type && !typeMatch(t, flt.type)) return false;
     if (vendor && !(t.vendorId === vendor.id || (!t.vendorId && vendorMatches(vendor, t.payee)))) return false;
     if (q && !`${t.payee || ''} ${t.memo || ''} ${t.checkNo || ''}`.toLowerCase().includes(q)) return false;
     return true;
@@ -141,7 +156,7 @@ function accountTabs(host, editable) {
   const banks = entities('bankacct')
     .map(b => byId.get(b.accountId)).filter(Boolean)
     .sort((a, b) => a.name.localeCompare(b.name));
-  const pick = (id) => { flt.accountId = id; if (acctFilterEl) acctFilterEl.value = id; drawTable(host, editable); };
+  const pick = (id) => { flt.accountId = id; drawTable(host, editable); };
   const chip = (id, label) => el('button', {
     class: 'btn sm' + (flt.accountId === id ? '' : ' ghost'),
     onclick: () => pick(id),

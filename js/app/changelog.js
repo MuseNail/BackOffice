@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.64.0', items: [
+    { icon: 'event_available', t: 'Dashboard: cash position as of any date', d: 'A date picker on the Dashboard lets you see your cash position — and each bank balance — as of a chosen date, not just today.' },
+    { icon: 'filter_list', t: 'Ledger filters upgraded', d: 'The Ledger now uses the smart date picker (quick ranges + custom), a new “type” filter (deposits, money out, Zelle, ACH, card, ATM, check, transfer), and a single account selector (the tab bar) instead of the duplicate dropdown.' },
+  ] },
   { v: '0.63.0', items: [
     { icon: 'date_range', t: 'Date range on Vendors & Customers totals', d: 'A smart date picker at the top of Vendors and Customers (quick ranges like This year / This quarter / This month, or a custom from–to) — it defaults to this year and controls the “Total paid / received” and transaction counts. Same picker is coming to the Ledger, Dashboard and Reports.' },
   ] },

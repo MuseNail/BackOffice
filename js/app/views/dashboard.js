@@ -3,7 +3,7 @@ import { el, fmtMoney, modal } from '../ui.js';
 import { getState, subscribe, entities } from '../store.js';
 import { getActiveBiz } from '../session.js';
 import { industryLabel, accountLabel } from '../lib/coa-templates.js';
-import { accountBalance, profitAndLoss } from '../lib/posting.js';
+import { profitAndLoss } from '../lib/posting.js';
 
 let unsub = null;
 
@@ -16,9 +16,17 @@ function prevMonthKey(month) {
 }
 const monthRange = (mk) => ({ from: `${mk}-01`, to: `${mk}-31` });
 const monthName = (mk) => new Date(`${mk}-15T00:00:00`).toLocaleDateString('en-US', { month: 'long' });
+// Account balance as of a date — sum of posted lines on that account through `asOf`.
+const balanceAsOf = (txns, accountId, asOf) => txns.reduce((s, t) =>
+  (t.status === 'posted' && (!asOf || t.date <= asOf))
+    ? s + (t.lines || []).reduce((a, l) => a + (l.accountId === accountId ? l.amountCents : 0), 0)
+    : s, 0);
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
 export function render(root) {
+  let asOf = todayIso();
   const body = el('div');
+  const asOfInput = el('input', { class: 'field-input', type: 'date', value: asOf, max: todayIso(), style: 'max-width:160px', onchange: (e) => { asOf = e.target.value || todayIso(); draw(); } });
   const draw = () => {
     const s = getState();
     const biz = getActiveBiz();
@@ -33,7 +41,7 @@ export function render(root) {
       .sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)));
     // Cash position = BANK-type asset accounts only (excludes credit cards).
     const cashAccts = banks.filter(a => a.type === 'asset' && a.qbType === 'BANK');
-    const cash = cashAccts.reduce((sum, a) => sum + accountBalance(txns, a.id), 0);
+    const cash = cashAccts.reduce((sum, a) => sum + balanceAsOf(txns, a.id, asOf), 0);
 
     const month = new Date().toISOString().slice(0, 7);
     const prev = prevMonthKey(month);
@@ -44,8 +52,8 @@ export function render(root) {
     const goRegister = (accountId) => { location.hash = `#/b/${biz}/ledger/${accountId}`; };
 
     // KPI #1 — Cash → per-bank balances, each row opens that register.
-    const openCash = () => drillModal('Cash position', cashAccts.length
-      ? cashAccts.map(a => ({ label: accountLabel(a, accountsById), cents: accountBalance(txns, a.id), onclick: () => goRegister(a.id) }))
+    const openCash = () => drillModal(`Cash position — as of ${asOf}`, cashAccts.length
+      ? cashAccts.map(a => ({ label: accountLabel(a, accountsById), cents: balanceAsOf(txns, a.id, asOf), onclick: () => goRegister(a.id) }))
       : [], { total: cash, empty: 'No bank-type accounts yet.' });
 
     // KPI #2/#3 — income / expenses → by category, each row opens that account's register.
@@ -80,8 +88,9 @@ export function render(root) {
         el('div', { style: 'display:flex;gap:9px' },
           el('a', { class: 'btn sm', href: `#/b/${biz}/banking` }, 'Banking'),
           el('a', { class: 'btn sm ghost', href: `#/b/${biz}/accounts` }, 'Accounts'))) : el('span'),
+      el('div', { class: 'sticky-toolbar' }, el('span', { class: 'sub', style: 'margin:0' }, 'Cash position as of'), asOfInput),
       el('div', { class: 'row' },
-        kpi('Cash position', fmtMoney(cash), `${cashAccts.length} bank account${cashAccts.length === 1 ? '' : 's'}`, openCash),
+        kpi('Cash position', fmtMoney(cash), `${cashAccts.length} bank account${cashAccts.length === 1 ? '' : 's'} · as of ${asOf}`, openCash),
         kpi(`${monthName(month)} income`, fmtMoney(pl.incomeTotal), deltaNote(pl.incomeTotal, plPrev.incomeTotal, prev),
           pl.income.length ? () => openCats(`${monthName(month)} income`, pl.income, pl.incomeTotal) : null, 'pos'),
         kpi(`${monthName(month)} expenses`, fmtMoney(pl.expenseTotal), deltaNote(pl.expenseTotal, plPrev.expenseTotal, prev),
@@ -89,7 +98,7 @@ export function render(root) {
         kpi('Net this month', fmtMoney(pl.netCents, { sign: true }), staged ? `${staged} row${staged === 1 ? '' : 's'} waiting in Review` : 'nothing waiting in Review',
           openNet, pl.netCents < 0 ? 'neg' : 'pos'),
       ),
-      hasAccounts ? bankWidget(banks, txns, accountsById, staged, biz, goRegister) : el('span'),
+      hasAccounts ? bankWidget(banks, txns, accountsById, staged, biz, goRegister, asOf) : el('span'),
     );
   };
   unsub = subscribe(draw);
@@ -146,10 +155,10 @@ function miniRow(label, cents, cls) {
 
 // QuickBooks-style bank-accounts widget: one clickable row per registered
 // bank/card account → its ledger register.
-function bankWidget(banks, txns, accountsById, staged, biz, goRegister) {
+function bankWidget(banks, txns, accountsById, staged, biz, goRegister, asOf) {
   if (!banks.length) return el('span');
   const rows = banks.map(a => {
-    const bal = accountBalance(txns, a.id);
+    const bal = balanceAsOf(txns, a.id, asOf);
     const tr = el('tr', { style: 'cursor:pointer' },
       el('td', {},
         el('span', { class: 'ms', style: 'color:var(--brand);vertical-align:middle;margin-right:8px;font-size:18px' },

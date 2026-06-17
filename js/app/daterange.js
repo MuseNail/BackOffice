@@ -56,5 +56,6 @@ export function dateRangeControl({ initial = 'year', onChange } = {}) {
   fromIn.addEventListener('change', onCustom);
   toIn.addEventListener('change', onCustom);
   showCustom();
-  return { el: el('span', { style: 'display:inline-flex;gap:8px;align-items:center' }, sel, custom), getRange: () => range };
+  const reset = () => { preset = initial; sel.value = initial; range = presetRange(initial) || { from: null, to: null }; fromIn.value = range.from || ''; toIn.value = range.to || ''; showCustom(); fire(); };
+  return { el: el('span', { style: 'display:inline-flex;gap:8px;align-items:center' }, sel, custom), getRange: () => range, reset };
 }
