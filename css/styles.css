@@ -275,3 +275,6 @@ label.pct-toggle input{width:15px;height:15px;accent-color:var(--brand);cursor:p
 table.data th.num{text-align:right}
 table.data.cmp td:not(:first-child),table.data.cmp th:not(:first-child){border-left:1px solid var(--line)}
 table.data.cmp th,table.data.cmp td{padding-left:12px;padding-right:12px}
+
+/* Reports — P&L title + controls + Print/Export pinned while the table scrolls */
+.pl-stickyhead{position:sticky;top:53px;z-index:5;background:var(--card);margin:-14px -14px 10px;padding:12px 14px 10px;border-bottom:1px solid var(--line);border-radius:14px 14px 0 0}

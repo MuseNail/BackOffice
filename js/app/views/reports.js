@@ -459,16 +459,18 @@ function drawBody(body) {
   const plData = { income, cogs, expenses, otherExp, net, netCmp, netTrend, gross, grossCmp, grossTrend };
 
   clear(body).append(
-    el('div', { class: 'no-print', style: 'display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center' },
-      el('span', { style: 'flex:1' }),
-      el('button', { class: 'btn sm ghost', onclick: () => window.print() }, 'Print / PDF'),
-      el('button', { class: 'btn sm ghost', onclick: () => downloadCsv(
-        `${getActiveBiz()}-reports.csv`,
-        buildReportsCsv(presetLabel, s.asOf, plData, { assets, liabilities, equity, netToDate }, csvCmp)) }, 'Export CSV')),
-    el('div', { class: 'row' },
+    el('div', { class: 'row', style: 'align-items:flex-start' },
       el('div', { class: 'card', style: plCardStyle },
-        el('div', { style: 'margin-bottom:10px' },
-          el('div', { class: 'cardtitle', style: 'margin:0 0 6px' }, 'Profit & Loss'),
+        // Sticky header: title + Print/Export + the period/compare controls stay pinned
+        // while the (often long) P&L table scrolls beneath them.
+        el('div', { class: 'pl-stickyhead' },
+          el('div', { style: 'display:flex;align-items:center;gap:10px;margin-bottom:8px' },
+            el('div', { class: 'cardtitle', style: 'margin:0' }, 'Profit & Loss'),
+            el('span', { style: 'flex:1' }),
+            el('button', { class: 'btn sm ghost no-print', onclick: () => window.print() }, 'Print / PDF'),
+            el('button', { class: 'btn sm ghost no-print', onclick: () => downloadCsv(
+              `${getActiveBiz()}-reports.csv`,
+              buildReportsCsv(presetLabel, s.asOf, plData, { assets, liabilities, equity, netToDate }, csvCmp)) }, 'Export CSV')),
           el('div', { class: 'sub print-only', style: 'margin:0 0 6px' },
             presetLabel + (mode2 ? ` vs ${compactRangeLabel(cmpRange)}` : modeTrend ? ' · monthly trend' : '')),
           el('div', { class: 'pl-controls no-print' }, s.rangeCtl.el,

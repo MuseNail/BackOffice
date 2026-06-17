@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.10', items: [
+    { icon: 'vertical_align_top', t: 'Reports header stays put', d: 'On Reports, the “Profit & Loss” title, the period/compare controls, and the Print/PDF + Export buttons now stay pinned at the top while you scroll a long report. The Balance Sheet and Tax estimate boxes no longer stretch to match the P&L’s height — each box is now sized to its own content.' },
+  ] },
   { v: '0.68.9', items: [
     { icon: 'build', t: 'Reports column styling — now applied', d: 'The Profit & Loss comparison column alignment and dividers from the last update are now actually in effect (the styling had been left out by mistake).' },
   ] },
