@@ -41,6 +41,10 @@ let lastVendor = new Map();
 let collapsedBanks = new Set();
 let bankPage = new Map();
 const REVIEW_PAGE = 50;
+// Bulk-select (bank rows): a per-account selection — ticking a row in a different
+// account starts a fresh selection there; the sticky bar acts on the selection.
+let selected = new Set();
+let selectedBank = null;
 
 const TYPE_GROUPS = [
   ['income', 'Income'], ['asset', 'Assets'], ['liability', 'Liabilities'],
@@ -62,7 +66,7 @@ export function render(root) {
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); collapsedBanks = new Set(); bankPage = new Map(); reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; }
+export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); collapsedBanks = new Set(); bankPage = new Map(); selected = new Set(); selectedBank = null; reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; }
 
 // A row is "ready" if it has a resolved category — a valid rule/history suggestion,
 // an AI suggestion, or a manual pick (lastCategory). Drives the needs/ready filter.
@@ -144,6 +148,10 @@ function drawBody(body, editable) {
     clear(body).append(el('p', { class: 'sub' }, 'All caught up — nothing waiting. Import a CSV from Banking to fill this screen.'));
     return;
   }
+  // Drop any selection that's no longer pending (approved/skipped elsewhere).
+  const pendingIds = new Set(pending.map(r => r.id));
+  for (const id of [...selected]) if (!pendingIds.has(id)) selected.delete(id);
+  if (!selected.size) selectedBank = null;
   const accountsById = new Map(entities('account').map(a => [a.id, a]));
   const categories = entities('account').filter(a => a.active !== false && !bankish(a));
   const matchCtx = { vendors: entities('vendor'), history: entities('staged') };
@@ -197,6 +205,8 @@ function drawBody(body, editable) {
 
     return el('div', { class: 'revrow' },
       el('div', { class: 'revtop' },
+        editable ? el('input', { type: 'checkbox', class: 'revchk', checked: selected.has(row.id), title: 'Select for bulk action',
+          onchange: (e) => { if (selectedBank !== row.bankacctId) { selected.clear(); selectedBank = row.bankacctId; } e.target.checked ? selected.add(row.id) : selected.delete(row.id); drawBody(body, editable); } }) : null,
         el('span', { class: 'revdate' }, row.date),
         el('span', { class: 'revdesc' }, row.desc || ''),
         el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
@@ -223,7 +233,10 @@ function drawBody(body, editable) {
     const header = el('div', { class: 'cardtitle', style: 'cursor:pointer;display:flex;align-items:center;gap:8px;margin-bottom:8px;user-select:none',
       onclick: () => { collapsed ? collapsedBanks.delete(bank.id) : collapsedBanks.add(bank.id); drawBody(body, editable); } },
       el('span', { class: 'ms', style: 'font-size:20px;color:var(--mut)' }, collapsed ? 'chevron_right' : 'expand_more'),
-      el('span', {}, bank.name), el('span', { class: 'pill amber' }, `${allMine.length} waiting`));
+      el('span', {}, bank.name), el('span', { class: 'pill amber' }, `${allMine.length} waiting`),
+      editable ? el('label', { style: 'margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#3c3f48;cursor:pointer', onclick: (e) => e.stopPropagation() },
+        el('input', { type: 'checkbox', class: 'revchk', checked: allMine.length > 0 && selectedBank === bank.id && allMine.every(r => selected.has(r.id)),
+          onchange: (e) => { selected.clear(); selectedBank = bank.id; if (e.target.checked) for (const r of allMine) selected.add(r.id); drawBody(body, editable); } }), 'Select all') : null);
     const kids = [header];
     if (!collapsed) {
       kids.push(el('div', {}, ...allMine.slice(page * REVIEW_PAGE, page * REVIEW_PAGE + REVIEW_PAGE).map(rowCard)));
@@ -333,7 +346,22 @@ function drawBody(body, editable) {
       el('span', { class: 'sub', style: 'margin:0' }, 'Amount'), amtIn('amountMin', 'min $'), el('span', { class: 'sub', style: 'margin:0' }, '–'), amtIn('amountMax', 'max $'),
       reviewDateCtl ? reviewDateCtl.el : el('span'),
       el('button', { class: 'btn sm ghost', disabled: !filtersOn, onclick: () => { reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl?.setRange({ from: null, to: null }); drawBody(body, editable); } }, 'Clear filters')));
+  // Sticky bulk-action bar — shown while a (per-account) selection is active.
+  const byCat = new Map(categorized.map(c => [c.row.id, c]));
+  const selRows = pending.filter(r => selected.has(r.id));
+  const bulkBank = selectedBank ? entities('bankacct').find(b => b.id === selectedBank) : null;
+  const readyN = selRows.filter(r => byCat.has(r.id)).length;
+  const bulkBar = (editable && selRows.length) ? el('div', { class: 'review-bulkbar' },
+    el('span', {}, el('b', {}, `${selRows.length} selected`), bulkBank ? el('span', { class: 'sub', style: 'margin:0 0 0 6px' }, `in ${bulkBank.name}`) : null),
+    el('span', { class: 'sub', style: 'margin:0' }, `· ${readyN} ready${selRows.length - readyN ? `, ${selRows.length - readyN} need a category` : ''}`),
+    el('span', { style: 'flex:1' }),
+    el('button', { class: 'btn sm ghost', onclick: () => bulkSetField('category', selRows, categories, accountsById, vendorsList, body, editable) }, 'Set category'),
+    el('button', { class: 'btn sm ghost', onclick: () => bulkSetField('vendor', selRows, categories, accountsById, vendorsList, body, editable) }, 'Set vendor'),
+    el('button', { class: 'btn sm green', onclick: () => bulkApprove(byCat, body, editable) }, 'Approve'),
+    el('button', { class: 'btn sm ghost', onclick: () => bulkSkip(pending, body, editable) }, 'Skip'),
+    el('button', { class: 'btn sm ghost', onclick: () => { selected.clear(); selectedBank = null; drawBody(body, editable); } }, 'Clear')) : null;
   clear(body).append(
+    bulkBar || el('span'),
     filterBar,
     el('div', { style: 'display:flex;gap:9px;align-items:center;margin-bottom:12px;flex-wrap:wrap' },
       (editable && categorized.length) ? el('button', { class: 'btn sm green', onclick: () => {
@@ -433,6 +461,54 @@ function matchCounterpart(row, transferAccountId, txnId) {
 function skipRow(row) {
   dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'skipped' } });
   toast('Skipped');
+}
+
+// ── Bulk actions on the current (per-account) selection ─────────────────────────
+// Approve posts every selected row that has a resolved category; rows still missing
+// one stay selected so nothing is silently dropped.
+function bulkApprove(byCat, body, editable) {
+  let done = 0;
+  for (const id of [...selected]) {
+    const c = byCat.get(id);
+    if (!c) continue;
+    lastCategory.delete(c.row.id);
+    approveRow(c.row, c.accountId, c.sug, { quiet: true, vendorId: lastVendor.get(c.row.id) || '' });
+    selected.delete(id); done++;
+  }
+  if (!selected.size) selectedBank = null;
+  toast(done ? `${done} approved${selected.size ? ` · ${selected.size} still need a category` : ''}` : 'Those rows still need a category', done ? 'ok' : 'err');
+  drawBody(body, editable);
+}
+function bulkSkip(pending, body, editable) {
+  const byId = new Map(pending.map(r => [r.id, r]));
+  let n = 0;
+  for (const id of [...selected]) { const r = byId.get(id); if (r) { dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...r, status: 'skipped' } }); n++; } }
+  selected.clear(); selectedBank = null;
+  toast(`${n} skipped`);
+  drawBody(body, editable);
+}
+// Apply one category or vendor across the whole selection (they then approve as usual).
+function bulkSetField(kind, selRows, categories, accountsById, vendorsList, body, editable) {
+  const m = modal(`Set ${kind} for ${selRows.length} row${selRows.length === 1 ? '' : 's'}`);
+  const sel = kind === 'category'
+    ? el('select', { class: 'field-input' }, el('option', { value: '' }, '— choose a category —'), ...categoryOptions(categories, accountsById))
+    : el('select', { class: 'field-input' }, el('option', { value: '' }, '— choose a vendor —'), ...vendorsList.map(v => el('option', { value: v.id }, v.name)));
+  m.body.append(
+    el('label', { class: 'field-label' }, kind === 'category' ? 'Category' : 'Vendor'), sel,
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
+      el('button', { class: 'btn', onclick: () => {
+        if (!sel.value) { toast(`Pick a ${kind}`, 'err'); return; }
+        const map = kind === 'category' ? lastCategory : lastVendor;
+        for (const r of selRows) map.set(r.id, sel.value);
+        m.close(); drawBody(body, editable);
+      } }, 'Apply')));
+}
+function categoryOptions(categories, accountsById) {
+  return TYPE_GROUPS.map(([type, label]) => {
+    const items = categories.filter(c => c.type === type).sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)));
+    return items.length ? el('optgroup', { label }, ...items.map(c => el('option', { value: c.id }, accountLabel(c, accountsById)))) : null;
+  }).filter(Boolean);
 }
 
 // deposit where the processor kept its cut: bank +net, income −gross, fee +cut

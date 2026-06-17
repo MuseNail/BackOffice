@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.5', items: [
+    { icon: 'checklist', t: 'Approve or skip many transactions at once', d: 'On Review, each waiting transaction now has a checkbox, plus a “Select all” on each account. Tick the ones you want and a bar appears at the top to approve them, skip them, or set one category or vendor across the whole batch in a single step. Selection stays within one account at a time. Approving leaves anything still missing a category selected, so nothing posts by accident.' },
+  ] },
   { v: '0.68.4', items: [
     { icon: 'add_circle', t: 'One “+ New” button to create anything', d: 'A new “+ New” button sits in the top bar on every screen. Click it to create a transaction, invoice, customer, vendor, account, or bank/card account, or to import a bank file — each opens the same form you use today, no need to hunt for the right screen first. Keyboard shortcut: press N, then T (transaction), I (invoice), C (customer), or V (vendor). It won’t trigger while you’re typing in a box or have a window open.' },
   ] },
