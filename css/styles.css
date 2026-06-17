@@ -269,3 +269,9 @@ label.pct-toggle input{width:15px;height:15px;accent-color:var(--brand);cursor:p
 .rule-preview.zero b{color:var(--amber)}
 .rule-samp{font-size:11px;color:#3c6b50;margin-top:4px}
 .rule-preview.zero .rule-samp{color:#7a5a12}
+
+/* Reports comparison table — right-align numeric headers (beats table.data th
+   specificity) + clear vertical column dividers when there are value columns */
+table.data th.num{text-align:right}
+table.data.cmp td:not(:first-child),table.data.cmp th:not(:first-child){border-left:1px solid var(--line)}
+table.data.cmp th,table.data.cmp td{padding-left:12px;padding-right:12px}

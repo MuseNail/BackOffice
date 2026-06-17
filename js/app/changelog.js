@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.9', items: [
+    { icon: 'build', t: 'Reports column styling — now applied', d: 'The Profit & Loss comparison column alignment and dividers from the last update are now actually in effect (the styling had been left out by mistake).' },
+  ] },
   { v: '0.68.8', items: [
     { icon: 'view_column', t: 'Clearer Reports columns', d: 'On the Profit & Loss comparison, the column headings now line up right above their numbers, and light vertical dividers separate the columns so it’s easier to read across a row.' },
   ] },
