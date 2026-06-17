@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.61.0', items: [
+    { icon: 'groups', t: 'Customer directory', d: 'A new Customers screen (in the sidebar) lists your clients — click one to see all their transactions and total received, just like Vendors. Income can be tagged to a customer the way expenses are tagged to a vendor.' },
+  ] },
   { v: '0.60.0', items: [
     { icon: 'view_agenda', t: 'Review redesigned — everything in view', d: 'Each transaction in Review is now its own card with all fields always visible (category, vendor, invoice, note, actions) — no more clicking to expand. Long bank descriptions wrap onto two lines, columns are separated by dashed dividers, and each row has a clear outline so they’re easy to tell apart.' },
     { icon: 'unfold_more', t: 'Collapse accounts + page through them', d: 'Click an account’s name to collapse/expand its transactions, and page through them 50 at a time instead of only seeing the first 100 — so you can work through all of them.' },

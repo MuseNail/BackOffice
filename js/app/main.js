@@ -17,6 +17,7 @@ import * as banking from './views/banking.js';
 import * as review from './views/review.js';
 import * as invoices from './views/invoices.js';
 import * as vendors from './views/vendors.js';
+import * as customers from './views/customers.js';
 import * as reconcile from './views/reconcile.js';
 import * as deposits from './views/deposits.js';
 import * as reports from './views/reports.js';
@@ -37,6 +38,7 @@ const VIEWS = {
   ledger,
   accounts,
   vendors,
+  customers,
   rules: vendors,   // back-compat for any old #/b/<biz>/rules links
   reconcile,
   deposits,
