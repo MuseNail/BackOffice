@@ -3,16 +3,20 @@
 // posted, it's not in a report. The Balance Sheet balances structurally:
 // every posted txn sums to zero, so assets always equal liabilities + equity
 // + net income to date.
-import { el, clear, fmtMoney } from '../ui.js';
+import { el, clear, fmtMoney, modal } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { activityByAccount, accountBalance } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { dateRangeControl, dateControl, presetRange, rangeLabel } from '../daterange.js';
+import { editTxnModal } from './ledger.js';
 
 let unsub = null;
 let s = null;
+// P&L parent accounts the user has expanded to reveal their children. Module-level so
+// it survives the redraws store changes trigger.
+let plExpanded = new Set();
 
 export function render(root) {
   s = { asOf: new Date().toISOString().slice(0, 10), range: presetRange('month') };
@@ -30,7 +34,38 @@ export function render(root) {
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; s = null; }
+export function unmount() { unsub?.(); unsub = null; s = null; plExpanded = new Set(); }
+
+// Drill-down: every posted transaction hitting an account within the current range.
+// Each row opens the Ledger's transaction editor; the list re-renders on any change.
+function openAccountTxns(account, label) {
+  let unsubM = null;
+  const m = modal(`${label} — ${rangeLabel(s.range || presetRange('month'))}`, () => unsubM?.());
+  const host = el('div');
+  m.body.append(host);
+  const draw = () => {
+    const r = s.range || presetRange('month');
+    const lineOn = (t) => (t.lines || []).filter(l => l.accountId === account.id).reduce((a, l) => a + l.amountCents, 0);
+    const disp = (t) => account.type === 'income' ? -lineOn(t) : lineOn(t);
+    const txns = entities('txn').filter(t => t.status === 'posted'
+      && (!r.from || t.date >= r.from) && (!r.to || t.date <= r.to)
+      && (t.lines || []).some(l => l.accountId === account.id))
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const total = txns.reduce((sum, t) => sum + disp(t), 0);
+    clear(host).append(
+      el('p', { class: 'sub', style: 'margin:0 0 8px' }, `${txns.length} transaction${txns.length === 1 ? '' : 's'} · ${fmtMoney(total)}`),
+      txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:55vh;margin:0' },
+        el('table', { class: 'data' },
+          el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Payee / memo'), el('th', { class: 'num' }, 'Amount')),
+          ...txns.map(t => el('tr', { style: 'cursor:pointer', title: 'Edit transaction', onclick: () => editTxnModal(t) },
+            el('td', { style: 'white-space:nowrap' }, t.date),
+            el('td', {}, el('b', {}, t.payee || '—'), t.memo ? el('div', { class: 'sub', style: 'margin:0' }, t.memo.slice(0, 90)) : ''),
+            el('td', { class: 'num ' + (disp(t) < 0 ? 'neg' : 'pos') }, fmtMoney(disp(t)))))))
+        : el('p', { class: 'sub' }, 'No transactions in this range.'));
+  };
+  draw();
+  unsubM = subscribe(draw);
+}
 
 // Build a CSV of the P&L + Balance Sheet from the same grouped data the view renders.
 function buildReportsCsv(presetLabel, asOf, pl, bs) {
@@ -80,19 +115,45 @@ function drawBody(body) {
 
   // ── P&L ──
   const act = activityByAccount(txns, range);
+  // Display amount for an account in P&L sign convention (income shown positive).
+  const displayCents = (a) => { const c = act.get(a.id) || 0; return a.type === 'income' ? -c : c; };
+  // Hierarchical group: top-level accounts each carry their own activity + a rolled-up
+  // total of their children. `nodes` drives the (expandable) display; `rows` is the
+  // flat list the CSV export uses.
   const group = (types) => {
-    const rows = [];
+    const tops = accounts.filter(a => types.includes(a.type) && !a.parentId);
+    const topIds = new Set(tops.map(a => a.id));
+    const orphans = accounts.filter(a => types.includes(a.type) && a.parentId && !topIds.has(a.parentId));
+    const nodes = [], rows = [];
     let total = 0;
-    for (const [accountId, cents] of act) {
-      const a = accountsById.get(accountId);
-      if (!a || !types.includes(a.type)) continue;
-      const display = a.type === 'income' ? -cents : cents;
-      if (display === 0) continue;
-      rows.push({ name: accountLabel(a, accountsById), cents: display });
-      total += display;
+    for (const a of tops) {
+      const own = displayCents(a);
+      const kids = accounts.filter(x => x.parentId === a.id && types.includes(x.type))
+        .map(k => ({ account: k, amount: displayCents(k) }))
+        .sort((x, y) => y.amount - x.amount);
+      const childSum = kids.reduce((s, k) => s + k.amount, 0);
+      const nodeTotal = own + childSum;
+      const visibleKids = kids.filter(k => k.amount !== 0);
+      if (nodeTotal === 0 && !visibleKids.length) continue;
+      nodes.push({ account: a, own, total: nodeTotal, children: visibleKids });
+      total += nodeTotal;
+      if (visibleKids.length) {
+        if (own !== 0) rows.push({ name: accountLabel(a, accountsById) + ' (direct)', cents: own });
+        for (const k of visibleKids) rows.push({ name: accountLabel(k.account, accountsById), cents: k.amount });
+      } else {
+        rows.push({ name: accountLabel(a, accountsById), cents: nodeTotal });
+      }
     }
+    for (const o of orphans) {
+      const amt = displayCents(o);
+      if (amt === 0) continue;
+      nodes.push({ account: o, own: amt, total: amt, children: [] });
+      total += amt;
+      rows.push({ name: accountLabel(o, accountsById), cents: amt });
+    }
+    nodes.sort((x, y) => y.total - x.total);
     rows.sort((x, y) => y.cents - x.cents);
-    return { rows, total };
+    return { nodes, rows, total };
   };
   const income = group(['income']);
   const cogs = group(['cogs']);
@@ -103,10 +164,30 @@ function drawBody(body) {
   const net = netOrdinary - otherExp.total;            // adjusted net income
 
   const plRows = [];
+  // A clickable leaf row → opens the account's transactions for the range.
+  const leafRow = (account, cents, label, padLeft) => el('tr', { style: 'cursor:pointer', title: 'View transactions', onclick: () => openAccountTxns(account, label) },
+    el('td', { style: `padding-left:${padLeft}px` }, label, el('span', { class: 'linklike', style: 'margin-left:6px;font-size:11px' }, '›')),
+    el('td', { class: 'num' }, fmtMoney(cents)));
   const section = (title, g, totalLabel) => {
-    if (!g.rows.length) return;
+    if (!g.nodes.length) return;
     plRows.push(el('tr', {}, el('td', { class: 'coatype', colspan: '2', style: 'padding-top:12px' }, title)));
-    for (const r of g.rows) plRows.push(el('tr', {}, el('td', { style: 'padding-left:24px' }, r.name), el('td', { class: 'num' }, fmtMoney(r.cents))));
+    for (const node of g.nodes) {
+      if (node.children.length) {
+        const open = plExpanded.has(node.account.id);
+        plRows.push(el('tr', { style: 'cursor:pointer', title: open ? 'Collapse' : 'Show sub-accounts',
+          onclick: () => { open ? plExpanded.delete(node.account.id) : plExpanded.add(node.account.id); drawBody(body); } },
+          el('td', { style: 'padding-left:4px' },
+            el('span', { class: 'ms', style: 'font-size:18px;vertical-align:-4px;color:var(--mut)' }, open ? 'expand_more' : 'chevron_right'),
+            ' ', el('b', {}, node.account.name)),
+          el('td', { class: 'num' }, el('b', {}, fmtMoney(node.total)))));
+        if (open) {
+          if (node.own !== 0) plRows.push(leafRow(node.account, node.own, node.account.name + ' (direct)', 36));
+          for (const k of node.children) plRows.push(leafRow(k.account, k.amount, k.account.name, 36));
+        }
+      } else {
+        plRows.push(leafRow(node.account, node.total, node.account.name, 24));
+      }
+    }
     plRows.push(el('tr', {}, el('td', {}, el('b', {}, totalLabel)), el('td', { class: 'num' }, el('b', {}, fmtMoney(g.total)))));
   };
   const netRow = (label, value, soft) => plRows.push(el('tr', { style: soft },

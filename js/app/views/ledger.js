@@ -336,7 +336,8 @@ function confirmDelete(t) {
 }
 
 // Edit payee, memo, date; category (non-bank line) for non-reconciled simple txns.
-function editTxnModal(t) {
+// Exported so other views (e.g. Reports drill-downs) can open the same editor.
+export function editTxnModal(t) {
   const isRecon = !!t.reconciledIn;
   const m = modal(isRecon ? 'Edit transaction (reconciled)' : 'Edit transaction');
   const byId = new Map(entities('account').map(a => [a.id, a]));

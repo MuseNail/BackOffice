@@ -1,5 +1,5 @@
 // ── Back Office — constants ────────────────
-export const APP_VERSION = '0.67.5';
+export const APP_VERSION = '0.68.0';
 
 // Worker URL — fill in after the first `wrangler deploy` prints it.
 // When the app itself is served from localhost, target `wrangler dev` instead.

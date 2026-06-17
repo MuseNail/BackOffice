@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.0', items: [
+    { icon: 'account_tree', t: 'Profit & Loss you can expand and drill into', d: 'The P&L now shows each parent account as one line with its rolled-up total; click it to expand the sub-accounts (indented, with their own subtotals). Any account with no sub-accounts — and each sub-account — is clickable to open the exact transactions that make up its total, and from there you can click any transaction to edit it.' },
+  ] },
   { v: '0.67.5', items: [
     { icon: 'view_column', t: 'Reports header tidy-up', d: 'The Profit & Loss period picker and the Balance Sheet “As of” picker now each sit on their own line under the panel title, and both panels’ first lines — Income and Assets — line up.' },
   ] },
