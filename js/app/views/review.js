@@ -212,7 +212,7 @@ function drawBody(body, editable) {
         el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
         chip),
       editable ? el('div', { class: 'revfields' },
-        field('Category', sel),
+        field('Account', sel),
         field('Vendor', vendSel),
         invSel ? field('Invoice', invSel) : null,
         field('Note', memoIn),
@@ -313,7 +313,7 @@ function drawBody(body, editable) {
       el('p', { class: 'sub', style: 'margin:0 0 8px' }, 'Each row was pushed from the Muse salon app (Settings → Integrations → Back Office). Approving posts it to your ledger using the category you pick and the balancing account set in Settings. Rows marked "Map in Settings" need a balancing account first. Nothing posts automatically.'),
       el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
         el('table', { class: 'data' },
-          el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'From the salon'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Category'), el('th', {}, 'Balancing account'), el('th', {}, '')),
+          el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'From the salon'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Account'), el('th', {}, 'Balancing account'), el('th', {}, '')),
           ...museRows.map(museRowEl)))));
   }
 
@@ -353,9 +353,9 @@ function drawBody(body, editable) {
   const readyN = selRows.filter(r => byCat.has(r.id)).length;
   const bulkBar = (editable && selRows.length) ? el('div', { class: 'review-bulkbar' },
     el('span', {}, el('b', {}, `${selRows.length} selected`), bulkBank ? el('span', { class: 'sub', style: 'margin:0 0 0 6px' }, `in ${bulkBank.name}`) : null),
-    el('span', { class: 'sub', style: 'margin:0' }, `· ${readyN} ready${selRows.length - readyN ? `, ${selRows.length - readyN} need a category` : ''}`),
+    el('span', { class: 'sub', style: 'margin:0' }, `· ${readyN} ready${selRows.length - readyN ? `, ${selRows.length - readyN} need an account` : ''}`),
     el('span', { style: 'flex:1' }),
-    el('button', { class: 'btn sm ghost', onclick: () => bulkSetField('category', selRows, categories, accountsById, vendorsList, body, editable) }, 'Set category'),
+    el('button', { class: 'btn sm ghost', onclick: () => bulkSetField('category', selRows, categories, accountsById, vendorsList, body, editable) }, 'Set account'),
     el('button', { class: 'btn sm ghost', onclick: () => bulkSetField('vendor', selRows, categories, accountsById, vendorsList, body, editable) }, 'Set vendor'),
     el('button', { class: 'btn sm green', onclick: () => bulkApprove(byCat, body, editable) }, 'Approve'),
     el('button', { class: 'btn sm ghost', onclick: () => bulkSkip(pending, body, editable) }, 'Skip'),
@@ -476,7 +476,7 @@ function bulkApprove(byCat, body, editable) {
     selected.delete(id); done++;
   }
   if (!selected.size) selectedBank = null;
-  toast(done ? `${done} approved${selected.size ? ` · ${selected.size} still need a category` : ''}` : 'Those rows still need a category', done ? 'ok' : 'err');
+  toast(done ? `${done} approved${selected.size ? ` · ${selected.size} still need an account` : ''}` : 'Those rows still need an account', done ? 'ok' : 'err');
   drawBody(body, editable);
 }
 function bulkSkip(pending, body, editable) {
@@ -489,17 +489,19 @@ function bulkSkip(pending, body, editable) {
 }
 // Apply one category or vendor across the whole selection (they then approve as usual).
 function bulkSetField(kind, selRows, categories, accountsById, vendorsList, body, editable) {
-  const m = modal(`Set ${kind} for ${selRows.length} row${selRows.length === 1 ? '' : 's'}`);
-  const sel = kind === 'category'
-    ? el('select', { class: 'field-input' }, el('option', { value: '' }, '— choose a category —'), ...categoryOptions(categories, accountsById))
+  const isCat = kind === 'category';
+  const noun = isCat ? 'account' : 'vendor';
+  const m = modal(`Set ${noun} for ${selRows.length} row${selRows.length === 1 ? '' : 's'}`);
+  const sel = isCat
+    ? el('select', { class: 'field-input' }, el('option', { value: '' }, '— choose an account —'), ...categoryOptions(categories, accountsById))
     : el('select', { class: 'field-input' }, el('option', { value: '' }, '— choose a vendor —'), ...vendorsList.map(v => el('option', { value: v.id }, v.name)));
   m.body.append(
-    el('label', { class: 'field-label' }, kind === 'category' ? 'Category' : 'Vendor'), sel,
+    el('label', { class: 'field-label' }, isCat ? 'Account' : 'Vendor'), sel,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', onclick: () => {
-        if (!sel.value) { toast(`Pick a ${kind}`, 'err'); return; }
-        const map = kind === 'category' ? lastCategory : lastVendor;
+        if (!sel.value) { toast(`Pick ${isCat ? 'an account' : 'a vendor'}`, 'err'); return; }
+        const map = isCat ? lastCategory : lastVendor;
         for (const r of selRows) map.set(r.id, sel.value);
         m.close(); drawBody(body, editable);
       } }, 'Apply')));
@@ -548,7 +550,7 @@ function feeSplitModal(row, accountsById) {
         const g = parseMoney(gross.value);
         if (g == null || g < row.amountCents) { toast('Gross must be at least the deposited amount', 'err'); return; }
         if (!incomeSel.value || incomeSel.value === '__new__') { toast('Pick an income account', 'err'); return; }
-        if (!feeSel.value || feeSel.value === '__new__') { toast('Pick a fee category', 'err'); return; }
+        if (!feeSel.value || feeSel.value === '__new__') { toast('Pick a fee account', 'err'); return; }
         const feeCents = g - row.amountCents;
         const bankacct = entities('bankacct').find(b => b.id === row.bankacctId);
         const lines = [
@@ -617,7 +619,7 @@ async function matchDepositModal(row, accountsById) {
   const feeAccts = entities('account').filter(a => a.active !== false && (a.type === 'expense' || a.type === 'cogs'));
   const feeDefault = feeAccts.find(a => /fee|process/i.test(a.name)) || feeAccts[0];
   if (match.feeCents > 0 && !feeAccts.length) {
-    drawNoMatch(m, row, 'A processing fee of ' + fmtMoney(match.feeCents) + ' needs to be posted, but there are no expense categories. Add one in Accounts first.');
+    drawNoMatch(m, row, 'A processing fee of ' + fmtMoney(match.feeCents) + ' needs to be posted, but there are no expense accounts. Add one in Accounts first.');
     return;
   }
   const feeSel = el('select', { class: 'field-input' },
@@ -702,7 +704,7 @@ async function askAI(rows, categories, body, editable) {
         : 'AI is unavailable', 'err');
       return;
     }
-    if (res.status === 400) { toast('Add some categories to your chart of accounts first — the AI needs a list to choose from', 'err'); return; }
+    if (res.status === 400) { toast('Add some accounts to your chart of accounts first — the AI needs a list to choose from', 'err'); return; }
     if (res.status === 502) { toast('The AI service didn’t respond — the owner may need to check the ANTHROPIC_API_KEY', 'err'); return; }
     if (!res.ok) { toast('AI suggestions failed — categorize manually for now', 'err'); return; }
     const { suggestions } = await res.json();
@@ -736,12 +738,12 @@ function makeRuleModal(row, pickedCategoryId, categories, accountsById) {
     .sort((a, b) => a.name.localeCompare(b.name));
   const catGroups = [];
   if (transferTargets.length) catGroups.push({ label: '↔ Transfer to / from', items: transferTargets.map(a => ({ value: a.id, label: a.name })) });
-  catGroups.push({ label: 'Categories', items: categories
+  catGroups.push({ label: 'Accounts', items: categories
     .sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)))
     .map(a => ({ value: a.id, label: accountLabel(a, accountsById) })) });
   const cat = combobox({ groups: catGroups, value: pickedCategoryId || '', placeholder: 'Search accounts…', minWidth: 240,
     addLabel: 'Add account…', onAdd: () => quickAddAccountModal((account) => {
-      catGroups.find(g => g.label === 'Categories').items.push({ value: account.id, label: account.name });
+      catGroups.find(g => g.label === 'Accounts').items.push({ value: account.id, label: account.name });
       cat.setGroups(catGroups); cat.value = account.id;
     }) });
   cat.style.cssText = 'display:block;width:100%;max-width:340px';
@@ -755,10 +757,10 @@ function makeRuleModal(row, pickedCategoryId, categories, accountsById) {
   name.addEventListener('input', syncExisting);
   syncExisting();
   m.body.append(
-    el('p', { class: 'sub' }, 'Bank descriptions containing the match text get this category suggested automatically.'),
+    el('p', { class: 'sub' }, 'Bank descriptions containing the match text get this account suggested automatically.'),
     el('label', { class: 'field-label' }, 'Vendor name'), name, dl, hint,
     el('label', { class: 'field-label' }, 'Match text (appears anywhere in the description)'), keyword,
-    el('label', { class: 'field-label' }, 'Category'), cat,
+    el('label', { class: 'field-label' }, 'Account'), cat,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', onclick: () => {

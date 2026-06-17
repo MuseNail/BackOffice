@@ -247,7 +247,7 @@ select.cmp-select:hover{border-color:var(--brand)}
 label.pct-toggle{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#3c3f48;cursor:pointer;white-space:nowrap;user-select:none}
 label.pct-toggle.off{opacity:.45;cursor:default}
 label.pct-toggle input{width:15px;height:15px;accent-color:var(--brand);cursor:pointer}
-.pl-controls{display:flex;gap:10px;align-items:center;flex-wrap:nowrap;overflow-x:auto}
+.pl-controls{display:flex;gap:8px 10px;align-items:center;flex-wrap:wrap}
 .print-only{display:none}
 @media print{ .print-only{display:block !important} }
 

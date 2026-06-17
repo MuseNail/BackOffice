@@ -474,7 +474,7 @@ function drawBody(body) {
           el('div', { class: 'pl-controls no-print' }, s.rangeCtl.el,
             el('span', { class: 'field-label', style: 'margin:0;white-space:nowrap' }, 'Compare to'),
             compareSel, pctToggle)),
-        hasActivity ? el('div', { style: 'overflow-x:auto' }, el('table', { class: 'data' }, ...plRows)) : el('p', { class: 'sub' }, 'No activity in this range.')),
+        hasActivity ? (modeTrend ? el('div', { style: 'overflow-x:auto' }, el('table', { class: 'data' }, ...plRows)) : el('table', { class: 'data' }, ...plRows)) : el('p', { class: 'sub' }, 'No activity in this range.')),
       el('div', { class: 'card', style: 'flex:1;min-width:330px;max-width:460px' },
         el('div', { style: 'margin-bottom:10px' },
           el('div', { class: 'cardtitle', style: 'margin:0 0 6px' }, 'Balance Sheet'),
