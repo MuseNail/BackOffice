@@ -320,15 +320,19 @@ function drawBody(body, editable) {
     onchange: (e) => { const c = parseMoney(e.target.value); reviewFilter[key] = (c != null && c > 0) ? c : ''; drawBody(body, editable); } });
   if (reviewDateCtl) reviewDateCtl.setRange({ from: reviewFilter.from || null, to: reviewFilter.to || null });
   const filtersOn = reviewFilter.dir !== 'all' || reviewFilter.status !== 'all' || reviewFilter.bank !== 'all' || reviewFilter.sort !== 'date-desc' || reviewFilter.amountMin !== '' || reviewFilter.amountMax !== '' || reviewFilter.from !== '' || reviewFilter.to !== '';
-  const filterBar = el('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px' },
-    el('span', { class: 'sub', style: 'margin:0' }, 'Filter'),
-    fsel('dir', [['all', 'All'], ['in', 'Money in'], ['out', 'Money out']]),
-    fsel('status', [['all', 'Any status'], ['needs', 'Needs an account'], ['ready', 'Ready']]),
-    fsel('bank', [['all', 'All accounts'], ...entities('bankacct').map(b => [b.id, b.name])]),
-    el('span', { class: 'sub', style: 'margin:0' }, 'Amount'), amtIn('amountMin', 'min $'), el('span', { class: 'sub', style: 'margin:0' }, '–'), amtIn('amountMax', 'max $'),
-    reviewDateCtl ? reviewDateCtl.el : el('span'),
-    fsel('sort', [['date-desc', 'Newest first'], ['date-asc', 'Oldest first'], ['amount-desc', 'Largest first'], ['amount-asc', 'Smallest first']]),
-    el('button', { class: 'btn sm ghost', disabled: !filtersOn, onclick: () => { reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl?.setRange({ from: null, to: null }); drawBody(body, editable); } }, 'Clear filters'));
+  // Fixed two-row filter bar: row 1 = what to show / order; row 2 = amount, date, clear.
+  const rowStyle = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+  const filterBar = el('div', { style: 'margin-bottom:12px' },
+    el('div', { style: rowStyle + ';margin-bottom:8px' },
+      el('span', { class: 'sub', style: 'margin:0' }, 'Filter'),
+      fsel('dir', [['all', 'All'], ['in', 'Money in'], ['out', 'Money out']]),
+      fsel('status', [['all', 'Any status'], ['needs', 'Needs an account'], ['ready', 'Ready']]),
+      fsel('bank', [['all', 'All accounts'], ...entities('bankacct').map(b => [b.id, b.name])]),
+      fsel('sort', [['date-desc', 'Newest first'], ['date-asc', 'Oldest first'], ['amount-desc', 'Largest first'], ['amount-asc', 'Smallest first']])),
+    el('div', { style: rowStyle },
+      el('span', { class: 'sub', style: 'margin:0' }, 'Amount'), amtIn('amountMin', 'min $'), el('span', { class: 'sub', style: 'margin:0' }, '–'), amtIn('amountMax', 'max $'),
+      reviewDateCtl ? reviewDateCtl.el : el('span'),
+      el('button', { class: 'btn sm ghost', disabled: !filtersOn, onclick: () => { reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl?.setRange({ from: null, to: null }); drawBody(body, editable); } }, 'Clear filters')));
   clear(body).append(
     filterBar,
     el('div', { style: 'display:flex;gap:9px;align-items:center;margin-bottom:12px;flex-wrap:wrap' },

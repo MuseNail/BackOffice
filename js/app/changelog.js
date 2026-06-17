@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.2', items: [
+    { icon: 'splitscreen', t: 'Review filters in two rows', d: 'The Review filter bar is now a tidy two-row layout — show/order filters on top, amount + date + clear on the bottom — so it no longer overflows.' },
+  ] },
   { v: '0.68.1', items: [
     { icon: 'tune', t: 'Date picker + layout tweaks', d: 'Fixed the calendar closing when you tapped the previous/next-month arrows. Every date picker is now a consistent fixed width so changing the range no longer shifts the layout. The top search box is wider, and switching businesses moved from the sidebar into your account menu (top-right).' },
   ] },
