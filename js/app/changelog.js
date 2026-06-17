@@ -6,6 +6,11 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.65.0', items: [
+    { icon: 'bookmark_add', t: 'Memorized category per vendor', d: 'Open a vendor and pick a “Memorized category” — future imports from that vendor will auto-suggest it (it also seeds a name match so it catches the bank description).' },
+    { icon: 'menu_open', t: 'Collapsible side menu', d: 'The ▤ button (top-left) collapses the left menu to a slim icon rail to free up space. Hover it to peek the full menu; it tucks away again when you move off. Click the button to pin it open. Your choice is remembered.' },
+    { icon: 'filter_alt_off', t: 'Clear filters on Review', d: 'Review now has an always-visible “Clear filters” button.' },
+  ] },
   { v: '0.64.0', items: [
     { icon: 'event_available', t: 'Dashboard: cash position as of any date', d: 'A date picker on the Dashboard lets you see your cash position — and each bank balance — as of a chosen date, not just today.' },
     { icon: 'filter_list', t: 'Ledger filters upgraded', d: 'The Ledger now uses the smart date picker (quick ranges + custom), a new “type” filter (deposits, money out, Zelle, ACH, card, ATM, check, transfer), and a single account selector (the tab bar) instead of the duplicate dropdown.' },

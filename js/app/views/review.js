@@ -305,7 +305,7 @@ function drawBody(body, editable) {
     fsel('status', [['all', 'Any status'], ['needs', 'Needs a category'], ['ready', 'Ready']]),
     fsel('bank', [['all', 'All accounts'], ...entities('bankacct').map(b => [b.id, b.name])]),
     fsel('sort', [['date-desc', 'Newest first'], ['date-asc', 'Oldest first'], ['amount-desc', 'Largest first'], ['amount-asc', 'Smallest first']]),
-    filtersOn ? el('button', { class: 'btn sm ghost', onclick: () => { reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc' }; drawBody(body, editable); } }, 'Reset') : el('span'));
+    el('button', { class: 'btn sm ghost', disabled: !filtersOn, onclick: () => { reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc' }; drawBody(body, editable); } }, 'Clear filters'));
   clear(body).append(
     filterBar,
     el('div', { style: 'display:flex;gap:9px;align-items:center;margin-bottom:12px;flex-wrap:wrap' },

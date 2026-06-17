@@ -95,10 +95,22 @@ function vendorDrilldown(v) {
   const txns = txnsForVendor(v).filter(t => inRange(t.date, vendorRange)).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const total = txns.reduce((s, t) => s + expenseOf(t, expenseIds), 0);
   const catOf = (t) => { const l = (t.lines || []).find(x => expenseIds.has(x.accountId)); const a = l && accts.get(l.accountId); return a ? accountLabel(a, accts) : '—'; };
-  const ruleAcct = v.defaultAccountId && accts.get(v.defaultAccountId);
+  const isBankAcct = (a) => a.qbType === 'BANK' || a.qbType === 'CCARD';
+  const catSel = el('select', { class: 'field-input', style: 'max-width:300px;margin:0' },
+    el('option', { value: '' }, '— no memorized category —'),
+    ...entities('account').filter(a => a.active !== false && !isBankAcct(a)).sort((a, b) => accountLabel(a, accts).localeCompare(accountLabel(b, accts)))
+      .map(a => el('option', { value: a.id, selected: a.id === v.defaultAccountId }, accountLabel(a, accts))));
+  catSel.addEventListener('change', () => {
+    // Memorize the category. If the vendor has no description matcher yet, seed one from
+    // its name so future imports whose description contains it auto-suggest this category.
+    const hasMatch = !!(v.matchers?.exact?.length || v.matchers?.keywords?.length);
+    dispatch({ op: 'entity.upsert', kind: 'vendor', value: { ...v, defaultAccountId: catSel.value || undefined, matchers: hasMatch ? v.matchers : { exact: [], keywords: [v.name] }, updatedAt: Date.now() } });
+    toast(catSel.value ? 'Memorized — future imports from this vendor suggest this category' : 'Memorized category cleared');
+  });
   m.body.append(
-    el('p', { class: 'sub', style: 'margin-top:0' }, ruleAcct ? ['Auto-categorizes to ', el('b', {}, accountLabel(ruleAcct, accts))] : 'No auto-categorize rule yet.'),
-    el('div', { style: 'font-weight:800;font-size:18px;margin:2px 0 10px' }, fmtMoney(total), el('span', { class: 'sub', style: 'font-weight:400;margin-left:8px' }, `paid · ${txns.length} transactions`)),
+    el('label', { class: 'field-label', style: 'margin-top:0' }, 'Memorized category — auto-suggested on future imports'),
+    catSel,
+    el('div', { style: 'font-weight:800;font-size:18px;margin:12px 0 10px' }, fmtMoney(total), el('span', { class: 'sub', style: 'font-weight:400;margin-left:8px' }, `paid · ${txns.length} transactions`)),
     txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
       el('table', { class: 'data' },
         el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', {}, 'Category'), el('th', { class: 'num' }, 'Amount')),

@@ -213,6 +213,7 @@ function boot() {
   });
   subscribe(updateReviewBadge);
   subscribe(applyFeatureNav);
+  setupNavToggle();
   mountGlobalSearch();
   window.addEventListener('hashchange', route);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkAppVersion(); });
@@ -222,6 +223,27 @@ function boot() {
   if (getToken()) maybeShowWhatsNew();
   resumePlaidOAuth();   // finish a bank OAuth connect if we're returning from the redirect
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+
+// Sidebar collapse toggle — pinned-open (default) vs collapsed icon-rail that peeks
+// open on hover. Persisted per device.
+function setupNavToggle() {
+  const btn = document.getElementById('navtoggle');
+  if (!btn) return;
+  const icon = btn.querySelector('.ms');
+  const apply = (collapsed) => {
+    document.body.classList.toggle('nav-collapsed', collapsed);
+    if (icon) icon.textContent = collapsed ? 'menu' : 'menu_open';
+    btn.title = collapsed ? 'Expand & pin menu' : 'Collapse menu';
+  };
+  let collapsed = false;
+  try { collapsed = localStorage.getItem('bo_nav_collapsed') === '1'; } catch { /* private mode */ }
+  apply(collapsed);
+  btn.addEventListener('click', () => {
+    collapsed = !collapsed;
+    apply(collapsed);
+    try { localStorage.setItem('bo_nav_collapsed', collapsed ? '1' : '0'); } catch { /* private mode */ }
+  });
 }
 
 function updateReviewBadge() {
