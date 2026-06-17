@@ -31,7 +31,14 @@ export function modal(title) {
         el('b', {}, title),
         el('span', { class: 'ms mclose' }, 'close')),
       body));
-  const close = () => overlay.remove();
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  // Esc closes the TOP-most open modal (so nested dialogs close one at a time).
+  const onKey = (e) => {
+    if (e.key !== 'Escape') return;
+    const all = document.querySelectorAll('.overlay');
+    if (all.length && all[all.length - 1] === overlay) { e.stopPropagation(); close(); }
+  };
+  document.addEventListener('keydown', onKey);
   // Backdrop-click-to-close, but ONLY when the press also STARTED on the backdrop.
   // Otherwise selecting text inside a field and releasing the mouse over the backdrop
   // (a fast drag) registers as a backdrop click and wrongly dismisses the modal.

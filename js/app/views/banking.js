@@ -39,7 +39,7 @@ function drawBody(body, editable) {
     const pending = entities('staged').filter(s => s.bankacctId === b.id && s.status === 'pending').length;
     const opening = txns.find(t => t.id === 't-opening-' + b.id);
     const openLine = opening?.lines.find(l => l.accountId === b.accountId);
-    return el('div', { class: 'card', style: 'flex:1;min-width:230px' },
+    return el('div', { class: 'card', style: 'display:flex;flex-direction:column;margin:0' },
       el('div', { class: 'cardtitle' }, b.name),
       el('div', { class: 'sub', style: 'margin:0 0 6px' }, `${KINDS[b.kind] || b.kind}${b.institution ? ' · ' + b.institution : ''}`),
       el('a', { class: 'kpi', href: `#/b/${getActiveBiz()}/ledger/${b.accountId}`, title: 'Open this account’s register in the Ledger', style: 'display:block;text-decoration:none;color:inherit' }, fmtMoney(bal)),
@@ -47,7 +47,7 @@ function drawBody(body, editable) {
       openLine ? el('div', { class: 'sub', style: 'margin:6px 0 0' }, `Opening ${fmtMoney(openLine.amountCents)} as of ${opening.date}`) : null,
       b.plaid ? el('div', { class: 'sub', style: 'margin:6px 0 0;color:var(--green)' },
         `🔗 ${b.plaid.institution || 'Bank'}${b.plaid.mask ? ' ••' + b.plaid.mask : ''}${b.plaid.lastSyncAt ? ' · synced ' + new Date(b.plaid.lastSyncAt).toLocaleDateString() : ''}`) : null,
-      editable ? el('div', { style: 'margin-top:10px;display:flex;gap:6px;flex-wrap:wrap' },
+      editable ? el('div', { style: 'margin-top:auto;padding-top:10px;display:flex;gap:6px;flex-wrap:wrap' },
         el('button', { class: 'btn sm', onclick: () => importWizard(b) }, 'Import CSV'),
         el('button', { class: 'btn sm ghost', onclick: () => openingBalanceModal(b) }, openLine ? 'Opening balance' : 'Set opening balance'),
         b.plaid
@@ -78,12 +78,14 @@ function drawBody(body, editable) {
 
   clear(body).append(
     bankaccts.length
-      ? el('div', { class: 'row', style: 'margin-bottom:16px' }, cards)
+      ? el('div', { style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:14px;align-items:stretch;margin-bottom:18px' }, cards)
       : el('p', { class: 'sub' }, 'No bank accounts yet — add your checking account to start importing.'),
-    imports.length ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:880px' },
-      el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Account'), el('th', {}, 'File'), el('th', { class: 'num' }, 'Rows'), el('th', { class: 'num' }, 'Dups'), el('th', { class: 'num' }, 'Posted'), el('th', {}, 'Status')),
-        ...importRows)) : el('span'),
+    imports.length ? el('div', { style: 'max-width:880px' },
+      el('div', { class: 'cardtitle', style: 'margin-bottom:6px' }, 'Import history'),
+      el('div', { class: 'card', style: 'padding:0;overflow:hidden;margin:0' },
+        el('table', { class: 'data' },
+          el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Account'), el('th', {}, 'File'), el('th', { class: 'num' }, 'Rows'), el('th', { class: 'num' }, 'Dups'), el('th', { class: 'num' }, 'Posted'), el('th', {}, 'Status')),
+          ...importRows))) : el('span'),
   );
 }
 

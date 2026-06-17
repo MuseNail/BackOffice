@@ -6,6 +6,11 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.59.0', items: [
+    { icon: 'close', t: 'Esc closes pop-ups', d: 'Press Escape to close any open dialog (the top-most one first).' },
+    { icon: 'gradient', t: 'Clearer cards', d: 'Cards/panels now have a softer drop shadow so each one reads as a distinct tile.' },
+    { icon: 'dashboard_customize', t: 'Tidier Banking screen', d: 'Account tiles are now a uniform grid — same size and layout, with buttons aligned at the bottom — and the import list has an “Import history” heading.' },
+  ] },
   { v: '0.58.0', items: [
     { icon: 'view_sidebar', t: 'Sidebar + top bar stay put', d: 'The left menu and the top bar are now fixed — they no longer scroll away when you page through long lists, so navigation is always one click away.' },
     { icon: 'unfold_less', t: 'Tighter layout + collapsible lists', d: 'Trimmed extra whitespace so more fits on screen, and long lists (like “other income” on the reconcile screen) now collapse — click to expand only what you need.' },
