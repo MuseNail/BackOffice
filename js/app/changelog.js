@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.61.1', items: [
+    { icon: 'bug_report', t: 'Fix: Deposits screen crash', d: 'The salon Deposits screen could fail to render due to an internal naming bug. Fixed.' },
+  ] },
   { v: '0.61.0', items: [
     { icon: 'groups', t: 'Customer directory', d: 'A new Customers screen (in the sidebar) lists your clients — click one to see all their transactions and total received, just like Vendors. Income can be tagged to a customer the way expenses are tagged to a vendor.' },
   ] },

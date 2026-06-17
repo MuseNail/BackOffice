@@ -132,7 +132,7 @@ function drawBody(body) {
       kpi('Helcim gross', fmtMoney(totHelcim)),
       kpi('Typical surcharge', rate == null ? '—' : (rate * 100).toFixed(2) + '%', rate == null ? 'needs days with both sides' : 'learned from this range'),
       kpi('Days flagged', String(flagCount), flagCount ? 'see the table' : 'all days tie out')),
-    days.length
+    dayRows.length
       ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:860px' },
           el('table', { class: 'data' },
             el('tr', {},
