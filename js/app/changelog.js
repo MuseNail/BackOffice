@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.57.0', items: [
+    { icon: 'filter_alt', t: 'Reconcile screen focuses on the app-owned period', d: 'The “Reconcile to bank” screen now only shows deposits from your import start date onward — your QuickBooks historical deposits (already reconciled there) no longer clutter the “other income” list.' },
+  ] },
   { v: '0.56.0', items: [
     { icon: 'task_alt', t: 'One-click deposit matching', d: 'On the “Reconcile to bank” screen, a button now posts all matched Invoice2go deposits at once — each is recorded in your bank and relieves the Invoice2go Clearing account, which drains toward $0 (the proof every Invoice2go dollar landed as a real deposit). The clearing balance shows live as you go. Also relabeled payout methods to plain English (“instant payout”, “same-day ACH”).' },
   ] },

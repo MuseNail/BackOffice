@@ -636,7 +636,7 @@ function renderReconcile(root) {
   root.append(
     el('a', { class: 'btn sm ghost', href: `#/b/${biz}/invoices` }, '← Invoices'),
     el('h2', { style: 'margin-top:10px' }, 'Reconcile Invoice2go to the bank'),
-    el('p', { class: 'sub' }, 'Each Invoice2go payout should equal one bank deposit. Matches are found automatically by amount and date — the two lists below are what needs your eyes: payouts with no matching deposit, and bank deposits that aren’t Invoice2go (your other income).'));
+    el('p', { class: 'sub' }, 'Each Invoice2go payout should equal one bank deposit. Matches are found automatically by amount and date — the two lists below are what needs your eyes: payouts with no matching deposit, and bank deposits that aren’t Invoice2go (your other income). Scoped to the app-owned period (your import start date onward); earlier deposits belong to QuickBooks.'));
   if (!banks.length) { root.append(el('p', { class: 'sub' }, 'Add a bank account in Banking first.')); return; }
   let bankId = (banks.find(b => /0116/.test(b.name)) || banks[0]).id;
   const sel = el('select', { class: 'field-input', style: 'max-width:260px', onchange: (e) => { bankId = e.target.value; draw(); } },
@@ -646,11 +646,14 @@ function renderReconcile(root) {
 
   const draw = () => {
     const bank = banks.find(b => b.id === bankId), acct = bank.accountId;
-    // deposits = money IN on this bank: posted txns (e.g. from QuickBooks) + newly imported (staged) rows
-    const posted = entities('txn').filter(t => t.status === 'posted' && !/^(i2gc-|i2gpo-)/.test(t.id))
+    // Scope to the app-owned period (Invoice2go start date) — earlier deposits belong to
+    // QuickBooks (already reconciled) and would just be noise in this Invoice2go view.
+    const cutoff = getState().meta?.i2gCutoff || '2026-03-01';
+    // deposits = money IN on this bank, on/after the cutoff: posted txns + newly imported (staged) rows
+    const posted = entities('txn').filter(t => t.status === 'posted' && !/^(i2gc-|i2gpo-)/.test(t.id) && (t.date || '') >= cutoff)
       .map(t => ({ id: t.id, date: t.date, amountCents: (t.lines || []).reduce((s, l) => s + (l.accountId === acct ? l.amountCents : 0), 0), kind: 'posted', payee: t.payee || '—' }))
       .filter(d => d.amountCents > 0);
-    const staged = entities('staged').filter(s => s.bankacctId === bankId && s.status === 'pending' && (s.amountCents || 0) > 0)
+    const staged = entities('staged').filter(s => s.bankacctId === bankId && s.status === 'pending' && (s.amountCents || 0) > 0 && (s.date || '') >= cutoff)
       .map(s => ({ id: s.id, date: s.date, amountCents: s.amountCents, kind: 'new', payee: s.desc || '—' }));
     const deposits = [...posted, ...staged];
     const payouts = entities('i2gpayout');
