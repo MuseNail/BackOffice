@@ -7,6 +7,7 @@ import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { ACCOUNT_TYPES, accountLabel } from '../lib/coa-templates.js';
 import { renderRegister } from '../register.js';
+import { logAudit } from '../audit.js';
 
 const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
@@ -56,6 +57,29 @@ function renderAccountRegister(root, accountId) {
   });
 }
 
+// Account register as a popup (preferred over the full-page route — no back-button
+// round trip). The deep-link route above still works for bookmarks. The register
+// subscribes to the store; its unsub runs when the modal closes.
+function openAccountRegisterModal(accountId) {
+  const acct = entities('account').find(a => a.id === accountId);
+  if (!acct) return;
+  const biz = getActiveBiz();
+  let unsub = null;
+  const m = modal(`${acct.name} — register`, () => unsub?.());
+  const box = m.body.parentElement; if (box) { box.style.width = '900px'; box.style.maxWidth = '96vw'; }
+  unsub = renderRegister({
+    root: m.body,
+    title: acct.name,
+    subtitle: `${TYPE_LABELS[acct.type] || acct.type} register`,
+    backHash: `/b/${biz}/accounts`,
+    backLabel: 'Accounts',
+    focusAccountId: accountId,
+    filename: `${biz}-${slug(acct.name)}-register.csv`,
+    getTxns: () => entities('txn').filter(t => t.status === 'posted' && (t.lines || []).some(l => l.accountId === accountId)),
+    modal: true,
+  });
+}
+
 function drawTable(body, editable) {
   const accounts = entities('account');
   if (!accounts.length) { clear(body).append(el('p', { class: 'sub' }, 'No accounts yet.')); return; }
@@ -77,7 +101,7 @@ function drawTable(body, editable) {
     for (const a of group) {
       rows.push(el('tr', { style: a.active === false ? 'opacity:.5' : '' },
         el('td', { style: a.parentId ? 'padding-left:32px' : '' }, a.parentId ? '› ' : '',
-          el('a', { class: 'linklike', style: 'font-weight:700', href: `#/b/${getActiveBiz()}/accounts/${a.id}`, title: 'View this account’s register' }, a.name),
+          el('button', { class: 'linklike', style: 'font-weight:700', title: 'View this account’s register', onclick: () => openAccountRegisterModal(a.id) }, a.name),
           a.active === false ? ' (archived)' : ''),
         el('td', {}, el('span', { class: `pill ${t === 'income' ? 'green' : ['expense', 'cogs', 'other-expense', 'personal-expense'].includes(t) ? 'red' : t === 'liability' ? 'amber' : 'blue'}` }, TYPE_LABELS[t])),
         el('td', { style: 'color:var(--mut)' }, a.qbName || ''),
@@ -130,6 +154,7 @@ export function quickAddAccountModal(oncreate, defaultType = 'expense') {
         const value = { id: uniqueId(n), name: n, type: type.value,
           qbType: QB_BY_TYPE[type.value], qbName: n, parentId: parent.value || null, active: true };
         dispatch({ op: 'entity.upsert', kind: 'account', value });
+        logAudit('account', { summary: `Added category “${n}”`, kind: 'account', entityId: value.id });
         toast('Category added');
         m.close();
         oncreate(value);
@@ -171,6 +196,7 @@ function editAccount(existing) {
           ? { ...existing, name: n, qbName: qbName.value.trim() || n, parentId: parent.value || null }
           : { id: uniqueId(n), name: n, type: type.value, qbType: QB_BY_TYPE[type.value], qbName: qbName.value.trim() || n, parentId: parent.value || null, active: true };
         dispatch({ op: 'entity.upsert', kind: 'account', value });
+        logAudit('account', { summary: `${existing ? 'Edited' : 'Added'} account “${n}”`, kind: 'account', entityId: value.id });
         toast(existing ? 'Account updated' : 'Account added');
         m.close();
       } }, existing ? 'Save' : 'Add')),
@@ -189,12 +215,14 @@ function archive(a) {
         el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
         el('button', { class: 'btn', onclick: () => {
           dispatch({ op: 'entity.upsert', kind: 'account', value: { ...a, active: false } });
+          logAudit('account', { summary: `Archived account “${a.name}”`, kind: 'account', entityId: a.id });
           toast('Account archived — existing transactions are unchanged');
           m.close();
         } }, 'Archive')),
     );
   } else {
     dispatch({ op: 'entity.upsert', kind: 'account', value: { ...a, active: true } });
+    logAudit('account', { summary: `Restored account “${a.name}”`, kind: 'account', entityId: a.id });
     toast('Account restored — it will appear in pickers again');
   }
 }

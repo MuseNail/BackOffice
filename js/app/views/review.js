@@ -17,6 +17,10 @@ import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 import { helcimDayTotals, ledgerDayDebits, matchDeposit } from '../lib/processor-match.js';
 import { attachAddCategory, attachAddVendor } from '../pickers.js';
+import { combobox } from '../combobox.js';
+import { quickAddAccountModal } from './accounts.js';
+import { quickAddVendorModal } from './vendors.js';
+import { logAudit } from '../audit.js';
 
 let unsub = null;
 let aiSuggestions = new Map();
@@ -25,9 +29,10 @@ let showSkipped = false;
 // Review filter/sort (bank-row sections only). dir: all|in|out · status: all|needs|ready
 // · bank: all|<bankId> · sort: date-desc|date-asc|amount-desc|amount-asc.
 let reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc' };
-// Preserve per-row category selection across drawBody re-renders (store changes
-// trigger a full redraw, so we save the user's pick here and restore it).
+// Preserve per-row category / vendor selection across drawBody re-renders (store
+// changes trigger a full redraw, so we save the user's pick here and restore it).
 let lastCategory = new Map();
+let lastVendor = new Map();
 // Review (bank rows): which account groups are collapsed, and the current page per account.
 let collapsedBanks = new Set();
 let bankPage = new Map();
@@ -52,7 +57,7 @@ export function render(root) {
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); collapsedBanks = new Set(); bankPage = new Map(); reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc' }; }
+export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); collapsedBanks = new Set(); bankPage = new Map(); reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc' }; }
 
 // A row is "ready" if it has a resolved category — a valid rule/history suggestion,
 // an AI suggestion, or a manual pick (lastCategory). Drives the needs/ready filter.
@@ -81,41 +86,37 @@ function applyReviewFilter(rows, matchCtx, accountsById) {
 
 const bankish = (a) => a.qbType === 'BANK' || a.qbType === 'CCARD';
 
-function categorySelect(row, categories, accountsById, preselect) {
+// Category groups for the combobox — transfer targets first, then COA type groups.
+// Subaccounts get a leading indent (figure-spaces — U+2007 — which survive HTML
+// whitespace collapsing) so they read as a child of the account above them.
+function categoryGroups(row, categories, accountsById) {
   const ownAccountId = entities('bankacct').find(b => b.id === row.bankacctId)?.accountId;
   const transferTargets = entities('account')
     .filter(a => a.active !== false && bankish(a) && a.id !== ownAccountId)
     .sort((a, b) => a.name.localeCompare(b.name));
   const groups = [];
-  if (transferTargets.length) {
-    groups.push(el('optgroup', { label: '↔ Transfer to / from' },
-      ...transferTargets.map(a => el('option', { value: a.id, selected: a.id === preselect }, a.name))));
-  }
+  if (transferTargets.length) groups.push({ label: '↔ Transfer to / from', items: transferTargets.map(a => ({ value: a.id, label: a.name })) });
   for (const [type, label] of TYPE_GROUPS) {
     const accts = categories.filter(a => a.type === type)
       .sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)));
     if (!accts.length) continue;
-    groups.push(el('optgroup', { label },
-      // Subaccounts get a leading indent (figure-spaces) so they read as a child
-      // of the account above them, not a peer category.
-      ...accts.map(a => el('option', { value: a.id, selected: a.id === preselect }, (a.parentId ? '   ' : '') + accountLabel(a, accountsById)))));
+    groups.push({ label, items: accts.map(a => ({ value: a.id, label: (a.parentId ? '   ' : '') + accountLabel(a, accountsById) })) });
   }
-  const sel = el('select', { class: 'field-input', style: 'margin:0;min-width:190px' },
-    el('option', { value: '' }, '— pick a category —'), ...groups,
-    el('option', { value: '__new__' }, '＋ Add category…'));
-  attachAddCategory(sel, preselect);
-  return sel;
+  return groups;
+}
+
+function categorySelect(row, categories, accountsById, preselect, afterAdd) {
+  return combobox({ groups: categoryGroups(row, categories, accountsById), value: preselect || '',
+    placeholder: 'Search categories…', minWidth: 180, addLabel: 'Add category…',
+    onAdd: () => quickAddAccountModal((account) => afterAdd?.(account)) });
 }
 
 // Vendor picker for a Review row — tags THIS transaction with a vendor (separate from
 // the ⚡ "make a rule" flow). Inline "＋ Add vendor" creates a name-only vendor.
-function vendorSelect(vendors, preselect) {
-  const sel = el('select', { class: 'field-input', style: 'margin:4px 0 0;min-width:190px;font-size:.82em' },
-    el('option', { value: '' }, '— vendor (optional) —'),
-    ...vendors.map(v => el('option', { value: v.id, selected: v.id === preselect }, v.name)),
-    el('option', { value: '__newvendor__' }, '＋ Add vendor…'));
-  attachAddVendor(sel, preselect);
-  return sel;
+function vendorSelect(vendors, preselect, afterAdd) {
+  return combobox({ groups: [{ label: '', items: vendors.map(v => ({ value: v.id, label: v.name })) }],
+    value: preselect || '', placeholder: 'Search vendors…', minWidth: 180, addLabel: 'Add vendor…',
+    onAdd: () => quickAddVendorModal((vendor) => afterAdd?.(vendor)) });
 }
 // Invoice picker for a Review row (only when the business uses invoices) — tags the
 // expense to an invoice for per-invoice profit margin. Invoices newest-first.
@@ -157,9 +158,12 @@ function drawBody(body, editable) {
     if (sug) suggested.push({ row, sug });
 
     const preselect = lastCategory.get(row.id) || sug?.accountId;
-    const sel = categorySelect(row, categories, accountsById, preselect); sel.style.minWidth = '180px';
+    const vendPreselect = lastVendor.has(row.id) ? lastVendor.get(row.id) : sug?.vendorId;
+    const sel = categorySelect(row, categories, accountsById, preselect,
+      (account) => { lastCategory.set(row.id, account.id); drawBody(body, editable); });
     const memoIn = el('input', { class: 'field-input', placeholder: 'Add a note…', style: 'margin:0;min-width:150px', value: row.memo || '' });
-    const vendSel = vendorSelect(vendorsList, sug?.vendorId); vendSel.style.margin = '0';
+    const vendSel = vendorSelect(vendorsList, vendPreselect,
+      (vendor) => { lastVendor.set(row.id, vendor.id); drawBody(body, editable); });
     const invSel = showInvoices ? invoiceSelect(invoicesList) : null; if (invSel) invSel.style.margin = '0';
     const chip = sug
       ? (sug.by === 'rule' ? el('span', { class: 'pill blue' }, `⚡ ${sug.vendorName}`)
@@ -168,10 +172,11 @@ function drawBody(body, editable) {
       : el('span', { class: 'pill gray' }, 'No match');
 
     const approve = el('button', { class: 'btn sm green', disabled: !preselect, onclick: () => {
-      lastCategory.delete(row.id);
+      lastCategory.delete(row.id); lastVendor.delete(row.id);
       approveRow(row, sel.value, sug, { memo: memoIn.value.trim(), vendorId: vendSel.value, invoiceId: invSel?.value || '' });
     } }, 'Approve');
-    sel.addEventListener('change', () => { if (sel.value && sel.value !== '__new__') lastCategory.set(row.id, sel.value); approve.disabled = !sel.value || sel.value === '__new__'; });
+    sel.addEventListener('change', () => { if (sel.value) lastCategory.set(row.id, sel.value); approve.disabled = !sel.value; });
+    vendSel.addEventListener('change', () => { lastVendor.set(row.id, vendSel.value); });
     const actions = [approve,
       el('button', { class: 'btn sm ghost', onclick: () => skipRow(row) }, 'Skip'),
       el('button', { class: 'btn sm ghost', title: 'Auto-categorize this vendor from now on', onclick: () => makeRuleModal(row, sel.value, categories, accountsById) }, '⚡ Rule')];
@@ -347,6 +352,7 @@ function approveSyncRow(row, categoryId) {
   if (!v.ok) { toast(v.error, 'err'); return; }
   dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
   dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'approved', txnId: txn.id, categoryId } });
+  logAudit('post', { summary: `Approved (Muse) ${row.date} · ${row.desc || row.syncType}`, kind: 'txn', entityId: txn.id, amountCents: row.amountCents });
   toast('Posted');
 }
 
@@ -375,6 +381,7 @@ function approveRow(row, categoryId, sug, { quiet = false, memo = '', vendorId =
   if (!v.ok) { toast(v.error, 'err'); return; }
   dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
   dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'approved', txnId: txn.id, categoryId } });
+  logAudit('post', { summary: `Approved ${row.date} · ${row.desc || '—'} → ${entities('account').find(a => a.id === categoryId)?.name || categoryId}`, kind: 'txn', entityId: txn.id, amountCents: row.amountCents });
   if (isTransfer) {
     // never double-count: the same transfer arrives on BOTH accounts' statements —
     // find the opposite row on the other account and retire it against this txn
@@ -461,6 +468,7 @@ function feeSplitModal(row, accountsById) {
         if (!v.ok) { toast(v.error, 'err'); return; }
         dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
         dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'approved', txnId: txn.id, categoryId: incomeSel.value } });
+        logAudit('post', { summary: `Deposit with fee ${row.date} · gross ${fmtMoney(g)}${feeCents > 0 ? ` − ${fmtMoney(feeCents)} fee` : ''}`, kind: 'txn', entityId: txn.id, amountCents: row.amountCents });
         toast(feeCents > 0 ? `Posted — ${fmtMoney(feeCents)} captured as processing fees` : 'Posted');
         m.close();
       } }, 'Post split')),
@@ -562,6 +570,7 @@ async function matchDepositModal(row, accountsById) {
         if (!v.ok) { toast(v.error, 'err'); return; }
         dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
         dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'approved', txnId: txn.id, categoryId } });
+        logAudit('post', { summary: `Matched deposit ${row.date} (${daysLabel}) — ${fmtMoney(match.grossCents)} gross`, kind: 'txn', entityId: txn.id, amountCents: row.amountCents });
         toast(match.feeCents > 0 ? `Posted — ${fmtMoney(match.feeCents)} captured as processing fees` : 'Posted — deposit matched to the penny');
         m.close();
       } }, match.feeCents > 0 ? 'Post with fee' : 'Post match')),
@@ -627,16 +636,17 @@ function makeRuleModal(row, pickedCategoryId, categories, accountsById) {
   const transferTargets = entities('account')
     .filter(a => a.active !== false && bankish(a) && a.id !== ownAccountId)
     .sort((a, b) => a.name.localeCompare(b.name));
-  const cat = el('select', { class: 'field-input' },
-    el('option', { value: '' }, '— category —'),
-    transferTargets.length ? el('optgroup', { label: '↔ Transfer to / from' },
-      ...transferTargets.map(a => el('option', { value: a.id, selected: a.id === pickedCategoryId }, a.name))) : null,
-    el('optgroup', { label: 'Categories' },
-      ...categories
-        .sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)))
-        .map(a => el('option', { value: a.id, selected: a.id === pickedCategoryId }, accountLabel(a, accountsById)))),
-    el('option', { value: '__new__' }, '＋ Add category…'));
-  attachAddCategory(cat, pickedCategoryId);
+  const catGroups = [];
+  if (transferTargets.length) catGroups.push({ label: '↔ Transfer to / from', items: transferTargets.map(a => ({ value: a.id, label: a.name })) });
+  catGroups.push({ label: 'Categories', items: categories
+    .sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)))
+    .map(a => ({ value: a.id, label: accountLabel(a, accountsById) })) });
+  const cat = combobox({ groups: catGroups, value: pickedCategoryId || '', placeholder: 'Search categories…', minWidth: 240,
+    addLabel: 'Add category…', onAdd: () => quickAddAccountModal((account) => {
+      catGroups.find(g => g.label === 'Categories').items.push({ value: account.id, label: account.name });
+      cat.setGroups(catGroups); cat.value = account.id;
+    }) });
+  cat.style.cssText = 'display:block;width:100%;max-width:340px';
   // When the typed name matches a vendor that already exists, say so and adopt its
   // category — so the user keeps building one vendor rather than making a duplicate.
   const syncExisting = () => {
@@ -655,19 +665,25 @@ function makeRuleModal(row, pickedCategoryId, categories, accountsById) {
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', onclick: () => {
         const nm = name.value.trim(), kw = keyword.value.trim();
-        if (!nm || !kw || !cat.value || cat.value === '__new__') { toast('Fill all three fields', 'err'); return; }
+        if (!nm || !kw || !cat.value) { toast('Fill all three fields', 'err'); return; }
         const existing = findVendor(nm);
         const keywords = existing
           ? Array.from(new Set([...(existing.matchers?.keywords || []), kw]))
           : [kw];
+        const vId = existing?.id || ('v-' + nm.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30));
+        // Carry the rule just made back onto the row it was opened from (item 1) —
+        // set BEFORE dispatch so the redraw it triggers picks up the selection.
+        lastCategory.set(row.id, cat.value);
+        lastVendor.set(row.id, vId);
         dispatch({ op: 'entity.upsert', kind: 'vendor', value: {
           ...(existing || {}),
-          id: existing?.id || ('v-' + nm.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30)),
+          id: vId,
           name: nm,
           matchers: { exact: existing?.matchers?.exact || [], keywords },
           defaultAccountId: cat.value,
           used: existing?.used || 0,
         } });
+        logAudit('rule', { summary: `${existing ? 'Updated' : 'Created'} rule “${nm}” → ${entities('account').find(a => a.id === cat.value)?.name || cat.value}`, kind: 'vendor', entityId: vId });
         toast(existing ? `Match text added to “${nm}”` : 'Rule saved — future imports match automatically');
         m.close();
       } }, 'Save rule')),

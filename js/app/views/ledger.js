@@ -10,6 +10,7 @@ import { vendorMatches } from './vendors.js';
 import { attachAddCategory, attachAddVendor } from '../pickers.js';
 import { categoryField, vendorField, memoField, invoiceField, categoryName, stackedEditor } from '../txn-inline.js';
 import { dateRangeControl } from '../daterange.js';
+import { logAudit } from '../audit.js';
 
 let unsub = null;
 
@@ -292,6 +293,7 @@ function confirmVoid(t) {
       el('button', { class: 'btn ghost', onclick: m.close }, 'Keep it'),
       el('button', { class: 'btn', style: 'background:var(--red)', onclick: () => {
         dispatch({ op: 'entity.upsert', kind: 'txn', value: voidTxn(t, Date.now()) });
+        logAudit('void', { summary: `Voided ${t.date} · ${t.payee || 'no payee'}`, kind: 'txn', entityId: t.id, amountCents: describe(t).amount });
         toast('Transaction voided');
         m.close();
       } }, 'Void')),
@@ -314,6 +316,7 @@ function confirmDelete(t) {
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', style: 'background:var(--red)', onclick: () => {
         dispatch({ op: 'entity.delete', kind: 'txn', id: t.id });
+        logAudit('delete', { summary: `Deleted ${t.date} · ${t.payee || 'no payee'}`, kind: 'txn', entityId: t.id, amountCents: describe(t).amount });
         // Revert the associated staged row (if any) so it can be re-approved
         const staged = entities('staged').find(s => s.txnId === t.id);
         if (staged) dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...staged, status: 'pending', txnId: null, categoryId: null } });
@@ -389,6 +392,7 @@ function editTxnModal(t) {
         const v = validateTxn(updated, ctx());
         if (!v.ok) { toast(v.error, 'err'); return; }
         dispatch({ op: 'entity.upsert', kind: 'txn', value: updated });
+        logAudit('edit', { summary: `Edited ${updated.date} · ${updated.payee || 'no payee'}`, kind: 'txn', entityId: updated.id, amountCents: describe(updated).amount });
         toast('Transaction updated');
         m.close();
       } }, 'Save')),
@@ -476,6 +480,7 @@ function addTxnModal() {
         const v = validateTxn(txn, ctx());
         if (!v.ok) { toast(v.error, 'err'); return; }
         dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
+        logAudit('post', { summary: `${direction === 'out' ? 'Paid' : 'Received'} ${fmtMoney(cents)} · ${payee.value.trim() || '—'} → ${acctName(category.value)}`, kind: 'txn', entityId: txn.id, amountCents: direction === 'out' ? -cents : cents });
         toast('Saved to the ledger');
         m.close();
       } }, 'Save to ledger')),
@@ -522,6 +527,7 @@ function journalModal() {
     const v = validateTxn(txn, ctx());
     if (!v.ok) { toast(v.error, 'err'); return; }
     dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
+    logAudit('post', { summary: `Journal entry · ${memo.value.trim() || '(no memo)'}`, kind: 'txn', entityId: txn.id });
     toast('Journal entry posted');
     m.close();
   } }, 'Post entry');

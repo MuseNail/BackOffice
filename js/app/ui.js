@@ -23,7 +23,7 @@ export function toast(msg, kind = 'ok') {
   setTimeout(() => { t.classList.remove('on'); setTimeout(() => t.remove(), 300); }, 2600);
 }
 
-export function modal(title) {
+export function modal(title, onClose) {
   const body = el('div');
   const overlay = el('div', { class: 'overlay on' },
     el('div', { class: 'modal' },
@@ -31,7 +31,7 @@ export function modal(title) {
         el('b', {}, title),
         el('span', { class: 'ms mclose' }, 'close')),
       body));
-  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); onClose?.(); };
   // Esc closes the TOP-most open modal (so nested dialogs close one at a time).
   const onKey = (e) => {
     if (e.key !== 'Escape') return;

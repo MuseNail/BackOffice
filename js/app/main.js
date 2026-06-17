@@ -22,6 +22,7 @@ import * as reconcile from './views/reconcile.js';
 import * as deposits from './views/deposits.js';
 import * as reports from './views/reports.js';
 import * as inventory from './views/inventory.js';
+import * as audit from './views/audit.js';
 import * as settings from './views/settings.js';
 import { subscribe } from './store.js';
 import { entities, usesInvoices, usesMuseSync } from './store.js';
@@ -44,6 +45,7 @@ const VIEWS = {
   deposits,
   inventory,
   reports,
+  audit,
   settings,
 };
 

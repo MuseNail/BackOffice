@@ -9,30 +9,17 @@ import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { activityByAccount, accountBalance } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
+import { dateRangeControl, presetRange, rangeLabel } from '../daterange.js';
 
 let unsub = null;
 let s = null;
 
-const PRESETS = [
-  ['this-month', 'This month'],
-  ['last-month', 'Last month'],
-  ['this-year', 'This year'],
-  ['all', 'All time'],
-];
-
-function presetRange(key) {
-  const now = new Date();
-  const y = now.getFullYear(), m = now.getMonth();
-  const iso = (d) => d.toISOString().slice(0, 10);
-  if (key === 'this-month') return { from: iso(new Date(Date.UTC(y, m, 1))), to: iso(new Date(Date.UTC(y, m + 1, 0))) };
-  if (key === 'last-month') return { from: iso(new Date(Date.UTC(y, m - 1, 1))), to: iso(new Date(Date.UTC(y, m, 0))) };
-  if (key === 'this-year') return { from: `${y}-01-01`, to: `${y}-12-31` };
-  return {};
-}
-
 export function render(root) {
-  s = { preset: 'this-month', asOf: new Date().toISOString().slice(0, 10) };
+  s = { asOf: new Date().toISOString().slice(0, 10), range: presetRange('month') };
   const body = el('div');
+  // Built once so the smart date picker keeps its state across the redraws that
+  // store changes trigger.
+  s.rangeCtl = dateRangeControl({ initial: 'month', onChange: (r) => { s.range = r; drawBody(body); } });
   root.append(
     el('h2', {}, 'Reports'),
     el('p', { class: 'sub' }, 'Built from posted entries only — staged and voided transactions never appear here.'),
@@ -89,7 +76,7 @@ function drawBody(body) {
   const txns = entities('txn');
   const accounts = entities('account');
   const accountsById = new Map(accounts.map(a => [a.id, a]));
-  const range = presetRange(s.preset);
+  const range = s.range || presetRange('month');
 
   // ── P&L ──
   const act = activityByAccount(txns, range);
@@ -197,21 +184,19 @@ function drawBody(body) {
       drawBody(body);
     } });
 
-  const presetLabel = PRESETS.find(p => p[0] === s.preset)[1];
+  const presetLabel = rangeLabel(range);
   clear(body).append(
     el('div', { class: 'no-print', style: 'display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center' },
-      ...PRESETS.map(([key, label]) => el('button', {
-        class: 'btn sm ' + (s.preset === key ? '' : 'ghost'),
-        onclick: () => { s.preset = key; drawBody(body); },
-      }, label)),
+      el('span', { class: 'field-label', style: 'margin:0' }, 'Period'),
+      s.rangeCtl.el,
       el('span', { style: 'flex:1' }),
       el('button', { class: 'btn sm ghost', onclick: () => window.print() }, 'Print / PDF'),
       el('button', { class: 'btn sm ghost', onclick: () => downloadCsv(
-        `${getActiveBiz()}-reports-${s.preset}.csv`,
+        `${getActiveBiz()}-reports.csv`,
         buildReportsCsv(presetLabel, s.asOf, { income, cogs, expenses, otherExp, net }, { assets, liabilities, equity, netToDate })) }, 'Export CSV')),
     el('div', { class: 'row' },
       el('div', { class: 'card', style: 'flex:1;min-width:330px;max-width:460px' },
-        el('div', { class: 'cardtitle' }, `Profit & Loss — ${PRESETS.find(p => p[0] === s.preset)[1]}`),
+        el('div', { class: 'cardtitle' }, `Profit & Loss — ${presetLabel}`),
         plRows.length > 1 ? el('table', { class: 'data' }, ...plRows) : el('p', { class: 'sub' }, 'No activity in this range.')),
       el('div', { class: 'card', style: 'flex:1;min-width:330px;max-width:460px' },
         el('div', { class: 'cardtitle' }, 'Balance Sheet'),

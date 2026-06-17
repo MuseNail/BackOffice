@@ -17,6 +17,35 @@ import { parseMoney } from '../lib/money.js';
 
 let unsub = null;
 
+// Payment methods. Invoice2go exports a hand-marked payment as 'manual_payment';
+// the owner records those as Zelle, so the method is editable per payment (and the
+// edit survives a weekly re-import, which keeps existing payments).
+const METHOD_OPTS = [
+  ['zelle', 'Zelle'], ['manual_payment', 'Manual payment'], ['cash', 'Cash'],
+  ['check', 'Check'], ['bank_transfer', 'Bank transfer'], ['ach', 'ACH'],
+  ['credit_card', 'Credit card'], ['card', 'Card'], ['other', 'Other'],
+];
+const METHOD_LABELS = Object.fromEntries(METHOD_OPTS);
+const methodLabel = (m) => METHOD_LABELS[m] || (m || '').replace(/_/g, ' ') || '—';
+
+// Editable method <select> for one payment row. Reads the live invoice at change
+// time so editing several rows in a row doesn't clobber earlier edits, and matches
+// the payment by txId (falling back to index) so the right one is updated.
+function methodSelect(inv, idx, current) {
+  const opts = current && !METHOD_OPTS.some(([v]) => v === current) ? [[current, methodLabel(current)], ...METHOD_OPTS] : METHOD_OPTS;
+  const sel = el('select', { class: 'field-input', style: 'margin:0;min-width:150px;font-size:.85em' },
+    ...opts.map(([v, l]) => el('option', { value: v, selected: v === current }, l)));
+  sel.addEventListener('change', () => {
+    const live = entities('invoice').find(x => x.id === inv.id) || inv;
+    const target = (inv.payments || [])[idx];
+    const payments = (live.payments || []).map((x, i) =>
+      ((target?.txId && x.txId === target.txId) || (!target?.txId && i === idx)) ? { ...x, method: sel.value } : x);
+    dispatch({ op: 'entity.upsert', kind: 'invoice', value: { ...live, payments, updatedAt: Date.now() } });
+    toast('Payment method updated');
+  });
+  return sel;
+}
+
 // Display status from the money, not Invoice2go's label (so it always matches
 // what we show for total/paid/open). An open balance more than 30 days past the
 // invoice date reads as Overdue.
@@ -390,8 +419,7 @@ function paymentModal(inv) {
   const date = el('input', { type: 'date', class: 'field-input', style: 'max-width:170px', value: todayIso() });
   const amount = el('input', { class: 'field-input', inputmode: 'decimal', placeholder: (inv.balanceCents / 100).toFixed(2) });
   const method = el('select', { class: 'field-input' },
-    ...['manual_payment', 'cash', 'check', 'bank_transfer', 'credit_card', 'other'].map(v =>
-      el('option', { value: v }, v.replace(/_/g, ' '))));
+    ...METHOD_OPTS.map(([v, l]) => el('option', { value: v }, l)));
   m.body.append(
     el('p', { class: 'sub' }, `Open balance: ${fmtMoney(inv.balanceCents)}. Recorded payments post to the ledger from the Invoices list ("Post payments to the ledger").`),
     el('label', { class: 'field-label' }, 'Date'), date,
@@ -803,11 +831,11 @@ function renderInvoiceDetail(root, id) {
   // Per-payment fee view for review: the estimated Invoice2go cut (derived at the card
   // rate) and the surcharge passed to the customer (real data, from the export).
   const cardRate = i2gMap.cardRate != null ? i2gMap.cardRate : 0.029;
-  const payRows = (inv.payments || []).map(p => {
+  const payRows = (inv.payments || []).map((p, i) => {
     const estFee = /card/i.test(p.method || '') ? Math.round((p.amountCents | 0) * cardRate) : 0;
     return el('tr', {},
       el('td', {}, p.date || '—'),
-      el('td', {}, (p.method || '').replace(/_/g, ' ')),
+      el('td', {}, editable ? methodSelect(inv, i, p.method || '') : methodLabel(p.method)),
       el('td', { class: 'num' }, fmtMoney(p.amountCents)),
       el('td', { class: 'num', title: 'Invoice2go card fee, estimated at ' + (cardRate * 100).toFixed(2).replace(/\.?0+$/, '') + '%' }, estFee ? fmtMoney(estFee) : '—'),
       el('td', { class: 'num', title: 'Surcharge passed to the customer (from Invoice2go)' }, p.feeCents ? fmtMoney(p.feeCents) : '—'),

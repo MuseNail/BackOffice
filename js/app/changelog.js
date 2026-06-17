@@ -6,6 +6,17 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.66.0', items: [
+    { icon: 'search', t: 'Type-to-search category & vendor pickers', d: 'On the Review screen, the Category and Vendor pickers are now search boxes — start typing to filter the list instead of scrolling a long dropdown. “＋ Add category / vendor” is still pinned at the bottom.' },
+    { icon: 'bolt', t: 'Rules and transactions stay in sync', d: 'When you make a ⚡ Rule from a transaction in Review, the category (and vendor) you choose now carries straight back onto that transaction, ready to approve — and if the row already had a category, the Rule pop-up starts pre-filled with it.' },
+    { icon: 'lock_clock', t: 'No accidental edits in the Ledger', d: 'Editing a category or vendor right in the Ledger now only saves when you press Tab/Enter or click away — and scrolling the mouse wheel over a field can no longer change it by accident. Press Esc to cancel an edit.' },
+    { icon: 'history', t: 'Activity log', d: 'A new “Activity” screen (in the sidebar) keeps a running, read-only record of changes — posts, edits, voids, deletes, reconciliations, rules, and account changes — with who did it and when. Filter by date, action, or text.' },
+    { icon: 'date_range', t: 'Smart dates everywhere', d: 'The smart date picker — Today, This/Last week, This/Last month, This/Last quarter, Year to date, This/Last year, or a custom range — is now on Reports too. Reconcile gained quick “end of this/last month” buttons for the statement date.' },
+    { icon: 'open_in_new', t: 'Account registers open as a pop-up', d: 'Clicking an account in the Chart of Accounts now opens its register in a pop-up window — no more navigating away and clicking Back.' },
+    { icon: 'payments', t: 'Set the payment method (Zelle, etc.)', d: 'On an invoice, each payment’s method is now editable — so a payment Invoice2go labeled “manual payment” can be set to Zelle, cash, check, and so on. The label sticks through weekly re-imports.' },
+    { icon: 'sell', t: 'Search tells you the transaction type', d: 'Global search results now tag each transaction with its type — Deposit, Transfer, Zelle, ACH, Card, ATM, Check, or Expense — at a glance.' },
+    { icon: 'gradient', t: 'Easier on the eyes', d: 'The left menu items are now tiles, and cards/panels have a slightly stronger shadow so each reads as its own surface.' },
+  ] },
   { v: '0.65.0', items: [
     { icon: 'bookmark_add', t: 'Memorized category per vendor', d: 'Open a vendor and pick a “Memorized category” — future imports from that vendor will auto-suggest it (it also seeds a name match so it catches the bank description).' },
     { icon: 'menu_open', t: 'Collapsible side menu', d: 'The ▤ button (top-left) collapses the left menu to a slim icon rail to free up space. Hover it to peek the full menu; it tucks away again when you move off. Click the button to pin it open. Your choice is remembered.' },

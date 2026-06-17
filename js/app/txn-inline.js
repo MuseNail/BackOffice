@@ -61,26 +61,41 @@ function commit(t, patch) {
 }
 
 // A <select> that shows only its current value until focused, then fills in the
-// full list once. onPick(value) fires on a real selection (the "＋ Add…" sentinels
-// are handled by the pickers and skipped here).
+// full list once.
+//
+// Save model (item: avoid accidental edits): a user pick is NOT persisted on
+// `change` — it commits only when the field is left via Tab / click-away (blur)
+// or Enter, and Escape reverts it. A programmatic change from the "＋ Add…" picker
+// (a synthetic, untrusted event) commits immediately, so adding a new category /
+// vendor inline still saves. Wheel over a focused select can't silently change it.
 function lazySelect(t, { value, text, populate, addKind }) {
   const sel = el('select', { class: 'txi' }, el('option', { value: value || '' }, text));
   let loaded = false;
-  let last = value || '';
-  const load = () => { if (loaded) return; loaded = true; clear(sel); populate(sel); sel.value = value || ''; };
+  let last = value || '';   // last committed (persisted) value
+  const load = () => { if (loaded) return; loaded = true; clear(sel); populate(sel); sel.value = last; };
   sel.addEventListener('focus', load);
   sel.addEventListener('mousedown', load);
   if (addKind === 'category') attachAddCategory(sel, value);
   if (addKind === 'vendor') attachAddVendor(sel, value);
-  sel.addEventListener('change', () => {
-    if (sel.value === NEW_CATEGORY || sel.value === NEW_VENDOR) return; // picker resets the value + opens its modal
-    if (sel.value === last) return;                                      // no real change (or a reset after cancelling Add…)
+
+  const commitField = () => {
+    if (sel.value === NEW_CATEGORY || sel.value === NEW_VENDOR) return;   // picker resets the value + opens its modal
+    if (sel.value === last) return;                                       // no real change
     const ok = commit(t, addKind === 'category' ? { categoryId: sel.value }
       : addKind === 'vendor' ? { vendorId: sel.value }
       : { invoiceId: sel.value });
     if (ok) { last = sel.value; toast('Saved'); }
-    else sel.value = last;                                               // validation failed — roll the field back
+    else sel.value = last;                                                // validation failed — roll the field back
+  };
+  // Only the synthetic change fired by the Add-picker (isTrusted === false) saves
+  // right away; a real user selection waits for blur / Enter.
+  sel.addEventListener('change', (e) => { if (!e.isTrusted) commitField(); });
+  sel.addEventListener('blur', commitField);
+  sel.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commitField(); sel.blur(); }
+    else if (e.key === 'Escape') { sel.value = last; sel.blur(); }
   });
+  sel.addEventListener('wheel', (e) => { if (document.activeElement === sel) e.preventDefault(); }, { passive: false });
   return sel;
 }
 

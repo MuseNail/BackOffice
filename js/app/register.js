@@ -103,13 +103,14 @@ function drawRegister(body, opts, state) {
 
   clear(body).append(
     el('div', { class: 'no-print', style: 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px' },
-      el('a', { class: 'btn sm ghost', href: '#' + backHash }, '← ' + (backLabel || 'Back')),
+      // In a modal the X closes it — the back link only matters on the full-page route.
+      opts.modal ? el('span') : el('a', { class: 'btn sm ghost', href: '#' + backHash }, '← ' + (backLabel || 'Back')),
       el('span', { style: 'flex:1' }),
       el('span', { class: 'field-label', style: 'margin:0' }, 'From'), dateIn('from'),
       el('span', { class: 'field-label', style: 'margin:0' }, 'To'), dateIn('to'),
       el('button', { class: 'btn sm ghost', onclick: () => window.print() }, 'Print / PDF'),
       el('button', { class: 'btn sm ghost', onclick: () => downloadCsv(filename, buildCsv(title, subtitle, rows, focusAccountId, byId)) }, 'Export CSV')),
-    el('h2', {}, title),
+    opts.modal ? null : el('h2', {}, title),   // the modal head already shows the title
     subtitle ? el('p', { class: 'sub' }, subtitle) : null,
     el('div', { class: 'card', style: 'padding:0;overflow-x:auto' },
       rows.length

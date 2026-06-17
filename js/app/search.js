@@ -8,6 +8,25 @@ import { setLedgerQuery } from './views/ledger.js';
 let _input, _panel, _wrap;
 const money = (c) => (c < 0 ? '−$' : '$') + (Math.abs(c || 0) / 100).toFixed(2);
 
+const bankish = (a) => a && (a.qbType === 'BANK' || a.qbType === 'CCARD');
+// What kind of transaction is this? Transfers (both sides are your own bank/card
+// accounts) first, then payment-rail keywords from the description, then the plain
+// money-in / money-out direction. Shown so a search hit reads at a glance.
+function txnType(t, acctById) {
+  const d = `${t.payee || ''} ${t.memo || ''}`.toLowerCase();
+  const lines = t.lines || [];
+  if (lines.length === 2 && lines.every(l => bankish(acctById.get(l.accountId)))) return 'Transfer';
+  if (/zelle/.test(d)) return 'Zelle';
+  if (/\bach\b/.test(d)) return 'ACH';
+  if (/\b(wire|xfer|transfer)\b/.test(d)) return 'Transfer';
+  if (t.checkNo || /\b(check|chk|cheque)\b/.test(d)) return 'Check';
+  if (/\batm\b/.test(d)) return 'ATM';
+  if (/\b(card|pos|debit|purchase)\b/.test(d)) return 'Card';
+  const bankLine = lines.find(l => bankish(acctById.get(l.accountId)));
+  const net = bankLine ? bankLine.amountCents : lines.reduce((s, l) => s + l.amountCents, 0);
+  return net >= 0 ? 'Deposit' : 'Expense';
+}
+
 function searchAll(ql) {
   const cap = 8;
   return {
@@ -24,6 +43,7 @@ function render(q) {
   const biz = getActiveBiz();
   if (!q || q.length < 2 || !biz) { _panel.hidden = true; return; }
   const r = searchAll(q.toLowerCase());
+  const acctById = new Map(entities('account').map(a => [a.id, a]));
   _panel.innerHTML = '';
   const addGroup = (title, items, label, onPick) => {
     if (!items.length) return;
@@ -41,7 +61,7 @@ function render(q) {
       _panel.appendChild(row);
     }
   };
-  addGroup('Transactions', r.txns, t => `${t.date} · ${t.payee || '—'} · ${money(t.lines?.reduce((s, l) => l.amountCents > 0 ? s + l.amountCents : s, 0) || 0)}`,
+  addGroup('Transactions', r.txns, t => `${txnType(t, acctById)} · ${t.date} · ${t.payee || '—'} · ${money(t.lines?.reduce((s, l) => l.amountCents > 0 ? s + l.amountCents : s, 0) || 0)}`,
     t => { setLedgerQuery(t.payee || t.memo || ''); go(`#/b/${biz}/ledger`); });
   addGroup('Invoices', r.invoices, i => `#${i.number || i.id} · ${i.clientName || ''}`, i => go(`#/b/${biz}/invoices/${i.id}`));
   addGroup('Vendors', r.vendors, v => v.name, v => go(`#/b/${biz}/vendors/${v.id}`));

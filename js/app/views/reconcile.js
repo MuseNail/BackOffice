@@ -8,6 +8,7 @@ import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseMoney } from '../lib/money.js';
+import { logAudit } from '../audit.js';
 
 let unsub = null;
 let s = null; // { bankacctId, endDate, stmtCents, checked:Set }
@@ -43,7 +44,17 @@ function drawBody(body) {
 
   const acctSel = el('select', { class: 'field-input', style: 'max-width:240px', onchange: (e) => { s.bankacctId = e.target.value; s.checked = new Set(); drawBody(body); } },
     ...bankaccts.map(b => el('option', { value: b.id, selected: b.id === s.bankacctId }, b.name)));
-  const dateIn = el('input', { class: 'field-input', type: 'date', value: s.endDate, style: 'max-width:170px', onchange: (e) => { s.endDate = e.target.value; drawBody(body); } });
+  const dateIn = el('input', { class: 'field-input', type: 'date', value: s.endDate, style: 'max-width:170px;margin:0', onchange: (e) => { s.endDate = e.target.value; drawBody(body); } });
+  // Quick set-tos for the statement end date — statements almost always close at a
+  // month end, so these save typing.
+  const isoD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const setEnd = (iso) => { s.endDate = iso; drawBody(body); };
+  const now = new Date();
+  const endDateGroup = el('div', { style: 'display:flex;gap:6px;align-items:center;flex-wrap:wrap' },
+    dateIn,
+    el('button', { class: 'btn sm ghost', onclick: () => setEnd(isoD(new Date(now.getFullYear(), now.getMonth() + 1, 0))) }, 'End of this month'),
+    el('button', { class: 'btn sm ghost', onclick: () => setEnd(isoD(new Date(now.getFullYear(), now.getMonth(), 0))) }, 'End of last month'),
+    el('button', { class: 'btn sm ghost', onclick: () => setEnd(isoD(now)) }, 'Today'));
   const balIn = el('input', { class: 'field-input', placeholder: 'Statement ending balance', style: 'max-width:220px', inputmode: 'decimal',
     value: s.stmtCents == null ? '' : (s.stmtCents / 100).toFixed(2),
     onchange: (e) => { s.stmtCents = parseMoney(e.target.value); drawBody(body); } });
@@ -80,7 +91,7 @@ function drawBody(body) {
 
   clear(body).append(
     el('div', { style: 'display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px' },
-      labeled('Account', acctSel), labeled('Statement end date', dateIn), labeled('Ending balance', balIn)),
+      labeled('Account', acctSel), labeled('Statement end date', endDateGroup), labeled('Ending balance', balIn)),
     el('div', { class: 'row', style: 'margin-bottom:14px' },
       kpi('Statement balance', s.stmtCents == null ? '—' : fmtMoney(s.stmtCents)),
       kpi('Cleared so far', fmtMoney(clearedCents), alreadyCents ? `${fmtMoney(alreadyCents)} from past reconciliations` : ''),
@@ -124,6 +135,7 @@ function confirmClose(bankacct, body) {
           const t = entities('txn').find(x => x.id === id);
           if (t) dispatch({ op: 'entity.upsert', kind: 'txn', value: { ...t, reconciledIn: reconId } });
         }
+        logAudit('reconcile', { summary: `Reconciled ${bankacct.name} through ${s.endDate} — ${s.checked.size} item${s.checked.size === 1 ? '' : 's'}, ending ${fmtMoney(s.stmtCents)}`, kind: 'recon', entityId: reconId, amountCents: s.stmtCents });
         s.checked = new Set();
         toast(`Reconciled to the penny — ${s.endDate} closed`);
         m.close();

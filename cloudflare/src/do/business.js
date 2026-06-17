@@ -1,6 +1,6 @@
 // ── BusinessDO — one instance per business; all of that business's books ──
 // Entities live as individual storage keys `<kind>:<id>` (kinds: user, account,
-// txn, bankacct, import, staged, vendor, customer, item, purchase, recon, lock, i2gpayout).
+// txn, bankacct, import, staged, vendor, customer, item, purchase, recon, lock, i2gpayout, audit).
 // `meta` is the business profile. `seq` is a monotonic mutation counter.
 
 const json = (data, status = 200) =>
@@ -15,6 +15,7 @@ const ENTITY_KINDS = new Set([
   'aiusage', 'aisetting', 'taxsetting', 'invoice',
   'i2gpayout', // Invoice2go payouts — bank-deposit reconciliation targets
   'customer',  // client directory (income-side counterpart to vendors)
+  'audit',     // append-only activity trail (who did what, when)
 ]);
 
 // Structural double-entry invariants, enforced server-side no matter what the
