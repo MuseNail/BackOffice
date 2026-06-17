@@ -47,13 +47,13 @@ const FULL = `
 <h3>Symbols &amp; icons</h3>
 <table>
 <tr><th>Symbol</th><th>Where</th><th>Meaning &amp; what clicking it does</th></tr>
-<tr><td><strong>⚡</strong></td><td>Review — on a row</td><td>Make a <strong>rule</strong>: opens a box to auto-categorize this vendor on future imports. A rule can point at an income/expense category <em>or</em> an account transfer.</td></tr>
+<tr><td><strong>⚡</strong></td><td>Review — on a row</td><td>Make a <strong>rule</strong>: opens a box to auto-categorize this vendor on future imports. A rule can point at an income/expense account <em>or</em> an account transfer.</td></tr>
 <tr><td><strong>%</strong></td><td>Review — on a deposit (money-in) row</td><td><strong>Deposit with a processing fee</strong>: you enter the gross sales the payout covers, and it posts gross income, the fee as an expense, and the net to the bank — one balanced entry.</td></tr>
 <tr><td><strong>⚡$</strong></td><td>Review — on a deposit row</td><td><strong>Match deposit</strong>: matches a bank deposit to your recorded sales/payments and relieves the clearing account (used for Invoice2go and the salon's card deposits) so nothing double-counts.</td></tr>
 <tr><td><strong>✨</strong></td><td>Review — top toolbar</td><td><strong>Get AI suggestions</strong>: asks Claude to categorize the rows that have no rule/history match. It only <em>suggests</em> — you still approve each one. While it runs it shows "✨ Asking Claude…".</td></tr>
-<tr><td><strong>↔</strong></td><td>Category dropdowns</td><td>Marks the "<strong>Transfer to / from</strong>" group — picking one of these accounts records a movement <em>between your own accounts</em> (never income or expense).</td></tr>
-<tr><td><strong>🕘</strong></td><td>Review — suggestion chip</td><td>"You did this before" — the category was matched from your own posting history.</td></tr>
-<tr><td><strong>＋</strong></td><td>Dropdowns &amp; toolbars</td><td>Add something new inline — e.g. "＋ Add category…" in a dropdown opens a quick-add box; "＋ New invoice" / "＋ Add line" add records/rows.</td></tr>
+<tr><td><strong>↔</strong></td><td>Account dropdowns</td><td>Marks the "<strong>Transfer to / from</strong>" group — picking one of these accounts records a movement <em>between your own accounts</em> (never income or expense).</td></tr>
+<tr><td><strong>🕘</strong></td><td>Review — suggestion chip</td><td>"You did this before" — the account was matched from your own posting history.</td></tr>
+<tr><td><strong>＋</strong></td><td>Dropdowns &amp; toolbars</td><td>Add something new inline — e.g. "＋ Add account…" in a dropdown opens a quick-add box; "＋ New invoice" / "＋ Add line" add records/rows.</td></tr>
 <tr><td><code>↻</code></td><td>Version badge</td><td>An update is ready — click to reload to the latest version. "Hard reset" in your name menu does the same on demand (clears the cache and reloads; your data is safe).</td></tr>
 <tr><td>Outline line-icons</td><td>Left nav &amp; your-name menu</td><td>Decorative labels for each tab/menu item — they do whatever their label says.</td></tr>
 </table>
@@ -99,10 +99,10 @@ const FULL = `
 <h3>Review — the approval desk</h3>
 <p>Imported rows wait here, grouped by account. <strong>Approving a row is the moment money posts to your books.</strong></p>
 <ul>
-<li><strong>Toolbar:</strong> filters for money <em>in/out</em>, <em>needs a category</em> vs <em>ready</em>, by account, and sort (newest / oldest / largest / smallest); a <strong>Reset</strong> appears when a filter is on. <strong>Approve all categorized</strong> posts every row that already has a category. <strong>✨ Get AI suggestions</strong> categorizes the unmatched rows (you still approve each).</li>
-<li><strong>Category dropdown</strong> (per row): a "↔ Transfer to / from" group (your bank/card accounts), then your categories grouped by type (sub-accounts are indented), then "<strong>＋ Add category…</strong>" which opens a quick-add box without losing your place.</li>
+<li><strong>Toolbar:</strong> filters for money <em>in/out</em>, <em>needs an account</em> vs <em>ready</em>, by account, and sort (newest / oldest / largest / smallest); a <strong>Reset</strong> appears when a filter is on. <strong>Approve all categorized</strong> posts every row that already has an account. <strong>✨ Get AI suggestions</strong> categorizes the unmatched rows (you still approve each).</li>
+<li><strong>Account dropdown</strong> (per row): a "↔ Transfer to / from" group (your bank/card accounts), then your accounts grouped by type (sub-accounts are indented), then "<strong>＋ Add account…</strong>" which opens a quick-add box without losing your place.</li>
 <li><strong>Suggestion chip</strong>: "⚡ Rule · <em>vendor</em>" (blue), "✨ AI · <em>NN%</em>" (amber), "🕘 You did this before" (green), or "No match" (gray).</li>
-<li><strong>Approve</strong> — posts the row to the ledger with the chosen category. <strong>Skip</strong> — sets it aside (it moves under "Show skipped," where <strong>Restore</strong> brings it back); nothing is deleted and skipped rows still count for de-duplication.</li>
+<li><strong>Approve</strong> — posts the row to the ledger with the chosen account. <strong>Skip</strong> — sets it aside (it moves under "Show skipped," where <strong>Restore</strong> brings it back); nothing is deleted and skipped rows still count for de-duplication.</li>
 <li><strong>⚡</strong> make a rule · <strong>%</strong> deposit-with-fee · <strong>⚡$</strong> match deposit (the last two appear only on money-in rows). See the symbols table.</li>
 <li>Transfers between your own accounts are recognized and never counted as income or expense; the matching row on the other account is cleared automatically.</li>
 <li>If your business receives the <strong>Muse salon sync</strong>, salon rows show in their own "Muse — synced from the salon" section. Each posts via the mapping set in Settings; a row marked "<strong>Map in Settings</strong>" (red) needs a balancing account first.</li>
@@ -122,19 +122,19 @@ const FULL = `
 <ul>
 <li>Every posted transaction. <strong>Search</strong> payee/memo; filter by date / account / vendor / source; click any column heading to <strong>sort</strong>.</li>
 <li>A <strong>source tag</strong> shows where each came from — Manual, CSV, Bank, QuickBooks, or Muse. A <strong>Reconciled</strong> pill means it's locked.</li>
-<li><strong>Add transaction</strong> — a simple one-line entry (bank account + category + amount). <strong>Journal entry</strong> — a multi-line entry that must balance to zero.</li>
+<li><strong>Add transaction</strong> — a simple one-line entry (bank account, the account it posts to, and the amount). <strong>Journal entry</strong> — a multi-line entry that must balance to zero.</li>
 <li>Per row: <strong>Edit</strong> details, <strong>Void</strong> (zeros it out but keeps the record — the only way to undo a posted entry), or <strong>Delete</strong>. Voiding/deleting is blocked on <strong>reconciled</strong> transactions and inside a <strong>locked period</strong> — reopen the period first.</li>
 </ul>
 
 <h3>Accounts (chart of accounts)</h3>
 <ul>
-<li>Every category your money flows through, grouped by type (Income, Cost of goods, Expenses, Assets, Liabilities, Equity).</li>
+<li>Every account your money flows through, grouped by type (Income, Cost of goods, Expenses, Assets, Liabilities, Equity).</li>
 <li><strong>Add account</strong>, <strong>Edit</strong>, or <strong>Archive</strong> (archived accounts keep their history but leave the pickers; <strong>Show archived</strong> reveals them and <strong>Restore</strong> brings one back).</li>
 <li>Click an account name to open its <strong>register</strong> — every transaction hitting it with a running balance, and an <strong>Export CSV</strong> button.</li>
 </ul>
 
 <h3>Vendors &amp; rules</h3>
-<p>Vendors carry the auto-categorize rules used in Review. <strong>New rule</strong> / <strong>Edit</strong> sets the match (an exact description or a keyword that "appears anywhere") and the category it should suggest (a normal category <em>or</em> an account transfer). <strong>Delete</strong> stops future suggestions (already-posted transactions are untouched). Click a vendor for a <strong>register</strong> of all its transactions, with CSV export. Exact match wins over keyword; a rule pointing at an archived category is flagged.</p>
+<p>Vendors carry the auto-categorize rules used in Review. <strong>New rule</strong> / <strong>Edit</strong> sets the match (an exact description or a keyword that "appears anywhere") and the account it should suggest (a normal account <em>or</em> an account transfer). <strong>Delete</strong> stops future suggestions (already-posted transactions are untouched). Click a vendor for a <strong>register</strong> of all its transactions, with CSV export. Exact match wins over keyword; a rule pointing at an archived account is flagged.</p>
 
 <h3>Reconcile</h3>
 <p>Pick a bank account, the statement end date, and the statement ending balance; <strong>tick off</strong> the cleared transactions. The <strong>difference</strong> must reach exactly <strong>$0.00</strong> (it turns green) before <strong>Close &amp; lock these in</strong> finalizes it. Reconciled transactions are protected forever — their amounts, accounts, and status can't change afterward. Past reconciliations are listed below.</p>
@@ -155,7 +155,7 @@ const FULL = `
 <li><strong>Devices</strong> — <strong>Approve</strong> a pending device or <strong>Remove</strong> one.</li>
 <li><strong>Business features</strong> — toggles for <strong>Invoices / accounts receivable</strong> and <strong>Muse salon sync</strong>; turning one off only hides its tab(s) — it never deletes data, so turning it back on brings everything back.</li>
 <li><strong>AI usage &amp; spending</strong> — this month's and lifetime spend; set a <strong>monthly budget</strong> (blank = no cap) and a <strong>Pause</strong> switch. Both are enforced on the server before any spend.</li>
-<li><strong>Muse sync</strong> (when on) — map each salon row type to a balancing account and a suggested category, then <strong>Save mapping</strong>.</li>
+<li><strong>Muse sync</strong> (when on) — map each salon row type to a balancing account and a suggested account, then <strong>Save mapping</strong>.</li>
 <li><strong>QuickBooks Desktop export</strong> — pick a date range and <strong>Export .iif</strong>; if some transactions were exported before, it warns so you don't double them in QuickBooks.</li>
 <li><strong>Import chart of accounts (.IIF)</strong> — bring a client's QuickBooks accounts in; existing ones are skipped, so re-importing is safe.</li>
 <li><strong>Close the books</strong> — pick a month and <strong>Close month</strong> to lock it: a locked month rejects new postings <em>and</em> edits/deletes of posted entries (QuickBooks re-exports still work). Locked months are listed with a <strong>Reopen</strong> button.</li>
@@ -207,12 +207,12 @@ const QUICK = `
 <h3>Review</h3>
 <p>The approval desk — imported rows wait here, grouped by account. <strong>Approval is the moment money posts to your books.</strong></p>
 <ul>
-<li>Each row shows a suggested category (from your vendor rules, then your history, then AI). Pick or confirm a category and <strong>Approve</strong>.</li>
-<li><strong>⚡</strong> turns a row into an auto-categorize rule for that vendor going forward (income/expense categories <em>and</em> account transfers).</li>
+<li>Each row shows a suggested account (from your vendor rules, then your history, then AI). Pick or confirm an account and <strong>Approve</strong>.</li>
+<li><strong>⚡</strong> turns a row into an auto-categorize rule for that vendor going forward (income/expense accounts <em>and</em> account transfers).</li>
 <li><strong>%</strong> records a deposit that had a processing fee taken out (posts gross income, the fee as an expense, and the net to the bank in one balanced entry).</li>
 <li><strong>⚡$</strong> matches a deposit to your recorded sales/payments and relieves the clearing account (used for Invoice2go and the salon's card deposits).</li>
 <li><strong>Skip</strong> sets a row aside without posting — it moves to "Show skipped," where <strong>Restore</strong> brings it back. Nothing is deleted, and skipped rows still count for de-duplication.</li>
-<li>Filter/sort the queue (money in/out, needs-a-category vs ready, by account, newest/largest). <strong>Approve all categorized</strong> posts everything that already has a category. <strong>✨ Get AI suggestions</strong> asks Claude to categorize the unmatched rows (you still approve each).</li>
+<li>Filter/sort the queue (money in/out, needs-an-account vs ready, by account, newest/largest). <strong>Approve all categorized</strong> posts everything that already has an account. <strong>✨ Get AI suggestions</strong> asks Claude to categorize the unmatched rows (you still approve each).</li>
 <li>Transfers between your own accounts are recognized and never counted as income or expense.</li>
 </ul>
 
@@ -230,13 +230,13 @@ const QUICK = `
 
 <h3>Accounts (chart of accounts)</h3>
 <ul>
-<li>Every category your money flows through, grouped by type. <strong>Add account</strong>, rename, or <strong>Archive</strong> (archived accounts keep their history but leave the pickers).</li>
+<li>Every account your money flows through, grouped by type. <strong>Add account</strong>, rename, or <strong>Archive</strong> (archived accounts keep their history but leave the pickers).</li>
 <li><strong>Import from QuickBooks (.IIF)</strong> in Settings brings a client's existing chart of accounts in; accounts that already exist are skipped, so re-importing is safe.</li>
 <li>Click an account to open its <strong>register</strong> — every transaction hitting it with a running balance.</li>
 </ul>
 
 <h3>Vendors &amp; rules</h3>
-<p>Vendors carry the auto-categorize rules used in Review (exact match wins, then keywords). A rule can target an income/expense category <em>or</em> an account transfer. Click a vendor for a <strong>register</strong> of all its transactions.</p>
+<p>Vendors carry the auto-categorize rules used in Review (exact match wins, then keywords). A rule can target an income/expense account <em>or</em> an account transfer. Click a vendor for a <strong>register</strong> of all its transactions.</p>
 
 <h3>Reconcile</h3>
 <p>Tick off transactions against a statement balance for a period and lock it. Reconciled transactions are protected — their amounts, accounts, and status can't be changed afterward.</p>
