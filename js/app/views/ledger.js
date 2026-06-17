@@ -9,6 +9,7 @@ import { accountLabel } from '../lib/coa-templates.js';
 import { vendorMatches } from './vendors.js';
 import { attachAddCategory, attachAddVendor } from '../pickers.js';
 import { categoryField, vendorField, memoField, invoiceField, categoryName, stackedEditor } from '../txn-inline.js';
+import { bindSuggest } from '../suggest.js';
 import { dateRangeControl } from '../daterange.js';
 import { logAudit } from '../audit.js';
 
@@ -354,6 +355,7 @@ export function editTxnModal(t) {
   const date = el('input', { class: 'field-input', type: 'date', value: t.date, disabled: isRecon });
   const payee = el('input', { class: 'field-input', value: t.payee || '', placeholder: 'Who?' });
   const memo = el('input', { class: 'field-input', value: t.memo || '', placeholder: 'Notes (optional)' });
+  bindSuggest(payee, 'payee'); bindSuggest(memo, 'memo');
 
   let catSel = null;
   if (!isRecon && catLine) {
@@ -463,6 +465,7 @@ function addTxnModal() {
   attachAddCategory(category);
   const vendor = vendorSelectEl();
   const memo = el('input', { class: 'field-input', placeholder: 'optional' });
+  bindSuggest(payee, 'payee'); bindSuggest(memo, 'memo');
 
   m.body.append(
     el('div', { style: 'display:flex;gap:8px;margin-bottom:12px' }, dirOut, dirIn),
@@ -503,6 +506,7 @@ function journalModal() {
   const m = modal('Journal entry');
   const date = el('input', { class: 'field-input', type: 'date', value: today() });
   const memo = el('input', { class: 'field-input', placeholder: 'e.g. Opening balances' });
+  bindSuggest(memo, 'memo');
   const linesBox = el('div');
   const totals = el('div', { style: 'font-weight:800;padding:8px 0;border-top:2px solid var(--line);display:flex;justify-content:space-between' });
   const lines = [];

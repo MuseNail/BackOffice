@@ -6,6 +6,11 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.11', items: [
+    { icon: 'chevron_right', t: 'Breadcrumb trail on drill-down screens', d: 'When you open a vendor, account, customer, or invoice, a trail now shows at the top — e.g. “Vendors › Sally Beauty”. Click the parent to step back. The ← Back button is still there too.' },
+    { icon: 'manage_search', t: 'Payee & Memo now autocomplete', d: 'Start typing a payee or a note and the app suggests names and notes you’ve used before — in the Add/Edit transaction forms, the Review notes, and the inline edits in the Ledger and registers. Less typing, consistent spelling.' },
+    { icon: 'bolt', t: 'Icons load instantly, even offline', d: 'The app’s icons are now bundled with it instead of fetched from Google on every load, so they always appear right away and work with no internet.' },
+  ] },
   { v: '0.68.10', items: [
     { icon: 'vertical_align_top', t: 'Reports header stays put', d: 'On Reports, the “Profit & Loss” title, the period/compare controls, and the Print/PDF + Export buttons now stay pinned at the top while you scroll a long report. The Balance Sheet and Tax estimate boxes no longer stretch to match the P&L’s height — each box is now sized to its own content.' },
   ] },

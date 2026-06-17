@@ -846,6 +846,10 @@ function renderInvoiceDetail(root, id) {
   });
 
   root.append(
+    el('div', { class: 'crumb no-print' },
+      el('a', { class: 'crumb-link', href: `#/b/${biz}/invoices` }, 'Invoices'),
+      el('span', { class: 'crumb-sep' }, '›'),
+      el('span', { class: 'crumb-cur' }, `Invoice #${inv.number || '—'}`)),
     back,
     el('h2', { style: 'margin-top:10px' }, `Invoice #${inv.number || '—'} `, el('span', { class: 'pill ' + st.cls, style: 'font-size:.5em;vertical-align:middle' }, st.label)),
     el('p', { class: 'sub' }, `${inv.clientName || ''}${inv.clientEmail ? ' · ' + inv.clientEmail : ''}`),

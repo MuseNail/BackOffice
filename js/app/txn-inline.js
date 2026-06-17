@@ -15,6 +15,7 @@ import { dispatch } from './sync.js';
 import { validateTxn } from './lib/posting.js';
 import { accountLabel } from './lib/coa-templates.js';
 import { attachAddCategory, attachAddVendor, NEW_CATEGORY, NEW_VENDOR } from './pickers.js';
+import { bindSuggest } from './suggest.js';
 
 const bankish = (a) => a.qbType === 'BANK' || a.qbType === 'CCARD';
 const ctx = () => ({ accountsById: new Map(entities('account').map(a => [a.id, a])), locks: new Set(entities('lock').map(l => l.id)) });
@@ -149,6 +150,7 @@ export function invoiceField(t) {
 // note isn't lost if the user navigates away without blurring.
 export function memoField(t) {
   const inp = el('input', { class: 'txi', placeholder: 'Add a note…', value: t.memo || '' });
+  bindSuggest(inp, 'memo');
   let timer = null;
   const save = () => { if ((inp.value.trim()) !== (t.memo || '').trim()) commit(t, { memo: inp.value }); };
   inp.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(save, 700); });

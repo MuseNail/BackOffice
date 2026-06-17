@@ -102,6 +102,12 @@ function drawRegister(body, opts, state) {
     label + arrow(key));
 
   clear(body).append(
+    // Breadcrumb trail (kept alongside the ← Back button) — shows where you are and
+    // lets you click the parent to step back. Skipped in modal mode (it has its own head).
+    opts.modal ? null : el('div', { class: 'crumb no-print' },
+      el('a', { class: 'crumb-link', href: '#' + backHash }, backLabel || 'Back'),
+      el('span', { class: 'crumb-sep' }, '›'),
+      el('span', { class: 'crumb-cur' }, title)),
     el('div', { class: 'no-print', style: 'display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px' },
       // In a modal the X closes it — the back link only matters on the full-page route.
       opts.modal ? el('span') : el('a', { class: 'btn sm ghost', href: '#' + backHash }, '← ' + (backLabel || 'Back')),

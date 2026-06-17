@@ -13,6 +13,7 @@ import { getActiveBiz, canEdit } from '../session.js';
 import { validateTxn, simpleTxn } from '../lib/posting.js';
 import { suggestFor, guessVendorName, matchesRule } from '../lib/match.js';
 import { ruleConditionsEditor, buildMatchers, matchersToConditions, rulePreview } from '../rule-editor.js';
+import { bindSuggest } from '../suggest.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
@@ -181,6 +182,7 @@ function drawBody(body, editable) {
     const sel = categorySelect(row, categories, accountsById, preselect,
       (account) => { lastCategory.set(row.id, account.id); drawBody(body, editable); });
     const memoIn = el('input', { class: 'field-input', placeholder: 'Add a note…', style: 'margin:0;min-width:150px', value: row.memo || '' });
+    bindSuggest(memoIn, 'memo');
     const vendSel = vendorSelect(vendorsList, vendPreselect,
       (vendor) => { lastVendor.set(row.id, vendor.id); drawBody(body, editable); });
     const invSel = showInvoices ? invoiceSelect(invoicesList) : null; if (invSel) invSel.style.margin = '0';
