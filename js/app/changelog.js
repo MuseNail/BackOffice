@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.58.0', items: [
+    { icon: 'view_sidebar', t: 'Sidebar + top bar stay put', d: 'The left menu and the top bar are now fixed — they no longer scroll away when you page through long lists, so navigation is always one click away.' },
+    { icon: 'unfold_less', t: 'Tighter layout + collapsible lists', d: 'Trimmed extra whitespace so more fits on screen, and long lists (like “other income” on the reconcile screen) now collapse — click to expand only what you need.' },
+  ] },
   { v: '0.57.0', items: [
     { icon: 'filter_alt', t: 'Reconcile screen focuses on the app-owned period', d: 'The “Reconcile to bank” screen now only shows deposits from your import start date onward — your QuickBooks historical deposits (already reconciled there) no longer clutter the “other income” list.' },
   ] },

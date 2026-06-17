@@ -617,17 +617,22 @@ const kpiCard = (label, value, note) => el('div', { class: 'card', style: 'flex:
   el('div', { class: 'kpilbl' }, label), el('div', { class: 'kpi' }, value),
   note ? el('div', { class: 'sub', style: 'margin:0' }, note) : null);
 
-function reconTable(title, headers, rows, note) {
+function reconTable(title, headers, rows, note, collapsible = false) {
   const isNum = (h) => /amount/i.test(h);
+  const tableEl = rows.length
+    ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-width:880px' },
+        el('table', { class: 'data' },
+          el('tr', {}, ...headers.map(h => el('th', { class: isNum(h) ? 'num' : '' }, h))),
+          ...rows.map(r => el('tr', {}, ...r.map((c, i) => el('td', { class: isNum(headers[i]) ? 'num' : '' }, c))))))
+    : el('p', { class: 'sub' }, 'None — all clear. 🎉');
+  const noteEl = note ? el('p', { class: 'sub', style: 'max-width:880px;margin-top:4px' }, note) : null;
+  // Long lists collapse to keep the screen scannable; open it when you need the detail.
+  if (collapsible && rows.length) return el('details', { style: 'margin-bottom:16px' },
+    el('summary', { class: 'cardtitle', style: 'cursor:pointer;margin-bottom:6px' }, `${title} (${rows.length})`),
+    tableEl, noteEl);
   return el('div', { style: 'margin-bottom:16px' },
     title ? el('div', { class: 'cardtitle', style: 'margin-bottom:6px' }, title) : null,
-    rows.length
-      ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:880px' },
-          el('table', { class: 'data' },
-            el('tr', {}, ...headers.map(h => el('th', { class: isNum(h) ? 'num' : '' }, h))),
-            ...rows.map(r => el('tr', {}, ...r.map((c, i) => el('td', { class: isNum(headers[i]) ? 'num' : '' }, c))))))
-      : el('p', { class: 'sub' }, 'None — all clear. 🎉'),
-    note ? el('p', { class: 'sub', style: 'max-width:880px;margin-top:4px' }, note) : null);
+    tableEl, noteEl);
 }
 
 function renderReconcile(root) {
@@ -698,7 +703,7 @@ function renderReconcile(root) {
         'These need either the bank statement for that period imported, or a manual match (coming next). Each should eventually tie to a real deposit.'),
       reconTable('⚠️ Bank deposits that aren’t Invoice2go (other income)', ['Deposit date', 'Amount', 'Source', 'Description'],
         unmatchedDeposits.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 200).map(d => [d.date, fmtMoney(d.amountCents), d.kind === 'new' ? 'new import' : 'on file', d.payee]),
-        `Deposits not explained by an Invoice2go payout — your other income, to categorize as usual.${unmatchedDeposits.length > 200 ? ' (showing the first 200)' : ''}`),
+        `Deposits not explained by an Invoice2go payout — your other income, to categorize as usual.${unmatchedDeposits.length > 200 ? ' (showing the first 200)' : ''}`, true),
       el('details', {},
         el('summary', { class: 'sub', style: 'cursor:pointer;margin-bottom:6px' }, `✅ ${matches.length} matched payouts (click to view)`),
         reconTable('', ['Payout date', 'Amount', '→ Deposit date', 'Source'],
