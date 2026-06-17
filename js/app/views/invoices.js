@@ -216,7 +216,9 @@ function postCard() {
         }
         return a;
       };
-      const clr = mk('Undeposited Funds', 'asset', 'OCASSET', find('asset', /undeposited/i));
+      // A DEDICATED clearing account (not QuickBooks' shared Undeposited Funds) so the
+      // Invoice2go balance is purely its own money awaiting a deposit — clean to reconcile.
+      const clr = mk('Invoice2go Clearing', 'asset', 'OCASSET', find('asset', /invoice ?2 ?go clearing/i));
       const cogs = mk('Card processing fees', 'cogs', 'COGS', find('cogs', /processing|card fee/i));
       const passed = mk('Processing Fees', 'income', 'INC', find('income', /processing fee/i));
       const payout = mk('Payout Fee', 'expense', 'EXP', find('expense', /payout/i));
@@ -269,6 +271,7 @@ function postCard() {
 
     importBtn.addEventListener('click', () => {
       if (!built) return;
+      const now = Date.now();
       dispatch({ op: 'meta.set', value: { ...getState().meta, i2gMapping: curMapping(), i2gCutoff: cutoffInput.value || '' } });
       // 1) invoices
       if (built.invoiceValues.length) for (let i = 0; i < built.invoiceValues.length; i += 200) dispatch({ op: 'entity.bulkUpsert', kind: 'invoice', values: built.invoiceValues.slice(i, i + 200) });
@@ -282,6 +285,12 @@ function postCard() {
           for (let i = 0; i < good.length; i += 200) dispatch({ op: 'entity.bulkUpsert', kind: 'txn', values: good.slice(i, i + 200) });
           posted = good.length;
         } else if (built.cf.txns.length) { toast('Could not post cashflow — check the accounts (and that the period isn’t locked)', 'err'); }
+      }
+      // 3) payout records for reconciliation — merge to preserve any deposit match already made
+      if (built.cf?.payoutEntities?.length) {
+        const exById = new Map(entities('i2gpayout').map(p => [p.id, p]));
+        const vals = built.cf.payoutEntities.map(p => ({ ...p, matchedDepositId: exById.get(p.id)?.matchedDepositId, updatedAt: now }));
+        for (let i = 0; i < vals.length; i += 200) dispatch({ op: 'entity.bulkUpsert', kind: 'i2gpayout', values: vals.slice(i, i + 200) });
       }
       toast(`Imported ${built.invoiceValues.length} invoices · posted ${posted} cashflow entries${bad ? ` · ${bad} skipped` : ''}`);
       importBtn.disabled = true; built = null; file.value = '';

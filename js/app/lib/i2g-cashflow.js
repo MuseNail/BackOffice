@@ -24,6 +24,7 @@ import { validateTxn } from './posting.js';
 
 export const cashflowPaymentTxnId = (id) => 'i2gc-' + id;
 export const cashflowPayoutTxnId = (id) => 'i2gpo-' + id;
+export const cashflowPayoutEntityId = (id) => 'i2gpay-' + id;
 
 export function parseCashflow(raw) {
   const arr = Array.isArray(raw) ? raw
@@ -130,12 +131,22 @@ export function buildCashflowImport(raw, { existingInvoices = [], mapping = {}, 
   }
 
   let payoutFees = 0;
+  // Every payout is a bank deposit to reconcile (incl. free same_day_ach ones, which
+  // book no fee txn). We record them as `i2gpayout` entities — netToBankCents (= amount
+  // − the 1% instant fee) is the amount that actually hits the bank, the match target.
+  const payoutEntities = [];
   for (const po of payouts) {
+    const hits = netToPayments.get(po.amount) || [];
+    const invId = hits.length === 1 ? resolveInv(hits[0].docId, hits[0].docNum) : null; // tag only when it's clearly one invoice
+    payoutEntities.push({
+      id: cashflowPayoutEntityId(po.id), date: po.date,
+      amountCents: po.amount, feeCents: po.fee, netToBankCents: po.amount - po.fee,
+      method: po.method, invoiceId: invId || undefined,
+      source: { app: 'i2g-payout', sourceId: po.id },
+    });
     if (po.fee <= 0) continue;
     payoutFees += po.fee;
     if (!mapping.payoutFeeId) { errors.push('Pick a Payout Fee expense account.'); continue; }
-    const hits = netToPayments.get(po.amount) || [];
-    const invId = hits.length === 1 ? resolveInv(hits[0].docId, hits[0].docNum) : null; // tag only when it's clearly one invoice
     txns.push({
       id: cashflowPayoutTxnId(po.id), date: po.date, payee: 'Invoice2go instant payout', memo: 'Invoice2go instant-payout fee (1%)',
       invoiceId: invId || undefined,
@@ -148,7 +159,7 @@ export function buildCashflowImport(raw, { existingInvoices = [], mapping = {}, 
   const sum = (k) => payments.reduce((s, p) => s + p[k], 0);
   return {
     errors: [...new Set(errors)],
-    txns: fresh, allTxns: txns,
+    txns: fresh, allTxns: txns, payoutEntities,
     preview: {
       payments: payments.length, payouts: payouts.length, payoutsWithFee: payouts.filter(p => p.fee > 0).length,
       toPost: fresh.length, alreadyPosted: txns.length - fresh.length,

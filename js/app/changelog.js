@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.54.0', items: [
+    { icon: 'account_balance', t: 'Groundwork for bank-deposit reconciliation', d: 'Invoice2go now posts to its own dedicated “Invoice2go Clearing” account (instead of sharing QuickBooks’ Undeposited Funds), so its balance is purely Invoice2go money awaiting a deposit — clean to reconcile. The import also records every payout (including fee-free ones) with the exact amount that hits your bank, ready to be matched against your bank deposits. The matching screen comes next.' },
+  ] },
   { v: '0.53.0', items: [
     { icon: 'event_busy', t: 'Start date on the Invoice2go import', d: 'The one-file import now has a “Start date” (defaults to Oct 1, 2025): invoices and cashflow dated before it are skipped, so periods already covered by your QuickBooks import aren’t double-counted. The date is remembered for next time.' },
   ] },

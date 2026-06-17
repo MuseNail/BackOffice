@@ -70,6 +70,20 @@ test('bank transfer → no fee, 2-line', () => {
   assert.equal(r.txns[0].lines.length, 2);
 });
 
+test('payout entities capture every payout (incl. free ACH) with net-to-bank = amount − fee', () => {
+  const r = buildCashflowImport([passedPay, instantPayout, achPayout], { existingInvoices: invoices, mapping });
+  const pe = r.payoutEntities;
+  assert.equal(pe.length, 2); // rtp + ach (both are bank deposits to reconcile)
+  const rtp = pe.find(p => p.id === 'i2gpay-po1');
+  assert.equal(rtp.amountCents, 400500);
+  assert.equal(rtp.feeCents, 4005);
+  assert.equal(rtp.netToBankCents, 396495); // amount − fee = what hits the bank
+  assert.equal(rtp.invoiceId, 'i3972');      // 1:1 net match → tagged
+  const ach = pe.find(p => p.id === 'i2gpay-po2');
+  assert.equal(ach.feeCents, 0);
+  assert.equal(ach.netToBankCents, 269500);  // free payout → full amount hits the bank
+});
+
 test('instant payout fee → expense + clearing relief, tagged 1:1 to its invoice', () => {
   const r = buildCashflowImport([passedPay, instantPayout, achPayout], { existingInvoices: invoices, mapping });
   const po = r.txns.find(x => x.id === cashflowPayoutTxnId('po1'));
