@@ -37,6 +37,17 @@ h2{font-size:19px;margin:0 0 2px}
 
 /* ── primitives ── */
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;box-shadow:0 2px 8px rgba(20,30,55,.10)}
+/* ── Review row cards: all fields inline, 2-line, dashed column dividers ── */
+.revrow{border:1px solid #d7dce6;border-radius:10px;box-shadow:0 1px 4px rgba(20,30,55,.10);background:#fff;padding:10px 12px;margin-bottom:8px}
+.revtop{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+.revtop .revdate{color:var(--mut);white-space:nowrap;font-variant-numeric:tabular-nums}
+.revtop .revdesc{flex:1;min-width:160px;font-weight:600;word-break:break-word;line-height:1.35}
+.revtop .revamt{white-space:nowrap;font-weight:800}
+.revfields{display:flex;align-items:flex-end;flex-wrap:wrap;gap:9px 0;margin-top:9px;border-top:1px dashed var(--line);padding-top:9px}
+.revfields .rvf{padding:0 12px;border-right:1px dashed #c7cedb}
+.revfields .rvf:first-child{padding-left:0}
+.revfields .rvf:last-child{border-right:0}
+.revfields .rvactions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .kpi-card{transition:border-color .12s,box-shadow .12s,transform .12s}
 .kpi-card:hover{border-color:var(--brand);box-shadow:0 2px 10px rgba(36,86,166,.12);transform:translateY(-1px)}
 .kpi-more{font-size:11px;font-weight:700;color:var(--brand);margin-top:8px;opacity:0;transition:opacity .12s}

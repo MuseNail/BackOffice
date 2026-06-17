@@ -6,7 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
-  { v: '0.59.0', items: [
+  { v: '0.60.0', items: [
+    { icon: 'view_agenda', t: 'Review redesigned — everything in view', d: 'Each transaction in Review is now its own card with all fields always visible (category, vendor, invoice, note, actions) — no more clicking to expand. Long bank descriptions wrap onto two lines, columns are separated by dashed dividers, and each row has a clear outline so they’re easy to tell apart.' },
+    { icon: 'unfold_more', t: 'Collapse accounts + page through them', d: 'Click an account’s name to collapse/expand its transactions, and page through them 50 at a time instead of only seeing the first 100 — so you can work through all of them.' },
+  ] },
     { icon: 'close', t: 'Esc closes pop-ups', d: 'Press Escape to close any open dialog (the top-most one first).' },
     { icon: 'gradient', t: 'Clearer cards', d: 'Cards/panels now have a softer drop shadow so each one reads as a distinct tile.' },
     { icon: 'dashboard_customize', t: 'Tidier Banking screen', d: 'Account tiles are now a uniform grid — same size and layout, with buttons aligned at the bottom — and the import list has an “Import history” heading.' },
