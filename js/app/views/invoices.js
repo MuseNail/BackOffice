@@ -9,6 +9,7 @@ import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseInvoices } from '../lib/invoice2go.js';
 import { buildCashflowImport, cashflowPaymentTxnId, parseBundleInvoices } from '../lib/i2g-cashflow.js';
+import { reconcilePayouts } from '../lib/i2g-reconcile.js';
 import { validateTxn, invoiceExpensesTotal } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { blankInvoice, recompute, nextInvoiceNumber, addManualPayment } from '../lib/invoice-edit.js';
@@ -48,6 +49,7 @@ function bucketOf(inv, today) {
 let agingFilter = null;
 
 export function render(root, detail) {
+  if (detail === 'reconcile') { renderReconcile(root); return; }
   if (detail) { renderInvoiceDetail(root, detail); return; }
   agingFilter = null;
   if (!usesInvoices()) {
@@ -65,7 +67,9 @@ export function render(root, detail) {
     el('p', { class: 'sub' }, 'Imported from Invoice2go. Each weekly export is the full history — re-importing only adds new invoices and applies new payments, never duplicates.'),
   );
   if (editable) root.append(
-    el('div', { style: 'margin-bottom:14px' }, el('button', { class: 'btn sm', onclick: () => invoiceModal(null) }, '＋ New invoice')),
+    el('div', { style: 'margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap' },
+      el('button', { class: 'btn sm', onclick: () => invoiceModal(null) }, '＋ New invoice'),
+      el('button', { class: 'btn sm', onclick: () => { location.hash = `#/b/${getActiveBiz()}/invoices/reconcile`; } }, 'Reconcile to bank →')),
     postCard(), importCard());
   const body = el('div');
   root.append(body);
@@ -605,6 +609,71 @@ function dateBlock(inv) {
   if (inv.dueDate) chips.push(chip('Due', inv.dueDate));
   if (inv.datePaid) chips.push(chip('Paid', inv.datePaid));
   return el('div', { style: 'display:flex;flex-wrap:wrap;gap:24px;margin:8px 0 2px' }, ...chips);
+}
+
+// ── Reconcile Invoice2go payouts ↔ bank deposits ──
+const kpiCard = (label, value, note) => el('div', { class: 'card', style: 'flex:1;min-width:190px' },
+  el('div', { class: 'kpilbl' }, label), el('div', { class: 'kpi' }, value),
+  note ? el('div', { class: 'sub', style: 'margin:0' }, note) : null);
+
+function reconTable(title, headers, rows, note) {
+  const isNum = (h) => /amount/i.test(h);
+  return el('div', { style: 'margin-bottom:16px' },
+    title ? el('div', { class: 'cardtitle', style: 'margin-bottom:6px' }, title) : null,
+    rows.length
+      ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:880px' },
+          el('table', { class: 'data' },
+            el('tr', {}, ...headers.map(h => el('th', { class: isNum(h) ? 'num' : '' }, h))),
+            ...rows.map(r => el('tr', {}, ...r.map((c, i) => el('td', { class: isNum(headers[i]) ? 'num' : '' }, c))))))
+      : el('p', { class: 'sub' }, 'None — all clear. 🎉'),
+    note ? el('p', { class: 'sub', style: 'max-width:880px;margin-top:4px' }, note) : null);
+}
+
+function renderReconcile(root) {
+  const biz = getActiveBiz();
+  const banks = entities('bankacct');
+  root.append(
+    el('a', { class: 'btn sm ghost', href: `#/b/${biz}/invoices` }, '← Invoices'),
+    el('h2', { style: 'margin-top:10px' }, 'Reconcile Invoice2go to the bank'),
+    el('p', { class: 'sub' }, 'Each Invoice2go payout should equal one bank deposit. Matches are found automatically by amount and date — the two lists below are what needs your eyes: payouts with no matching deposit, and bank deposits that aren’t Invoice2go (your other income).'));
+  if (!banks.length) { root.append(el('p', { class: 'sub' }, 'Add a bank account in Banking first.')); return; }
+  let bankId = (banks.find(b => /0116/.test(b.name)) || banks[0]).id;
+  const sel = el('select', { class: 'field-input', style: 'max-width:260px', onchange: (e) => { bankId = e.target.value; draw(); } },
+    ...banks.map(b => el('option', { value: b.id, selected: b.id === bankId }, b.name)));
+  const body = el('div');
+  root.append(el('div', { style: 'margin:10px 0 14px' }, el('label', { class: 'field-label' }, 'Bank account that receives Invoice2go deposits'), sel), body);
+
+  const draw = () => {
+    const bank = banks.find(b => b.id === bankId), acct = bank.accountId;
+    // deposits = money IN on this bank: posted txns (e.g. from QuickBooks) + newly imported (staged) rows
+    const posted = entities('txn').filter(t => t.status === 'posted' && !/^(i2gc-|i2gpo-)/.test(t.id))
+      .map(t => ({ id: t.id, date: t.date, amountCents: (t.lines || []).reduce((s, l) => s + (l.accountId === acct ? l.amountCents : 0), 0), kind: 'posted', payee: t.payee || '—' }))
+      .filter(d => d.amountCents > 0);
+    const staged = entities('staged').filter(s => s.bankacctId === bankId && s.status === 'pending' && (s.amountCents || 0) > 0)
+      .map(s => ({ id: s.id, date: s.date, amountCents: s.amountCents, kind: 'new', payee: s.desc || '—' }));
+    const deposits = [...posted, ...staged];
+    const payouts = entities('i2gpayout');
+    const { matches, unmatchedPayouts, unmatchedDeposits } = reconcilePayouts(payouts, deposits);
+    const sumP = arr => arr.reduce((s, x) => s + (x.netToBankCents || 0), 0);
+    const sumD = arr => arr.reduce((s, x) => s + (x.amountCents || 0), 0);
+
+    clear(body).append(
+      el('div', { class: 'row', style: 'margin-bottom:14px' },
+        kpiCard('Payouts matched', `${matches.length} / ${payouts.length}`, fmtMoney(matches.reduce((s, m) => s + m.payout.netToBankCents, 0))),
+        kpiCard('Payouts not matched', String(unmatchedPayouts.length), fmtMoney(sumP(unmatchedPayouts)) + ' — investigate'),
+        kpiCard('Deposits not Invoice2go', String(unmatchedDeposits.length), fmtMoney(sumD(unmatchedDeposits)) + ' — other income')),
+      reconTable('⚠️ Invoice2go payouts with no matching bank deposit', ['Payout date', 'Amount', 'Method'],
+        unmatchedPayouts.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '')).map(p => [p.date, fmtMoney(p.netToBankCents), (p.method || '').replace(/_/g, ' ')]),
+        'These need either the bank statement for that period imported, or a manual match (coming next). Each should eventually tie to a real deposit.'),
+      reconTable('⚠️ Bank deposits that aren’t Invoice2go (other income)', ['Deposit date', 'Amount', 'Source', 'Description'],
+        unmatchedDeposits.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 200).map(d => [d.date, fmtMoney(d.amountCents), d.kind === 'new' ? 'new import' : 'on file', d.payee]),
+        `Deposits not explained by an Invoice2go payout — your other income, to categorize as usual.${unmatchedDeposits.length > 200 ? ' (showing the first 200)' : ''}`),
+      el('details', {},
+        el('summary', { class: 'sub', style: 'cursor:pointer;margin-bottom:6px' }, `✅ ${matches.length} matched payouts (click to view)`),
+        reconTable('', ['Payout date', 'Amount', '→ Deposit date', 'Source'],
+          matches.map(m => [m.payout.date, fmtMoney(m.payout.netToBankCents), m.deposit.date, m.deposit.kind === 'new' ? 'new import' : 'on file']))));
+  };
+  draw();
 }
 
 function renderInvoiceDetail(root, id) {

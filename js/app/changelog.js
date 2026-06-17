@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.55.0', items: [
+    { icon: 'compare_arrows', t: 'Reconcile Invoice2go to your bank', d: 'A new “Reconcile to bank” screen (Invoices tab) automatically matches each Invoice2go payout to the bank deposit it produced — same amount, right timeframe — and shows you the two things that need attention: Invoice2go payouts with no matching deposit, and bank deposits that aren’t Invoice2go (your other income). Read-only for now; one-click matching is next.' },
+  ] },
   { v: '0.54.0', items: [
     { icon: 'account_balance', t: 'Groundwork for bank-deposit reconciliation', d: 'Invoice2go now posts to its own dedicated “Invoice2go Clearing” account (instead of sharing QuickBooks’ Undeposited Funds), so its balance is purely Invoice2go money awaiting a deposit — clean to reconcile. The import also records every payout (including fee-free ones) with the exact amount that hits your bank, ready to be matched against your bank deposits. The matching screen comes next.' },
   ] },
