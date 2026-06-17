@@ -11,7 +11,8 @@ import { entities, subscribe, getState, usesInvoices } from '../store.js';
 import { dispatch, api } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { validateTxn, simpleTxn } from '../lib/posting.js';
-import { suggestFor, guessVendorName } from '../lib/match.js';
+import { suggestFor, guessVendorName, matchesRule } from '../lib/match.js';
+import { ruleConditionsEditor, buildMatchers, matchersToConditions, rulePreview } from '../rule-editor.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
@@ -728,8 +729,15 @@ function makeRuleModal(row, pickedCategoryId, categories, accountsById) {
   const findVendor = (nm) => { const t = nm.trim().toLowerCase(); return t ? existingVendors.find(v => (v.name || '').trim().toLowerCase() === t) : null; };
   const dl = el('datalist', { id: 'mr-existing-vendors' }, ...existingVendors.map(v => el('option', { value: v.name })));
   const name = el('input', { class: 'field-input', list: 'mr-existing-vendors', value: guessVendorName(row.desc) });
-  const keyword = el('input', { class: 'field-input', value: guessVendorName(row.desc).toUpperCase() });
   const hint = el('p', { class: 'sub', style: 'margin:4px 0 0;color:var(--green)' }, '');
+  const editor = ruleConditionsEditor({ seed: { conditions: [{ type: 'contains', text: guessVendorName(row.desc).toUpperCase() }] }, onChange: () => updatePreview() });
+  const preview = rulePreview();
+  const updatePreview = () => {
+    const sp = editor.get();
+    if (!sp.conditions.length) { preview.set({ n: 0, samples: [] }); return; }
+    const hits = entities('staged').filter(r => matchesRule(buildMatchers(sp), r));
+    preview.set({ n: hits.length, samples: hits.map(r => r.desc).filter(Boolean) });
+  };
   // Bank/card accounts are offered as transfer destinations (a rule can auto-categorize
   // a recurring transfer to another account), mirroring the Vendors-tab rule editor.
   const ownAccountId = entities('bankacct').find(b => b.id === row.bankacctId)?.accountId;
@@ -757,35 +765,34 @@ function makeRuleModal(row, pickedCategoryId, categories, accountsById) {
   name.addEventListener('input', syncExisting);
   syncExisting();
   m.body.append(
-    el('p', { class: 'sub' }, 'Bank descriptions containing the match text get this account suggested automatically.'),
+    el('p', { class: 'sub' }, 'Bank descriptions matching the conditions below get this account suggested automatically.'),
     el('label', { class: 'field-label' }, 'Vendor name'), name, dl, hint,
-    el('label', { class: 'field-label' }, 'Match text (appears anywhere in the description)'), keyword,
+    editor.el,
     el('label', { class: 'field-label' }, 'Account'), cat,
+    preview.el,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', onclick: () => {
-        const nm = name.value.trim(), kw = keyword.value.trim();
-        if (!nm || !kw || !cat.value) { toast('Fill all three fields', 'err'); return; }
+        const nm = name.value.trim(); const spec = editor.get();
+        if (!nm || !spec.conditions.length || !cat.value) { toast('Add a vendor name, at least one match condition, and an account', 'err'); return; }
         const existing = findVendor(nm);
-        const keywords = existing
-          ? Array.from(new Set([...(existing.matchers?.keywords || []), kw]))
-          : [kw];
+        // Extend an existing vendor's rule (don't clobber) — merge conditions by type+text.
+        const mergedConds = existing
+          ? Array.from(new Map([...matchersToConditions(existing.matchers), ...spec.conditions].map(c => [c.type + ' ' + c.text, c])).values())
+          : spec.conditions;
+        const matchers = buildMatchers({ ...spec, conditions: mergedConds });
         const vId = existing?.id || ('v-' + nm.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30));
-        // Carry the rule just made back onto the row it was opened from (item 1) —
-        // set BEFORE dispatch so the redraw it triggers picks up the selection.
+        // Carry the rule just made back onto the row it was opened from — set BEFORE
+        // dispatch so the redraw it triggers picks up the selection.
         lastCategory.set(row.id, cat.value);
         lastVendor.set(row.id, vId);
         dispatch({ op: 'entity.upsert', kind: 'vendor', value: {
-          ...(existing || {}),
-          id: vId,
-          name: nm,
-          matchers: { exact: existing?.matchers?.exact || [], keywords },
-          defaultAccountId: cat.value,
-          used: existing?.used || 0,
+          ...(existing || {}), id: vId, name: nm, matchers, defaultAccountId: cat.value, used: existing?.used || 0,
         } });
         logAudit('rule', { summary: `${existing ? 'Updated' : 'Created'} rule “${nm}” → ${entities('account').find(a => a.id === cat.value)?.name || cat.value}`, kind: 'vendor', entityId: vId });
-        toast(existing ? `Match text added to “${nm}”` : 'Rule saved — future imports match automatically');
+        toast(existing ? `Rule updated for “${nm}”` : 'Rule saved — future imports match automatically');
         m.close();
       } }, 'Save rule')),
   );
+  updatePreview();
 }

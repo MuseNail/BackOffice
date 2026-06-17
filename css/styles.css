@@ -260,3 +260,12 @@ label.pct-toggle input{width:15px;height:15px;accent-color:var(--brand);cursor:p
 .review-bulkbar{position:sticky;top:53px;z-index:6;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#e8effb;border:1.5px solid #bcd2f0;border-radius:11px;padding:9px 13px;margin-bottom:12px;box-shadow:0 2px 8px rgba(20,30,55,.10)}
 .review-bulkbar b{color:#1b4485}
 .revchk{width:16px;height:16px;accent-color:var(--brand);cursor:pointer;flex:none}
+
+/* Rule builder — conditions + live preview */
+.addcond{font-size:12px;font-weight:700;color:var(--brand);background:none;border:none;cursor:pointer;padding:4px 0;margin-bottom:6px}
+.rule-preview{margin-top:10px;background:var(--green-soft);border:1px solid #bfe3cd;border-radius:9px;padding:9px 11px;font-size:12.5px}
+.rule-preview b{color:var(--green)}
+.rule-preview.zero{background:var(--amber-soft);border-color:#f0dca0}
+.rule-preview.zero b{color:var(--amber)}
+.rule-samp{font-size:11px;color:#3c6b50;margin-top:4px}
+.rule-preview.zero .rule-samp{color:#7a5a12}

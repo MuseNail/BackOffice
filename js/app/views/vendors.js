@@ -7,6 +7,7 @@ import { accountLabel } from '../lib/coa-templates.js';
 import { normalizeDesc } from '../lib/match.js';
 import { renderRegister } from '../register.js';
 import { dateRangeControl, inRange } from '../daterange.js';
+import { ruleConditionsEditor, buildMatchers, ruleSummary } from '../rule-editor.js';
 
 let unsub = null;
 let vendorRange = { from: null, to: null };
@@ -83,12 +84,13 @@ function drawTable(body, editable) {
   const rows = vendors.map(v => { const tx = txnsForVendor(v).filter(t => inRange(t.date, vendorRange)); return { v, n: tx.length, total: tx.reduce((s, t) => s + expenseOf(t, expenseIds), 0) }; })
     .sort((a, b) => b.total - a.total || a.v.name.localeCompare(b.v.name));
   const tbl = el('table', { class: 'data' },
-    el('tr', {}, el('th', {}, 'Vendor'), el('th', { class: 'num' }, 'Transactions'), el('th', { class: 'num' }, 'Total paid')),
-    ...rows.map(({ v, n, total }) => el('tr', { style: 'cursor:pointer', title: 'View transactions / edit', onclick: () => vendorDrilldown(v, () => drawTable(body, editable)) },
+    el('tr', {}, el('th', {}, 'Vendor'), el('th', {}, 'Rule'), el('th', { class: 'num' }, 'Transactions'), el('th', { class: 'num' }, 'Total paid')),
+    ...rows.map(({ v, n, total }) => el('tr', { style: 'cursor:pointer', title: 'View transactions / edit rule', onclick: () => vendorDrilldown(v, () => drawTable(body, editable)) },
       el('td', {}, el('b', {}, v.name)),
+      el('td', { class: 'sub', style: 'margin:0;max-width:340px' }, ruleSummary(v.matchers)),
       el('td', { class: 'num' }, String(n)),
       el('td', { class: 'num' }, fmtMoney(total)))));
-  clear(body).append(el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:760px' }, tbl));
+  clear(body).append(el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:900px' }, tbl));
 }
 
 // Click a vendor → popup with their transactions + total paid, and Edit/Delete (Esc closes).
@@ -163,32 +165,27 @@ function ruleModal(existing) {
   const transferTargets = active.filter(isBankish).sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)));
   const categories = active.filter(a => !isBankish(a)).sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)));
   const name = el('input', { class: 'field-input', value: existing?.name || '', placeholder: 'Vendor name' });
-  const mode = el('select', { class: 'field-input' },
-    el('option', { value: 'keyword', selected: !existing || !!existing.matchers?.keywords?.length }, 'Description contains…'),
-    el('option', { value: 'exact', selected: !!existing?.matchers?.exact?.length }, 'Description is exactly…'));
-  const text = el('input', { class: 'field-input', value: existing?.matchers?.keywords?.[0] || existing?.matchers?.exact?.[0] || '', placeholder: 'e.g. SALLY BEAUTY' });
+  const editor = ruleConditionsEditor({ seed: existing?.matchers || {} });
   const cat = el('select', { class: 'field-input' },
-    el('option', { value: '' }, '— category —'),
+    el('option', { value: '' }, '— account —'),
     transferTargets.length ? el('optgroup', { label: '↔ Transfer to / from' },
       ...transferTargets.map(a => el('option', { value: a.id, selected: a.id === existing?.defaultAccountId }, accountLabel(a, byId)))) : null,
-    el('optgroup', { label: 'Categories' },
+    el('optgroup', { label: 'Accounts' },
       ...categories.map(a => el('option', { value: a.id, selected: a.id === existing?.defaultAccountId }, accountLabel(a, byId)))));
   m.body.append(
     el('label', { class: 'field-label' }, 'Vendor'), name,
-    el('label', { class: 'field-label' }, 'Match type'), mode,
-    el('label', { class: 'field-label' }, 'Match text'), text,
-    el('label', { class: 'field-label' }, 'Category'), cat,
+    editor.el,
+    el('label', { class: 'field-label' }, 'Account'), cat,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', onclick: () => {
-        if (!name.value.trim() || !text.value.trim() || !cat.value) { toast('Fill all the fields', 'err'); return; }
+        const spec = editor.get();
+        if (!name.value.trim() || !spec.conditions.length || !cat.value) { toast('Add a vendor name, at least one match condition, and an account', 'err'); return; }
         dispatch({ op: 'entity.upsert', kind: 'vendor', value: {
           ...(existing || { used: 0 }),
           id: existing?.id || 'v-' + name.value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30),
           name: name.value.trim(),
-          matchers: mode.value === 'exact'
-            ? { exact: [text.value.trim()], keywords: [] }
-            : { exact: [], keywords: [text.value.trim()] },
+          matchers: buildMatchers(spec),
           defaultAccountId: cat.value,
         } });
         toast('Rule saved');

@@ -27,6 +27,13 @@ export function suggestFor(row, { vendors = [], history = [] } = {}) {
       if (kk && desc.includes(kk)) return hit(v, 'rule');
     }
   }
+  // Advanced conditions (v0.68.7+): match-type per condition (contains/starts/exact/
+  // regex), ALL must match, plus an optional direction / amount-range gate. Legacy
+  // exact[]/keywords[] above stay so old rules and not-yet-updated devices keep working.
+  for (const v of vendors) {
+    if (!v.defaultAccountId) continue;
+    if (matchesRule(v.matchers, row)) return hit(v, 'rule');
+  }
 
   let best = null;
   for (const h of history) {
@@ -38,6 +45,34 @@ export function suggestFor(row, { vendors = [], history = [] } = {}) {
 }
 
 const hit = (v, by) => ({ accountId: v.defaultAccountId, by, vendorId: v.id, vendorName: v.name });
+
+// True when a row satisfies a matchers object's advanced conditions (ALL of them)
+// AND its direction / amount-range gate. Pure — shared by suggestFor and the rule
+// builder's live preview. row: { desc, amountCents }.
+export function matchesRule(matchers, row) {
+  const conds = matchers?.conditions;
+  if (!Array.isArray(conds) || !conds.length) return false;
+  const desc = normalizeDesc(row?.desc);
+  if (!conds.every(c => matchCond(c, desc, row?.desc || ''))) return false;
+  return gateOk(matchers, row);
+}
+function matchCond(c, desc, rawDesc) {
+  const t = normalizeDesc(c?.text);
+  if (!t) return false;
+  if (c.type === 'starts') return desc.startsWith(t);
+  if (c.type === 'exact') return desc === t;
+  if (c.type === 'regex') { try { return new RegExp(c.text, 'i').test(rawDesc); } catch { return false; } }
+  return desc.includes(t);   // 'contains' (default)
+}
+function gateOk(m, row) {
+  const amt = row?.amountCents || 0, abs = Math.abs(amt);
+  const dir = m.direction || 'any';
+  if (dir === 'in' && amt <= 0) return false;
+  if (dir === 'out' && amt >= 0) return false;
+  if (m.amountMin != null && abs < m.amountMin) return false;
+  if (m.amountMax != null && abs > m.amountMax) return false;
+  return true;
+}
 
 // "SALLY BEAUTY, #10382" → "Sally Beauty" — a human-looking vendor-name guess
 // for prefilling the make-a-rule form.
