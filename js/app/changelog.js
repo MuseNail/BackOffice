@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.1', items: [
+    { icon: 'tune', t: 'Date picker + layout tweaks', d: 'Fixed the calendar closing when you tapped the previous/next-month arrows. Every date picker is now a consistent fixed width so changing the range no longer shifts the layout. The top search box is wider, and switching businesses moved from the sidebar into your account menu (top-right).' },
+  ] },
   { v: '0.68.0', items: [
     { icon: 'account_tree', t: 'Profit & Loss you can expand and drill into', d: 'The P&L now shows each parent account as one line with its rolled-up total; click it to expand the sub-accounts (indented, with their own subtotals). Any account with no sub-accounts — and each sub-account — is clickable to open the exact transactions that make up its total, and from there you can click any transaction to edit it.' },
   ] },

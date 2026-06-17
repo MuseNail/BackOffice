@@ -15,13 +15,15 @@
   <div class="logo"><span class="ms">account_balance</span> Back Office <span id="ver" class="ver"></span></div>
   <div class="spacer"></div>
   <div id="gsearch" style="position:relative;display:none;margin-right:12px">
-    <input id="gsearch-input" class="field-input" type="search" autocomplete="off" placeholder="Search…" style="width:240px;margin:0">
+    <input id="gsearch-input" class="field-input" type="search" autocomplete="off" placeholder="Search transactions, invoices, vendors, accounts…" style="width:440px;max-width:46vw;margin:0">
     <div id="gsearch-results" hidden></div>
   </div>
   <div id="syncpill" class="syncpill synced">Synced</div>
   <div id="userchip" class="userchip" style="display:none">
     <button id="userchip-btn" type="button" title="Account"><span id="userchip-name"></span><span class="ms" style="font-size:18px">expand_more</span></button>
     <div id="usermenu" class="usermenu" hidden>
+      <button data-act="businesses"><span class="ms">apps</span> Businesses</button>
+      <div class="usermenu-div"></div>
       <button data-act="guide"><span class="ms">menu_book</span> App guide</button>
       <button data-act="quickref"><span class="ms">bolt</span> Quick reference</button>
       <button data-act="whatsnew"><span class="ms">new_releases</span> What’s new</button>
@@ -33,7 +35,6 @@
 </div>
 <div class="layout">
   <nav class="side" id="sidebar" data-biz="">
-    <div class="navitem" data-v="businesses"><span class="ms">apps</span> Businesses</div>
     <div class="navitem" data-v="dashboard"><span class="ms">space_dashboard</span> Dashboard</div>
     <div class="navitem" data-v="banking"><span class="ms">account_balance_wallet</span> Banking</div>
     <div class="navitem" data-v="review"><span class="ms">rule</span> Review</div>

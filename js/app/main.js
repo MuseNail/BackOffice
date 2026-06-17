@@ -98,13 +98,19 @@ function mount(view, root, detail) {
 function setNav(active, biz) {
   document.getElementById('sidebar').dataset.biz = biz;
   const gs = document.getElementById('gsearch'); if (gs) gs.style.display = biz ? '' : 'none';
-  // 3b UI shaping: the Businesses entry exists only for multi-business sessions.
-  const multi = getUser()?.isOwner || getBusinesses().length > 1;
   document.querySelectorAll('#sidebar .navitem').forEach(n => {
     n.classList.toggle('on', n.dataset.v === active);
-    if (n.dataset.v === 'businesses') n.style.display = multi ? 'flex' : 'none';
-    else n.style.display = biz ? 'flex' : 'none';
+    n.style.display = biz ? 'flex' : 'none';
   });
+  // Switching businesses lives in the account menu (top-right) now, shown only for
+  // multi-business sessions (single-business users have nothing to switch to).
+  const multi = getUser()?.isOwner || getBusinesses().length > 1;
+  const bizBtn = document.querySelector('#usermenu [data-act="businesses"]');
+  if (bizBtn) {
+    bizBtn.style.display = multi ? '' : 'none';
+    const div = bizBtn.nextElementSibling;
+    if (div && div.classList.contains('usermenu-div')) div.style.display = multi ? '' : 'none';
+  }
   applyFeatureNav();
   const who = document.getElementById('userchip');
   const u = getUser();
@@ -207,7 +213,8 @@ function boot() {
     const b = e.target.closest('button[data-act]'); if (!b) return;
     menu.hidden = true;
     const act = b.dataset.act;
-    if (act === 'guide') openGuide();
+    if (act === 'businesses') location.hash = '#/businesses';
+    else if (act === 'guide') openGuide();
     else if (act === 'quickref') openQuickRef();
     else if (act === 'whatsnew') showWhatsNew();
     else if (act === 'reset') promptHardReload();

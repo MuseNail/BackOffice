@@ -83,6 +83,11 @@ function shiftRange(range, dir) {
 // to right-align when it would overflow the right edge of the viewport.
 function makePopover(wrap, panel) {
   let open = false;
+  // Clicks inside the popover are handled by its own controls (day/preset pick, month
+  // nav). Stop them reaching the document handler — otherwise a click that rebuilds the
+  // grid (the ‹ › month arrows) detaches its own node, the outside-click test sees it as
+  // "outside," and the popover wrongly closes.
+  panel.addEventListener('click', (e) => e.stopPropagation());
   const onDocClick = (e) => { if (!wrap.contains(e.target)) hide(); };
   // Escape closes the popover and stops there, so a picker living inside a modal
   // doesn't also close the modal.
