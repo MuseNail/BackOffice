@@ -54,6 +54,9 @@ function typeMatch(t, type) {
 
 export function render(root, detail) {
   const editable = canEdit(getActiveBiz());
+  // "+ New → Transaction" deep-links here as /ledger/new — open the add modal on mount.
+  const openNew = detail === 'new';
+  if (openNew) detail = undefined;
   if (_pendingQuery) { flt.q = _pendingQuery; _pendingQuery = ''; }
   // #/b/<biz>/ledger/<accountId> opens the ledger scoped to one account's register
   // (deep-linked from the Banking balance cards).
@@ -71,6 +74,7 @@ export function render(root, detail) {
   );
   unsub = subscribe(redraw);
   redraw();
+  if (openNew && editable) addTxnModal();
 }
 
 export function unmount() { unsub?.(); unsub = null; resetFilters(); }

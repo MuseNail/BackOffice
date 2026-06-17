@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.4', items: [
+    { icon: 'add_circle', t: 'One “+ New” button to create anything', d: 'A new “+ New” button sits in the top bar on every screen. Click it to create a transaction, invoice, customer, vendor, account, or bank/card account, or to import a bank file — each opens the same form you use today, no need to hunt for the right screen first. Keyboard shortcut: press N, then T (transaction), I (invoice), C (customer), or V (vendor). It won’t trigger while you’re typing in a box or have a window open.' },
+  ] },
   { v: '0.68.3', items: [
     { icon: 'compare_arrows', t: 'Compare Profit & Loss against another period', d: 'On Reports, a new “Compare to” menu lets you put this period next to the previous period or the same period last year — with a Change column that’s green when it helps your profit and red when it hurts (so rising expenses show red, falling ones green). Or pick Monthly trend to see each month side by side. There’s also a “% of income” toggle to show every line as a share of total income. The comparison carries through to the CSV export and the printout.' },
   ] },

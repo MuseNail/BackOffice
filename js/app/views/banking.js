@@ -14,7 +14,7 @@ const KINDS = { checking: 'Checking', savings: 'Savings', card: 'Credit card', c
 
 let unsub = null;
 
-export function render(root) {
+export function render(root, detail) {
   const editable = canEdit(getActiveBiz());
   const body = el('div');
   root.append(
@@ -27,6 +27,10 @@ export function render(root) {
   const draw = () => drawBody(body, editable);
   unsub = subscribe(draw);
   draw();
+  // "+ New" deep-links: /banking/new opens add-account; /banking/import opens the CSV
+  // wizard when there's a single account (otherwise the per-account Import buttons show).
+  if (editable && detail === 'new') addBankModal();
+  else if (editable && detail === 'import') { const a = entities('bankacct'); if (a.length === 1) importWizard(a[0]); }
 }
 
 export function unmount() { unsub?.(); unsub = null; }

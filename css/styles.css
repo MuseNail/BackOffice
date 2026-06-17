@@ -250,3 +250,8 @@ label.pct-toggle input{width:15px;height:15px;accent-color:var(--brand);cursor:p
 .pl-controls{display:flex;gap:10px;align-items:center;flex-wrap:nowrap;overflow-x:auto}
 .print-only{display:none}
 @media print{ .print-only{display:block !important} }
+
+/* Global "+ New" create menu (top bar) */
+#createpop{left:0;right:auto;min-width:236px}
+.usermenu-grp{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#9a9ca3;padding:8px 14px 3px}
+.usermenu .kbd{margin-left:auto;font-size:10.5px;font-weight:700;color:#9a9ca3;background:#f1f3f7;border-radius:5px;padding:2px 7px}

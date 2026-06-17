@@ -26,6 +26,8 @@ export const txnsForVendor = (vendor) => entities('txn').filter(t =>
   t.status === 'posted' && (t.vendorId === vendor.id || (!t.vendorId && vendorMatches(vendor, t.payee))));
 
 export function render(root, detail) {
+  const openNew = detail === 'new';
+  if (openNew) detail = null;
   if (detail) { renderVendorRegister(root, detail); return; }
   const editable = canEdit(getActiveBiz());
   const body = el('div');
@@ -42,6 +44,7 @@ export function render(root, detail) {
   );
   unsub = subscribe(draw);
   draw();
+  if (openNew && editable) ruleModal(null);
 }
 
 export function unmount() { unsub?.(); unsub = null; pageRangeCtl = null; }

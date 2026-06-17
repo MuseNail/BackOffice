@@ -98,6 +98,7 @@ function mount(view, root, detail) {
 function setNav(active, biz) {
   document.getElementById('sidebar').dataset.biz = biz;
   const gs = document.getElementById('gsearch'); if (gs) gs.style.display = biz ? '' : 'none';
+  const cm = document.getElementById('createmenu'); if (cm) cm.style.display = biz ? '' : 'none';
   document.querySelectorAll('#sidebar .navitem').forEach(n => {
     n.classList.toggle('on', n.dataset.v === active);
     n.style.display = biz ? 'flex' : 'none';
@@ -223,6 +224,7 @@ function boot() {
   subscribe(updateReviewBadge);
   subscribe(applyFeatureNav);
   setupNavToggle();
+  setupCreateMenu();
   mountGlobalSearch();
   window.addEventListener('hashchange', route);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkAppVersion(); });
@@ -252,6 +254,39 @@ function setupNavToggle() {
     collapsed = !collapsed;
     apply(collapsed);
     try { localStorage.setItem('bo_nav_collapsed', collapsed ? '1' : '0'); } catch { /* private mode */ }
+  });
+}
+
+// Global "+ New" create menu (top bar). Items deep-link to a view's /new (or /import)
+// token, which that view reads on mount to open its existing create modal — so this
+// stays a thin launcher with no knowledge of each view's internals.
+const CREATE_KEYS = { t: 'ledger/new', i: 'invoices/new', c: 'customers/new', v: 'vendors/new' };
+function setupCreateMenu() {
+  const wrap = document.getElementById('createmenu');
+  const btn = document.getElementById('createbtn');
+  const pop = document.getElementById('createpop');
+  if (!wrap || !btn || !pop) return;
+  let armed = false;   // two-step shortcut: N arms, the next letter picks
+  const bizId = () => document.getElementById('sidebar').dataset.biz;
+  const visible = () => wrap.style.display !== 'none';
+  const open = () => { if (!visible()) return; pop.hidden = false; btn.setAttribute('aria-expanded', 'true'); };
+  const close = () => { pop.hidden = true; btn.setAttribute('aria-expanded', 'false'); armed = false; };
+  const go = (token) => { const b = bizId(); close(); if (b) location.hash = `#/b/${b}/${token}`; };
+
+  btn.addEventListener('click', (e) => { e.stopPropagation(); pop.hidden ? open() : close(); });
+  document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) close(); });
+  pop.addEventListener('click', (e) => { const b = e.target.closest('button[data-new]'); if (b) go(b.dataset.new); });
+
+  // The shortcut yields whenever a keystroke could mean something else: typing in a
+  // field, any modal/overlay or popover open, a modifier held, or no business loaded.
+  const typing = (t) => t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+  const busy = () => document.querySelector('.overlay, #app-update-popup, .dpk-pop:not([hidden]), .cbx-panel:not([hidden])');
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || busy() || !visible() || !bizId()) { armed = false; return; }
+    const k = (e.key || '').toLowerCase();
+    if (!armed) { if (k === 'n') { armed = true; open(); e.preventDefault(); } return; }
+    armed = false;
+    if (CREATE_KEYS[k]) { e.preventDefault(); go(CREATE_KEYS[k]); } else close();
   });
 }
 

@@ -78,6 +78,8 @@ function bucketOf(inv, today) {
 let agingFilter = null;
 
 export function render(root, detail) {
+  const openNew = detail === 'new';
+  if (openNew) detail = null;
   if (detail === 'reconcile') { renderReconcile(root); return; }
   if (detail) { renderInvoiceDetail(root, detail); return; }
   agingFilter = null;
@@ -105,6 +107,7 @@ export function render(root, detail) {
   const draw = () => drawList(body);
   unsub = subscribe(draw);
   draw();
+  if (openNew && usesInvoices() && canEdit(getActiveBiz())) invoiceModal(null);
 }
 
 export function unmount() { unsub?.(); unsub = null; }

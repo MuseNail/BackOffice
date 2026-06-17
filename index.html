@@ -14,6 +14,23 @@
   <button id="navtoggle" class="navtoggle" type="button" title="Collapse / expand menu" aria-label="Toggle menu"><span class="ms">menu_open</span></button>
   <div class="logo"><span class="ms">account_balance</span> Back Office <span id="ver" class="ver"></span></div>
   <div class="spacer"></div>
+  <div id="createmenu" class="createmenu" style="position:relative;display:none;margin-right:10px">
+    <button id="createbtn" class="btn sm" type="button" aria-haspopup="true" aria-expanded="false" title="Create something new (N)"><span class="ms" style="font-size:17px;vertical-align:-4px">add</span> New <span class="ms" style="font-size:16px;vertical-align:-3px">expand_more</span></button>
+    <div id="createpop" class="usermenu" hidden>
+      <div class="usermenu-grp">Record</div>
+      <button data-new="ledger/new"><span class="ms">receipt_long</span> Transaction <span class="kbd">T</span></button>
+      <button data-new="invoices/new"><span class="ms">request_quote</span> Invoice <span class="kbd">I</span></button>
+      <div class="usermenu-div"></div>
+      <div class="usermenu-grp">People</div>
+      <button data-new="customers/new"><span class="ms">groups</span> Customer <span class="kbd">C</span></button>
+      <button data-new="vendors/new"><span class="ms">local_shipping</span> Vendor <span class="kbd">V</span></button>
+      <div class="usermenu-div"></div>
+      <div class="usermenu-grp">Setup</div>
+      <button data-new="accounts/new"><span class="ms">account_tree</span> Account</button>
+      <button data-new="banking/new"><span class="ms">account_balance</span> Bank or card account</button>
+      <button data-new="banking/import"><span class="ms">upload_file</span> Import bank file…</button>
+    </div>
+  </div>
   <div id="gsearch" style="position:relative;display:none;margin-right:12px">
     <input id="gsearch-input" class="field-input" type="search" autocomplete="off" placeholder="Search transactions, invoices, vendors, accounts…" style="width:440px;max-width:46vw;margin:0">
     <div id="gsearch-results" hidden></div>

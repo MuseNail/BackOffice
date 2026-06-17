@@ -18,6 +18,8 @@ const QB_BY_TYPE = { income: 'INC', cogs: 'COGS', expense: 'EXP', 'other-expense
 let unsub = null;
 
 export function render(root, detail) {
+  const openNew = detail === 'new';
+  if (openNew) detail = null;
   if (detail) { renderAccountRegister(root, detail); return; }
   const editable = canEdit(getActiveBiz());
   const body = el('div');
@@ -31,6 +33,7 @@ export function render(root, detail) {
   const draw = () => drawTable(body, editable);
   unsub = subscribe(draw);
   draw();
+  if (openNew && editable) editAccount(null);
 }
 
 export function unmount() { unsub?.(); unsub = null; }

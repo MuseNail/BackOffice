@@ -16,6 +16,8 @@ const slug = (s) => 'c-' + String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, 
 export const txnsForCustomer = (c) => entities('txn').filter(t => t.status === 'posted' && t.customerId === c.id);
 
 export function render(root, detail) {
+  const openNew = detail === 'new';
+  if (openNew) detail = null;
   if (detail) { renderCustomerRegister(root, detail); return; }
   const editable = canEdit(getActiveBiz());
   const body = el('div');
@@ -31,6 +33,7 @@ export function render(root, detail) {
     body);
   unsub = subscribe(draw);
   draw();
+  if (openNew && editable) customerModal(null);
 }
 
 export function unmount() { unsub?.(); unsub = null; pageRangeCtl = null; }
