@@ -187,21 +187,23 @@ function drawBody(body) {
   const presetLabel = rangeLabel(range);
   clear(body).append(
     el('div', { class: 'no-print', style: 'display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center' },
-      el('span', { class: 'field-label', style: 'margin:0' }, 'Period'),
-      s.rangeCtl.el,
       el('span', { style: 'flex:1' }),
       el('button', { class: 'btn sm ghost', onclick: () => window.print() }, 'Print / PDF'),
       el('button', { class: 'btn sm ghost', onclick: () => downloadCsv(
         `${getActiveBiz()}-reports.csv`,
         buildReportsCsv(presetLabel, s.asOf, { income, cogs, expenses, otherExp, net }, { assets, liabilities, equity, netToDate })) }, 'Export CSV')),
     el('div', { class: 'row' },
+      // P&L and Balance Sheet headers share the same flex layout (title left, date
+      // picker right) so their first section rows — Income / Assets — line up.
       el('div', { class: 'card', style: 'flex:1;min-width:330px;max-width:460px' },
-        el('div', { class: 'cardtitle' }, `Profit & Loss — ${presetLabel}`),
+        el('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:10px' },
+          el('div', { class: 'cardtitle', style: 'margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, 'Profit & Loss'),
+          el('div', { style: 'flex-shrink:0' }, s.rangeCtl.el)),
         plRows.length > 1 ? el('table', { class: 'data' }, ...plRows) : el('p', { class: 'sub' }, 'No activity in this range.')),
       el('div', { class: 'card', style: 'flex:1;min-width:330px;max-width:460px' },
-        el('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap' },
-          el('div', { class: 'cardtitle', style: 'margin:0' }, 'Balance Sheet'),
-          el('div', { style: 'display:flex;gap:6px;align-items:center' },
+        el('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:10px' },
+          el('div', { class: 'cardtitle', style: 'margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, 'Balance Sheet'),
+          el('div', { style: 'flex-shrink:0;display:flex;gap:6px;align-items:center' },
             el('span', { class: 'field-label', style: 'margin:0' }, 'As of'),
             dateControl({ value: s.asOf, onPick: (iso) => { s.asOf = iso; drawBody(body); } }).el)),
         el('table', { class: 'data' }, ...bsRows)),

@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.67.4', items: [
+    { icon: 'view_column', t: 'Reports header tidy-up', d: 'The Profit & Loss period picker now lives in the Profit & Loss panel (next to its title), matching the Balance Sheet. Both panels’ first lines — Income and Assets — now line up.' },
+  ] },
   { v: '0.67.3', items: [
     { icon: 'tune', t: 'Calendar alignment + drilldown dates', d: 'The date calendar now opens lined up under its button (no more sideways offset by the ‹ › arrows) and flips to stay on-screen near the right edge. In a Vendor or Customer pop-up you can now change the date range right there — the totals update without closing the pop-up. On Reports, the “As of” picker sits on the Balance Sheet title line.' },
   ] },
