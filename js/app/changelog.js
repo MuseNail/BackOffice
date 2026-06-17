@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.63.0', items: [
+    { icon: 'date_range', t: 'Date range on Vendors & Customers totals', d: 'A smart date picker at the top of Vendors and Customers (quick ranges like This year / This quarter / This month, or a custom from–to) — it defaults to this year and controls the “Total paid / received” and transaction counts. Same picker is coming to the Ledger, Dashboard and Reports.' },
+  ] },
   { v: '0.62.0', items: [
     { icon: 'table_view', t: 'Vendors & Customers now match', d: 'Both screens show the same clean list — name, number of transactions, and total (paid for vendors, received for customers). Click any row to open a pop-up with that vendor/customer’s transactions and an Edit/Delete button (Esc closes it). The “New” button stays pinned at the top while you scroll.' },
     { icon: 'cleaning_services', t: 'Cleaner vendor list', d: 'Removed the amber “category archived” highlight, and the transaction count is now real (it was always showing 0).' },

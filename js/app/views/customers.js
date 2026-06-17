@@ -6,8 +6,10 @@ import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { renderRegister } from '../register.js';
+import { dateRangeControl, inRange } from '../daterange.js';
 
 let unsub = null;
+let customerRange = { from: null, to: null };
 const slug = (s) => 'c-' + String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 export const txnsForCustomer = (c) => entities('txn').filter(t => t.status === 'posted' && t.customerId === c.id);
@@ -16,12 +18,16 @@ export function render(root, detail) {
   if (detail) { renderCustomerRegister(root, detail); return; }
   const editable = canEdit(getActiveBiz());
   const body = el('div');
+  const draw = () => drawTable(body, editable);
+  const rangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { customerRange = r; draw(); } });
+  customerRange = rangeCtl.getRange();
   root.append(
     el('h2', {}, 'Customers'),
-    el('p', { class: 'sub' }, 'Your clients. Click a customer to see all their transactions and the total received. Income is tagged to a customer the same way expenses are tagged to a vendor.'),
-    editable ? el('div', { class: 'sticky-toolbar' }, el('button', { class: 'btn sm', onclick: () => customerModal(null) }, '＋ New customer')) : el('span'),
+    el('p', { class: 'sub' }, 'Your clients. Click a customer to see their transactions and total received. Income is tagged to a customer the same way expenses are tagged to a vendor.'),
+    el('div', { class: 'sticky-toolbar' },
+      editable ? el('button', { class: 'btn sm', onclick: () => customerModal(null) }, '＋ New customer') : el('span'),
+      el('span', { class: 'sub', style: 'margin:0' }, 'Totals for'), rangeCtl.el),
     body);
-  const draw = () => drawTable(body, editable);
   unsub = subscribe(draw);
   draw();
 }
@@ -52,8 +58,8 @@ function drawTable(body, editable) {
     return;
   }
   const incomeIds = new Set(entities('account').filter(a => a.type === 'income').map(a => a.id));
-  const totalFor = (c) => txnsForCustomer(c).reduce((s, t) => s + (t.lines || []).reduce((a, l) => a + (incomeIds.has(l.accountId) ? -l.amountCents : 0), 0), 0);
-  const rows = customers.map(c => ({ c, n: txnsForCustomer(c).length, total: totalFor(c) }))
+  const incomeOf = (t) => (t.lines || []).reduce((a, l) => a + (incomeIds.has(l.accountId) ? -l.amountCents : 0), 0);
+  const rows = customers.map(c => { const tx = txnsForCustomer(c).filter(t => inRange(t.date, customerRange)); return { c, n: tx.length, total: tx.reduce((s, t) => s + incomeOf(t), 0) }; })
     .sort((a, b) => b.total - a.total || a.c.name.localeCompare(b.c.name));
   const tbl = el('table', { class: 'data' },
     el('tr', {}, el('th', {}, 'Customer'), el('th', { class: 'num' }, 'Transactions'), el('th', { class: 'num' }, 'Total received')),
@@ -70,7 +76,7 @@ function customerDrilldown(c) {
   const accts = new Map(entities('account').map(a => [a.id, a]));
   const incomeIds = new Set([...accts.values()].filter(a => a.type === 'income').map(a => a.id));
   const incomeOf = (t) => (t.lines || []).reduce((a, l) => a + (incomeIds.has(l.accountId) ? -l.amountCents : 0), 0);
-  const txns = txnsForCustomer(c).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const txns = txnsForCustomer(c).filter(t => inRange(t.date, customerRange)).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const total = txns.reduce((s, t) => s + incomeOf(t), 0);
   const catOf = (t) => { const l = (t.lines || []).find(x => incomeIds.has(x.accountId)); const a = l && accts.get(l.accountId); return a ? a.name : '—'; };
   m.body.append(
