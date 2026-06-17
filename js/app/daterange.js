@@ -78,12 +78,25 @@ function shiftRange(range, dir) {
 }
 
 // ── Shared popover plumbing ────────────────────────────────────────────────
+// `wrap` scopes the outside-click test (clicks inside it never close the popover);
+// `panel` is the floating calendar, positioned by CSS under the trigger and flipped
+// to right-align when it would overflow the right edge of the viewport.
 function makePopover(wrap, panel) {
   let open = false;
   const onDocClick = (e) => { if (!wrap.contains(e.target)) hide(); };
-  const onKey = (e) => { if (e.key === 'Escape') hide(); };
-  function show() { if (open) return; open = true; panel.hidden = false; setTimeout(() => { document.addEventListener('click', onDocClick); document.addEventListener('keydown', onKey); }, 0); }
-  function hide() { if (!open) return; open = false; panel.hidden = true; document.removeEventListener('click', onDocClick); document.removeEventListener('keydown', onKey); }
+  // Escape closes the popover and stops there, so a picker living inside a modal
+  // doesn't also close the modal.
+  const onKey = (e) => { if (e.key === 'Escape' && open) { e.stopPropagation(); hide(); } };
+  function show() {
+    if (open) return;
+    open = true;
+    panel.hidden = false;
+    panel.style.left = ''; panel.style.right = '';
+    const r = panel.getBoundingClientRect();
+    if (r.right > window.innerWidth - 8) { panel.style.left = 'auto'; panel.style.right = '0'; }
+    setTimeout(() => { document.addEventListener('click', onDocClick); document.addEventListener('keydown', onKey, true); }, 0);
+  }
+  function hide() { if (!open) return; open = false; panel.hidden = true; document.removeEventListener('click', onDocClick); document.removeEventListener('keydown', onKey, true); }
   return { show, hide, toggle: () => (open ? hide() : show()), isOpen: () => open };
 }
 
@@ -135,7 +148,10 @@ export function dateRangeControl({ initial = 'year', onChange } = {}) {
   const cal = el('div', { class: 'dpk-cal' });
   const rail = el('div', { class: 'dpk-rail' });
   const panel = el('div', { class: 'dpk-pop', hidden: true }, rail, cal);
-  const wrap = el('span', { class: 'dpk' }, prev, trigger, next, panel);
+  // The popover anchors to the trigger (inside dpk-anchor), NOT the whole control —
+  // so the ‹ › steppers don't push the calendar sideways.
+  const anchor = el('span', { class: 'dpk-anchor' }, trigger, panel);
+  const wrap = el('span', { class: 'dpk' }, prev, anchor, next);
   const pop = makePopover(wrap, panel);
 
   const fire = () => { if (onChange) onChange({ ...range }); };
@@ -194,7 +210,8 @@ export function dateControl({ value = '', onPick, presets } = {}) {
   const cal = el('div', { class: 'dpk-cal' });
   const rail = el('div', { class: 'dpk-rail' });
   const panel = el('div', { class: 'dpk-pop', hidden: true }, rail, cal);
-  const wrap = el('span', { class: 'dpk' }, trigger, panel);
+  const anchor = el('span', { class: 'dpk-anchor' }, trigger, panel);
+  const wrap = el('span', { class: 'dpk' }, anchor);
   const pop = makePopover(wrap, panel);
 
   const syncLabel = () => { label.textContent = longDay(val); };

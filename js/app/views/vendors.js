@@ -10,6 +10,7 @@ import { dateRangeControl, inRange } from '../daterange.js';
 
 let unsub = null;
 let vendorRange = { from: null, to: null };
+let pageRangeCtl = null;   // the page "Totals for" picker — kept in sync with the drilldown's
 const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 // A transaction belongs to a vendor if it was stamped at approval (exact, going
@@ -29,21 +30,21 @@ export function render(root, detail) {
   const editable = canEdit(getActiveBiz());
   const body = el('div');
   const draw = () => drawTable(body, editable);
-  const rangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { vendorRange = r; draw(); } });
-  vendorRange = rangeCtl.getRange();
+  pageRangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { vendorRange = r; draw(); } });
+  vendorRange = pageRangeCtl.getRange();
   root.append(
     el('h2', {}, 'Vendors'),
     el('p', { class: 'sub' }, 'Your suppliers — who you pay. Click a vendor to see its transactions and total paid. Auto-categorize rules (from ⚡ in Review) live in each vendor’s Edit.'),
     el('div', { class: 'sticky-toolbar' },
       editable ? el('button', { class: 'btn sm', onclick: () => ruleModal(null) }, '＋ New vendor / rule') : el('span'),
-      el('span', { class: 'sub', style: 'margin:0' }, 'Totals for'), rangeCtl.el),
+      el('span', { class: 'sub', style: 'margin:0' }, 'Totals for'), pageRangeCtl.el),
     body,
   );
   unsub = subscribe(draw);
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; }
+export function unmount() { unsub?.(); unsub = null; pageRangeCtl = null; }
 
 // Vendor register (drill-down): every posted transaction from this vendor, total
 // spent + export. Reached via #/b/<biz>/vendors/<vendorId>.
@@ -80,7 +81,7 @@ function drawTable(body, editable) {
     .sort((a, b) => b.total - a.total || a.v.name.localeCompare(b.v.name));
   const tbl = el('table', { class: 'data' },
     el('tr', {}, el('th', {}, 'Vendor'), el('th', { class: 'num' }, 'Transactions'), el('th', { class: 'num' }, 'Total paid')),
-    ...rows.map(({ v, n, total }) => el('tr', { style: 'cursor:pointer', title: 'View transactions / edit', onclick: () => vendorDrilldown(v) },
+    ...rows.map(({ v, n, total }) => el('tr', { style: 'cursor:pointer', title: 'View transactions / edit', onclick: () => vendorDrilldown(v, () => drawTable(body, editable)) },
       el('td', {}, el('b', {}, v.name)),
       el('td', { class: 'num' }, String(n)),
       el('td', { class: 'num' }, fmtMoney(total)))));
@@ -88,38 +89,51 @@ function drawTable(body, editable) {
 }
 
 // Click a vendor → popup with their transactions + total paid, and Edit/Delete (Esc closes).
-function vendorDrilldown(v) {
+// The popup carries its OWN date-range picker so you can re-scope the totals without
+// closing it; changing it also updates the page behind (refresh) and the page picker.
+function vendorDrilldown(v, refresh) {
   const m = modal(v.name);
   const accts = new Map(entities('account').map(a => [a.id, a]));
   const expenseIds = new Set([...accts.values()].filter(a => EXPENSE_TYPES.has(a.type)).map(a => a.id));
-  const txns = txnsForVendor(v).filter(t => inRange(t.date, vendorRange)).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  const total = txns.reduce((s, t) => s + expenseOf(t, expenseIds), 0);
   const catOf = (t) => { const l = (t.lines || []).find(x => expenseIds.has(x.accountId)); const a = l && accts.get(l.accountId); return a ? accountLabel(a, accts) : '—'; };
   const isBankAcct = (a) => a.qbType === 'BANK' || a.qbType === 'CCARD';
   const catSel = el('select', { class: 'field-input', style: 'max-width:300px;margin:0' },
-    el('option', { value: '' }, '— no memorized category —'),
+    el('option', { value: '' }, '— no memorized account —'),
     ...entities('account').filter(a => a.active !== false && !isBankAcct(a)).sort((a, b) => accountLabel(a, accts).localeCompare(accountLabel(b, accts)))
       .map(a => el('option', { value: a.id, selected: a.id === v.defaultAccountId }, accountLabel(a, accts))));
   catSel.addEventListener('change', () => {
-    // Memorize the category. If the vendor has no description matcher yet, seed one from
-    // its name so future imports whose description contains it auto-suggest this category.
+    // Memorize the account. If the vendor has no description matcher yet, seed one from
+    // its name so future imports whose description contains it auto-suggest this account.
     const hasMatch = !!(v.matchers?.exact?.length || v.matchers?.keywords?.length);
     dispatch({ op: 'entity.upsert', kind: 'vendor', value: { ...v, defaultAccountId: catSel.value || undefined, matchers: hasMatch ? v.matchers : { exact: [], keywords: [v.name] }, updatedAt: Date.now() } });
-    toast(catSel.value ? 'Memorized — future imports from this vendor suggest this category' : 'Memorized category cleared');
+    toast(catSel.value ? 'Memorized — future imports from this vendor suggest this account' : 'Memorized account cleared');
   });
+
+  const listHost = el('div');
+  const drawList = () => {
+    const txns = txnsForVendor(v).filter(t => inRange(t.date, vendorRange)).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const total = txns.reduce((s, t) => s + expenseOf(t, expenseIds), 0);
+    clear(listHost).append(
+      el('div', { style: 'font-weight:800;font-size:18px;margin:12px 0 10px' }, fmtMoney(total), el('span', { class: 'sub', style: 'font-weight:400;margin-left:8px' }, `paid · ${txns.length} transactions`)),
+      txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
+        el('table', { class: 'data' },
+          el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', {}, 'Account'), el('th', { class: 'num' }, 'Amount')),
+          ...txns.map(t => el('tr', {}, el('td', {}, t.date), el('td', {}, t.payee || t.memo || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, fmtMoney(expenseOf(t, expenseIds)))))))
+        : el('p', { class: 'sub' }, 'No transactions yet.'));
+  };
+  const rangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { vendorRange = r; pageRangeCtl?.setRange(r); drawList(); refresh?.(); } });
+  rangeCtl.setRange(vendorRange);
+
   m.body.append(
-    el('label', { class: 'field-label', style: 'margin-top:0' }, 'Memorized category — auto-suggested on future imports'),
+    el('label', { class: 'field-label', style: 'margin-top:0' }, 'Memorized account — auto-suggested on future imports'),
     catSel,
-    el('div', { style: 'font-weight:800;font-size:18px;margin:12px 0 10px' }, fmtMoney(total), el('span', { class: 'sub', style: 'font-weight:400;margin-left:8px' }, `paid · ${txns.length} transactions`)),
-    txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
-      el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', {}, 'Category'), el('th', { class: 'num' }, 'Amount')),
-        ...txns.map(t => el('tr', {}, el('td', {}, t.date), el('td', {}, t.payee || t.memo || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, fmtMoney(expenseOf(t, expenseIds)))))))
-      : el('p', { class: 'sub' }, 'No transactions yet.'),
+    el('div', { style: 'display:flex;gap:8px;align-items:center;margin-top:12px' }, el('span', { class: 'sub', style: 'margin:0' }, 'Totals for'), rangeCtl.el),
+    listHost,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', style: 'color:var(--red)', onclick: () => { m.close(); confirmDeleteRule(v); } }, 'Delete'),
       el('button', { class: 'btn', onclick: () => { m.close(); ruleModal(v); } }, 'Edit'),
       el('button', { class: 'btn ghost', onclick: m.close }, 'Close')));
+  drawList();
 }
 
 function confirmDeleteRule(v) {

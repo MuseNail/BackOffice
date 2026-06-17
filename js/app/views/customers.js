@@ -10,6 +10,7 @@ import { dateRangeControl, inRange } from '../daterange.js';
 
 let unsub = null;
 let customerRange = { from: null, to: null };
+let pageRangeCtl = null;   // the page "Totals for" picker — kept in sync with the drilldown's
 const slug = (s) => 'c-' + String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 export const txnsForCustomer = (c) => entities('txn').filter(t => t.status === 'posted' && t.customerId === c.id);
@@ -19,20 +20,20 @@ export function render(root, detail) {
   const editable = canEdit(getActiveBiz());
   const body = el('div');
   const draw = () => drawTable(body, editable);
-  const rangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { customerRange = r; draw(); } });
-  customerRange = rangeCtl.getRange();
+  pageRangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { customerRange = r; draw(); } });
+  customerRange = pageRangeCtl.getRange();
   root.append(
     el('h2', {}, 'Customers'),
     el('p', { class: 'sub' }, 'Your clients. Click a customer to see their transactions and total received. Income is tagged to a customer the same way expenses are tagged to a vendor.'),
     el('div', { class: 'sticky-toolbar' },
       editable ? el('button', { class: 'btn sm', onclick: () => customerModal(null) }, '＋ New customer') : el('span'),
-      el('span', { class: 'sub', style: 'margin:0' }, 'Totals for'), rangeCtl.el),
+      el('span', { class: 'sub', style: 'margin:0' }, 'Totals for'), pageRangeCtl.el),
     body);
   unsub = subscribe(draw);
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; }
+export function unmount() { unsub?.(); unsub = null; pageRangeCtl = null; }
 
 // Per-customer register (drill-down) — reached via #/b/<biz>/customers/<id>.
 function renderCustomerRegister(root, id) {
@@ -63,7 +64,7 @@ function drawTable(body, editable) {
     .sort((a, b) => b.total - a.total || a.c.name.localeCompare(b.c.name));
   const tbl = el('table', { class: 'data' },
     el('tr', {}, el('th', {}, 'Customer'), el('th', { class: 'num' }, 'Transactions'), el('th', { class: 'num' }, 'Total received')),
-    ...rows.map(({ c, n, total }) => el('tr', { style: 'cursor:pointer', title: 'View transactions / edit', onclick: () => customerDrilldown(c) },
+    ...rows.map(({ c, n, total }) => el('tr', { style: 'cursor:pointer', title: 'View transactions / edit', onclick: () => customerDrilldown(c, () => drawTable(body, editable)) },
       el('td', {}, el('b', {}, c.name)),
       el('td', { class: 'num' }, String(n)),
       el('td', { class: 'num' }, fmtMoney(total)))));
@@ -71,26 +72,38 @@ function drawTable(body, editable) {
 }
 
 // Click a customer → popup with their transactions + total, and Edit/Delete (Esc closes).
-function customerDrilldown(c) {
+// Carries its own date-range picker so the totals can be re-scoped without closing it.
+function customerDrilldown(c, refresh) {
   const m = modal(c.name);
   const accts = new Map(entities('account').map(a => [a.id, a]));
   const incomeIds = new Set([...accts.values()].filter(a => a.type === 'income').map(a => a.id));
   const incomeOf = (t) => (t.lines || []).reduce((a, l) => a + (incomeIds.has(l.accountId) ? -l.amountCents : 0), 0);
-  const txns = txnsForCustomer(c).filter(t => inRange(t.date, customerRange)).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  const total = txns.reduce((s, t) => s + incomeOf(t), 0);
   const catOf = (t) => { const l = (t.lines || []).find(x => incomeIds.has(x.accountId)); const a = l && accts.get(l.accountId); return a ? a.name : '—'; };
+
+  const listHost = el('div');
+  const drawList = () => {
+    const txns = txnsForCustomer(c).filter(t => inRange(t.date, customerRange)).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const total = txns.reduce((s, t) => s + incomeOf(t), 0);
+    clear(listHost).append(
+      el('div', { style: 'font-weight:800;font-size:18px;margin:2px 0 10px' }, fmtMoney(total), el('span', { class: 'sub', style: 'font-weight:400;margin-left:8px' }, `received · ${txns.length} transactions`)),
+      txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
+        el('table', { class: 'data' },
+          el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', {}, 'Account'), el('th', { class: 'num' }, 'Amount')),
+          ...txns.map(t => el('tr', {}, el('td', {}, t.date), el('td', {}, t.payee || t.memo || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, fmtMoney(Math.abs(incomeOf(t))))))))
+        : el('p', { class: 'sub' }, 'No transactions yet.'));
+  };
+  const rangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { customerRange = r; pageRangeCtl?.setRange(r); drawList(); refresh?.(); } });
+  rangeCtl.setRange(customerRange);
+
   m.body.append(
     c.email ? el('p', { class: 'sub', style: 'margin-top:0' }, c.email) : el('span'),
-    el('div', { style: 'font-weight:800;font-size:18px;margin:2px 0 10px' }, fmtMoney(total), el('span', { class: 'sub', style: 'font-weight:400;margin-left:8px' }, `received · ${txns.length} transactions`)),
-    txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
-      el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', {}, 'Account'), el('th', { class: 'num' }, 'Amount')),
-        ...txns.map(t => el('tr', {}, el('td', {}, t.date), el('td', {}, t.payee || t.memo || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, fmtMoney(Math.abs(incomeOf(t))))))))
-      : el('p', { class: 'sub' }, 'No transactions yet.'),
+    el('div', { style: 'display:flex;gap:8px;align-items:center;margin:6px 0' }, el('span', { class: 'sub', style: 'margin:0' }, 'Totals for'), rangeCtl.el),
+    listHost,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', style: 'color:var(--red)', onclick: () => { m.close(); confirmDelete(c); } }, 'Delete'),
       el('button', { class: 'btn', onclick: () => { m.close(); customerModal(c); } }, 'Edit'),
       el('button', { class: 'btn ghost', onclick: m.close }, 'Close')));
+  drawList();
 }
 
 function customerModal(existing) {
