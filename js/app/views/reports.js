@@ -195,15 +195,19 @@ function drawBody(body) {
     el('div', { class: 'row' },
       // P&L and Balance Sheet headers share the same flex layout (title left, date
       // picker right) so their first section rows — Income / Assets — line up.
+      // Both headers are two rows — title, then the date picker — so each panel's
+      // first section row (Income / Assets) starts at the same height.
       el('div', { class: 'card', style: 'flex:1;min-width:330px;max-width:460px' },
-        el('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:10px' },
-          el('div', { class: 'cardtitle', style: 'margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, 'Profit & Loss'),
-          el('div', { style: 'flex-shrink:0' }, s.rangeCtl.el)),
+        el('div', { style: 'margin-bottom:10px' },
+          el('div', { class: 'cardtitle', style: 'margin:0 0 6px' }, 'Profit & Loss'),
+          el('div', { style: 'display:flex;gap:6px;align-items:center' },
+            el('span', { class: 'field-label', style: 'margin:0' }, 'Period'),
+            s.rangeCtl.el)),
         plRows.length > 1 ? el('table', { class: 'data' }, ...plRows) : el('p', { class: 'sub' }, 'No activity in this range.')),
       el('div', { class: 'card', style: 'flex:1;min-width:330px;max-width:460px' },
-        el('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:10px' },
-          el('div', { class: 'cardtitle', style: 'margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, 'Balance Sheet'),
-          el('div', { style: 'flex-shrink:0;display:flex;gap:6px;align-items:center' },
+        el('div', { style: 'margin-bottom:10px' },
+          el('div', { class: 'cardtitle', style: 'margin:0 0 6px' }, 'Balance Sheet'),
+          el('div', { style: 'display:flex;gap:6px;align-items:center' },
             el('span', { class: 'field-label', style: 'margin:0' }, 'As of'),
             dateControl({ value: s.asOf, onPick: (iso) => { s.asOf = iso; drawBody(body); } }).el)),
         el('table', { class: 'data' }, ...bsRows)),
