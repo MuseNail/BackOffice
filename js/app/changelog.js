@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.67.2', items: [
+    { icon: 'bug_report', t: 'Date picker fixes', d: 'Fixed the calendar leaving an empty box under the button and not closing — it now opens and closes when you click the button again or click away.' },
+    { icon: 'event_available', t: 'Quick “as of” dates on the Dashboard', d: 'The Dashboard cash-position date now offers End of last week / last month / last quarter (each lands on the last day of that period). The Ledger’s date filter now defaults to This year.' },
+  ] },
   { v: '0.67.0', items: [
     { icon: 'calendar_month', t: 'A real calendar date picker — everywhere', d: 'Every date control is now one button that opens a calendar with smart ranges down the side: Today, This/Last week, This/Last month, This/Last quarter, Year to date, This/Last year, or All time — plus ‹ › arrows to step a period at a time. Click a day for that day, or a start then an end for a custom range. It’s the same picker on Reports, the Ledger, Review, account/vendor registers, Reconcile, and the Dashboard.' },
     { icon: 'filter_alt', t: 'Filter Review by amount and date', d: 'The Review screen gained a min/max amount filter and the same calendar date filter as the rest of the app, so you can zero in on exactly the transactions you want to work through.' },

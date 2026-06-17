@@ -4,7 +4,7 @@ import { getState, subscribe, entities } from '../store.js';
 import { getActiveBiz } from '../session.js';
 import { industryLabel, accountLabel } from '../lib/coa-templates.js';
 import { profitAndLoss } from '../lib/posting.js';
-import { dateControl } from '../daterange.js';
+import { dateControl, presetRange } from '../daterange.js';
 
 let unsub = null;
 
@@ -27,7 +27,14 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 export function render(root) {
   let asOf = todayIso();
   const body = el('div');
-  const asOfInput = dateControl({ value: asOf, onPick: (iso) => { asOf = iso || todayIso(); draw(); } }).el;
+  // "As of" quick picks land on the LAST day of each past period (cash position is a
+  // point-in-time number).
+  const asOfInput = dateControl({ value: asOf, onPick: (iso) => { asOf = iso || todayIso(); draw(); }, presets: [
+    { label: 'Today', date: todayIso() },
+    { label: 'End of last week', date: presetRange('lastweek').to },
+    { label: 'End of last month', date: presetRange('lastmonth').to },
+    { label: 'End of last quarter', date: presetRange('lastquarter').to },
+  ] }).el;
   const draw = () => {
     const s = getState();
     const biz = getActiveBiz();

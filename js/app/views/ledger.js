@@ -80,7 +80,10 @@ function filterBar(redraw) {
   // Account scope is the tab bar (in the table) — no redundant dropdown here.
   const vendors = entities('vendor').slice().sort((a, b) => a.name.localeCompare(b.name));
   const search = el('input', { class: 'field-input', placeholder: 'Search payee / memo…', value: flt.q, style: 'max-width:190px', oninput: (e) => { flt.q = e.target.value; redraw(); } });
-  const rangeCtl = dateRangeControl({ initial: 'all', onChange: (r) => { flt.from = r.from || ''; flt.to = r.to || ''; redraw(); } });
+  const rangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { flt.from = r.from || ''; flt.to = r.to || ''; redraw(); } });
+  // Seed the filter to the control's default (This year) — the control doesn't fire
+  // onChange on creation, so apply its initial range up front.
+  if (!flt.from && !flt.to) { const r0 = rangeCtl.getRange(); flt.from = r0.from || ''; flt.to = r0.to || ''; }
   const typeSel = el('select', { class: 'field-input', style: 'max-width:160px', onchange: (e) => { flt.type = e.target.value; redraw(); } },
     ...TYPE_FILTERS.map(([v, l]) => el('option', { value: v, selected: v === flt.type }, l)));
   const vend = el('select', { class: 'field-input', style: 'max-width:160px', onchange: (e) => { flt.vendorId = e.target.value; redraw(); } },

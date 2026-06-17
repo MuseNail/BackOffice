@@ -175,6 +175,7 @@ select.txi { background-position: right 7px center; padding-right: 24px; }
 .dpk-step:hover{border-color:var(--brand)}
 .dpk-step:disabled{opacity:.4;cursor:default}
 .dpk-pop{position:absolute;top:calc(100% + 6px);left:0;z-index:70;display:flex;background:#fff;border:1px solid #d2d6e0;border-radius:12px;box-shadow:0 14px 40px rgba(20,30,55,.22);overflow:hidden}
+.dpk-pop[hidden]{display:none}
 .dpk-rail{display:flex;flex-direction:column;padding:6px;border-right:1px solid var(--line);min-width:142px;background:#fafbfd}
 .dpk-preset{display:block;width:100%;text-align:left;padding:9px 14px;font-size:13px;font-weight:600;color:var(--ink);background:transparent;border:none;border-radius:8px;cursor:pointer;white-space:nowrap}
 .dpk-preset:hover{background:var(--brand-soft)}
