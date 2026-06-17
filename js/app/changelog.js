@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.62.0', items: [
+    { icon: 'table_view', t: 'Vendors & Customers now match', d: 'Both screens show the same clean list — name, number of transactions, and total (paid for vendors, received for customers). Click any row to open a pop-up with that vendor/customer’s transactions and an Edit/Delete button (Esc closes it). The “New” button stays pinned at the top while you scroll.' },
+    { icon: 'cleaning_services', t: 'Cleaner vendor list', d: 'Removed the amber “category archived” highlight, and the transaction count is now real (it was always showing 0).' },
+  ] },
   { v: '0.61.1', items: [
     { icon: 'bug_report', t: 'Fix: Deposits screen crash', d: 'The salon Deposits screen could fail to render due to an internal naming bug. Fixed.' },
   ] },

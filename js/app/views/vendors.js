@@ -1,5 +1,5 @@
 // ── view: vendors — vendors, their auto-categorize rules, and per-vendor register ─
-import { el, clear, toast, modal } from '../ui.js';
+import { el, clear, toast, modal, fmtMoney } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -29,8 +29,8 @@ export function render(root, detail) {
   root.append(
     el('h2', {}, 'Vendors'),
     el('p', { class: 'sub' }, 'Each vendor categorizes its imports automatically (exact matches win, then keywords, then your history) — you still approve every row. Click a vendor to see all its transactions.'),
-    editable ? el('div', { style: 'margin-bottom:14px' },
-      el('button', { class: 'btn sm', onclick: () => ruleModal(null) }, 'New vendor / rule')) : el('span'),
+    editable ? el('div', { class: 'sticky-toolbar' },
+      el('button', { class: 'btn sm', onclick: () => ruleModal(null) }, '＋ New vendor / rule')) : el('span'),
     body,
   );
   const draw = () => drawTable(body, editable);
@@ -61,33 +61,49 @@ function renderVendorRegister(root, vendorId) {
   });
 }
 
+const EXPENSE_TYPES = new Set(['expense', 'cogs', 'other-expense', 'personal-expense']);
+const expenseOf = (t, expenseIds) => (t.lines || []).reduce((a, l) => a + (expenseIds.has(l.accountId) ? l.amountCents : 0), 0);
+
 function drawTable(body, editable) {
-  const vendors = entities('vendor').sort((a, b) => (b.used || 0) - (a.used || 0) || a.name.localeCompare(b.name));
+  const vendors = entities('vendor').slice();
   if (!vendors.length) {
-    clear(body).append(el('p', { class: 'sub' }, 'No rules yet — tap ⚡ on any row in Review, or add one here.'));
+    clear(body).append(el('p', { class: 'sub' }, 'No vendors yet — tap ⚡ on any row in Review, or add one here.'));
     return;
   }
-  const byId = new Map(entities('account').map(a => [a.id, a]));
-  const acctName = (id) => { const a = byId.get(id); return a ? accountLabel(a, byId) : '—'; };
-  const rows = vendors.map(v => {
-    const targetAcct = byId.get(v.defaultAccountId);
-    const isBroken = !targetAcct || targetAcct.active === false;
-    return el('tr', { style: isBroken ? 'background:var(--amber-soft,#fff8f0)' : '' },
-      el('td', {}, el('a', { class: 'linklike', style: 'font-weight:700', href: `#/b/${getActiveBiz()}/vendors/${v.id}`, title: 'View this vendor’s transactions' }, v.name), isBroken ? el('span', { class: 'pill amber', style: 'margin-left:6px' }, 'Category archived') : ''),
-      el('td', {},
-        ...(v.matchers?.exact || []).map(x => el('span', { class: 'pill blue', style: 'margin-right:4px' }, `exact: ${x}`)),
-        ...(v.matchers?.keywords || []).map(k => el('span', { class: 'pill gray', style: 'margin-right:4px' }, `contains: ${k}`))),
-      el('td', {}, acctName(v.defaultAccountId)),
-      el('td', { class: 'num' }, `${v.used || 0}×`),
-      el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px' },
-        el('button', { class: 'linklike', onclick: () => ruleModal(v) }, 'Edit'),
-        el('button', { class: 'linklike', style: 'color:var(--red)', onclick: () => confirmDeleteRule(v) }, 'Delete')) : ''),
-    );
-  });
-  clear(body).append(el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:880px' },
-    el('table', { class: 'data' },
-      el('tr', {}, el('th', {}, 'Vendor'), el('th', {}, 'Matches when'), el('th', {}, 'Category'), el('th', { class: 'num' }, 'Used'), el('th', {}, '')),
-      ...rows)));
+  const expenseIds = new Set(entities('account').filter(a => EXPENSE_TYPES.has(a.type)).map(a => a.id));
+  const totalFor = (v) => txnsForVendor(v).reduce((s, t) => s + expenseOf(t, expenseIds), 0);
+  const rows = vendors.map(v => ({ v, n: txnsForVendor(v).length, total: totalFor(v) }))
+    .sort((a, b) => b.total - a.total || a.v.name.localeCompare(b.v.name));
+  const tbl = el('table', { class: 'data' },
+    el('tr', {}, el('th', {}, 'Vendor'), el('th', { class: 'num' }, 'Transactions'), el('th', { class: 'num' }, 'Total paid')),
+    ...rows.map(({ v, n, total }) => el('tr', { style: 'cursor:pointer', title: 'View transactions / edit', onclick: () => vendorDrilldown(v) },
+      el('td', {}, el('b', {}, v.name)),
+      el('td', { class: 'num' }, String(n)),
+      el('td', { class: 'num' }, fmtMoney(total)))));
+  clear(body).append(el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:760px' }, tbl));
+}
+
+// Click a vendor → popup with their transactions + total paid, and Edit/Delete (Esc closes).
+function vendorDrilldown(v) {
+  const m = modal(v.name);
+  const accts = new Map(entities('account').map(a => [a.id, a]));
+  const expenseIds = new Set([...accts.values()].filter(a => EXPENSE_TYPES.has(a.type)).map(a => a.id));
+  const txns = txnsForVendor(v).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const total = txns.reduce((s, t) => s + expenseOf(t, expenseIds), 0);
+  const catOf = (t) => { const l = (t.lines || []).find(x => expenseIds.has(x.accountId)); const a = l && accts.get(l.accountId); return a ? accountLabel(a, accts) : '—'; };
+  const ruleAcct = v.defaultAccountId && accts.get(v.defaultAccountId);
+  m.body.append(
+    el('p', { class: 'sub', style: 'margin-top:0' }, ruleAcct ? ['Auto-categorizes to ', el('b', {}, accountLabel(ruleAcct, accts))] : 'No auto-categorize rule yet.'),
+    el('div', { style: 'font-weight:800;font-size:18px;margin:2px 0 10px' }, fmtMoney(total), el('span', { class: 'sub', style: 'font-weight:400;margin-left:8px' }, `paid · ${txns.length} transactions`)),
+    txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
+      el('table', { class: 'data' },
+        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', {}, 'Category'), el('th', { class: 'num' }, 'Amount')),
+        ...txns.map(t => el('tr', {}, el('td', {}, t.date), el('td', {}, t.payee || t.memo || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, fmtMoney(expenseOf(t, expenseIds)))))))
+      : el('p', { class: 'sub' }, 'No transactions yet.'),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', style: 'color:var(--red)', onclick: () => { m.close(); confirmDeleteRule(v); } }, 'Delete'),
+      el('button', { class: 'btn', onclick: () => { m.close(); ruleModal(v); } }, 'Edit'),
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Close')));
 }
 
 function confirmDeleteRule(v) {

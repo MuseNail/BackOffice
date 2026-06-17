@@ -19,7 +19,7 @@ export function render(root, detail) {
   root.append(
     el('h2', {}, 'Customers'),
     el('p', { class: 'sub' }, 'Your clients. Click a customer to see all their transactions and the total received. Income is tagged to a customer the same way expenses are tagged to a vendor.'),
-    editable ? el('div', { style: 'margin-bottom:14px' }, el('button', { class: 'btn sm', onclick: () => customerModal(null) }, 'New customer')) : el('span'),
+    editable ? el('div', { class: 'sticky-toolbar' }, el('button', { class: 'btn sm', onclick: () => customerModal(null) }, '＋ New customer')) : el('span'),
     body);
   const draw = () => drawTable(body, editable);
   unsub = subscribe(draw);
@@ -56,15 +56,35 @@ function drawTable(body, editable) {
   const rows = customers.map(c => ({ c, n: txnsForCustomer(c).length, total: totalFor(c) }))
     .sort((a, b) => b.total - a.total || a.c.name.localeCompare(b.c.name));
   const tbl = el('table', { class: 'data' },
-    el('tr', {}, el('th', {}, 'Customer'), el('th', { class: 'num' }, 'Transactions'), el('th', { class: 'num' }, 'Total received'), el('th', {}, '')),
-    ...rows.map(({ c, n, total }) => el('tr', {},
-      el('td', {}, el('a', { class: 'linklike', style: 'font-weight:700', href: `#/b/${getActiveBiz()}/customers/${c.id}`, title: 'View this customer’s transactions' }, c.name)),
+    el('tr', {}, el('th', {}, 'Customer'), el('th', { class: 'num' }, 'Transactions'), el('th', { class: 'num' }, 'Total received')),
+    ...rows.map(({ c, n, total }) => el('tr', { style: 'cursor:pointer', title: 'View transactions / edit', onclick: () => customerDrilldown(c) },
+      el('td', {}, el('b', {}, c.name)),
       el('td', { class: 'num' }, String(n)),
-      el('td', { class: 'num' }, fmtMoney(total)),
-      el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px' },
-        el('button', { class: 'linklike', onclick: () => customerModal(c) }, 'Edit'),
-        el('button', { class: 'linklike', style: 'color:var(--red)', onclick: () => confirmDelete(c) }, 'Delete')) : ''))));
+      el('td', { class: 'num' }, fmtMoney(total)))));
   clear(body).append(el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:760px' }, tbl));
+}
+
+// Click a customer → popup with their transactions + total, and Edit/Delete (Esc closes).
+function customerDrilldown(c) {
+  const m = modal(c.name);
+  const accts = new Map(entities('account').map(a => [a.id, a]));
+  const incomeIds = new Set([...accts.values()].filter(a => a.type === 'income').map(a => a.id));
+  const incomeOf = (t) => (t.lines || []).reduce((a, l) => a + (incomeIds.has(l.accountId) ? -l.amountCents : 0), 0);
+  const txns = txnsForCustomer(c).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const total = txns.reduce((s, t) => s + incomeOf(t), 0);
+  const catOf = (t) => { const l = (t.lines || []).find(x => incomeIds.has(x.accountId)); const a = l && accts.get(l.accountId); return a ? a.name : '—'; };
+  m.body.append(
+    c.email ? el('p', { class: 'sub', style: 'margin-top:0' }, c.email) : el('span'),
+    el('div', { style: 'font-weight:800;font-size:18px;margin:2px 0 10px' }, fmtMoney(total), el('span', { class: 'sub', style: 'font-weight:400;margin-left:8px' }, `received · ${txns.length} transactions`)),
+    txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
+      el('table', { class: 'data' },
+        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', {}, 'Category'), el('th', { class: 'num' }, 'Amount')),
+        ...txns.map(t => el('tr', {}, el('td', {}, t.date), el('td', {}, t.payee || t.memo || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, fmtMoney(Math.abs(incomeOf(t))))))))
+      : el('p', { class: 'sub' }, 'No transactions yet.'),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', style: 'color:var(--red)', onclick: () => { m.close(); confirmDelete(c); } }, 'Delete'),
+      el('button', { class: 'btn', onclick: () => { m.close(); customerModal(c); } }, 'Edit'),
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Close')));
 }
 
 function customerModal(existing) {
