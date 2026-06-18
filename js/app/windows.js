@@ -75,8 +75,7 @@ function makeWindow(name, detail, meta) {
   const bMax = winBtn('crop_square', 'Maximize');
   const bClose = winBtn('close', 'Close');
   const bar = el('div', { class: 'mdi-bar' }, ticon, title, el('span', { class: 'mdi-spacer' }), bMin, bMax, bClose);
-  const grip = el('div', { class: 'mdi-resize', title: 'Resize' });
-  const node = el('div', { class: 'mdi-win', style: `left:${x}px;top:${y}px;width:${w}px;height:${h}px` }, bar, body, grip);
+  const node = el('div', { class: 'mdi-win', style: `left:${x}px;top:${y}px;width:${w}px;height:${h}px` }, bar, body);
 
   const state = { name, detail, el: node, body, bar, bMax, view: meta.view, title: meta.title || name, icon: meta.icon || 'tab', max: false, min: false, prev: null };
   node.addEventListener('pointerdown', () => focus(state), true);
@@ -85,7 +84,7 @@ function makeWindow(name, detail, meta) {
   bClose.addEventListener('click', (e) => { e.stopPropagation(); closeWin(state); });
   bar.addEventListener('dblclick', (e) => { if (!e.target.closest('.mdi-btn')) toggleMax(state); });
   makeDrag(state, bar);
-  makeResize(state, grip);
+  addResizers(state);
   workspace.append(node);
   return state;
 }
@@ -162,24 +161,48 @@ function makeDrag(w, handle) {
   handle.addEventListener('pointercancel', end);
 }
 
-function makeResize(w, grip) {
-  let sx, sy, ow, oh, on = false;
-  grip.addEventListener('pointerdown', (e) => {
+// Resize from any edge or corner (n/s/e/w/ne/nw/se/sw). Edges are thin strips inset
+// from the corners; corners are small squares. The `se` corner shows a grip marker.
+const RESIZE_HANDLES = [
+  ['n', 'top:0;left:10px;right:10px;height:6px;cursor:ns-resize'],
+  ['s', 'bottom:0;left:10px;right:10px;height:6px;cursor:ns-resize'],
+  ['e', 'top:10px;bottom:10px;right:0;width:6px;cursor:ew-resize'],
+  ['w', 'top:10px;bottom:10px;left:0;width:6px;cursor:ew-resize'],
+  ['nw', 'top:0;left:0;width:14px;height:14px;cursor:nwse-resize'],
+  ['ne', 'top:0;right:0;width:14px;height:14px;cursor:nesw-resize'],
+  ['sw', 'bottom:0;left:0;width:14px;height:14px;cursor:nesw-resize'],
+  ['se', 'bottom:0;right:0;width:16px;height:16px;cursor:nwse-resize'],
+];
+function addResizers(w) {
+  for (const [dir, css] of RESIZE_HANDLES) {
+    const h = el('div', { class: 'mdi-rz' + (dir === 'se' ? ' mdi-rz-se' : ''), style: 'position:absolute;z-index:5;touch-action:none;' + css });
+    w.el.appendChild(h);
+    wireResize(w, h, dir);
+  }
+}
+function wireResize(w, handle, dir) {
+  let sx, sy, x0, y0, w0, h0, on = false;
+  handle.addEventListener('pointerdown', (e) => {
     if (w.max) return;
-    on = true; sx = e.clientX; sy = e.clientY; ow = w.el.offsetWidth; oh = w.el.offsetHeight;
-    try { grip.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    on = true; sx = e.clientX; sy = e.clientY;
+    x0 = w.el.offsetLeft; y0 = w.el.offsetTop; w0 = w.el.offsetWidth; h0 = w.el.offsetHeight;
+    try { handle.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     e.preventDefault(); e.stopPropagation();
   });
-  grip.addEventListener('pointermove', (e) => {
+  handle.addEventListener('pointermove', (e) => {
     if (!on) return;
-    const W = workspace.clientWidth, H = workspace.clientHeight;
-    const nw = Math.max(300, Math.min(W - w.el.offsetLeft, ow + e.clientX - sx));
-    const nh = Math.max(200, Math.min(H - w.el.offsetTop, oh + e.clientY - sy));
-    w.el.style.width = nw + 'px'; w.el.style.height = nh + 'px';
+    const W = workspace.clientWidth, H = workspace.clientHeight, MINW = 300, MINH = 180;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    let nx = x0, ny = y0, nw = w0, nh = h0;
+    if (dir.includes('e')) nw = Math.max(MINW, Math.min(W - x0, w0 + dx));
+    if (dir.includes('s')) nh = Math.max(MINH, Math.min(H - y0, h0 + dy));
+    if (dir.includes('w')) { const right = x0 + w0; nw = Math.max(MINW, Math.min(right, w0 - dx)); nx = right - nw; }
+    if (dir.includes('n')) { const bottom = y0 + h0; nh = Math.max(MINH, Math.min(bottom, h0 - dy)); ny = bottom - nh; }
+    w.el.style.left = nx + 'px'; w.el.style.top = ny + 'px'; w.el.style.width = nw + 'px'; w.el.style.height = nh + 'px';
   });
-  const end = (e) => { if (on) { on = false; try { grip.releasePointerCapture(e.pointerId); } catch { /* ignore */ } } };
-  grip.addEventListener('pointerup', end);
-  grip.addEventListener('pointercancel', end);
+  const end = (e) => { if (on) { on = false; try { handle.releasePointerCapture(e.pointerId); } catch { /* ignore */ } } };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
 }
 
 function renderTaskbar() {

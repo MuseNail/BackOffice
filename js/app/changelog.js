@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.22', items: [
+    { icon: 'select_window', t: 'Window polish: flush headers + resize any edge', d: 'Inside a window, the sticky header of a tab (like Review’s title/search/filters) now pins flush to the top — no more empty band above it, and rows no longer scroll up behind it into a gap. And you can now resize a window from any edge or corner — top, bottom, left, right, or the four corners — not just the bottom-right.' },
+  ] },
   { v: '0.68.21', items: [
     { icon: 'select_window', t: 'Tabs are now movable windows (QuickBooks-style)', d: 'Each tab opens as its own window in the workspace — open several at once and stack them. Drag a window by its title bar, resize from the bottom-right corner, and use the title-bar buttons to minimize (to the “Open windows” bar at the bottom), maximize/restore to full screen, or close. Clicking a tab that’s already open just brings its window to the front. Double-click a title bar to maximize.' },
   ] },
