@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.13', items: [
+    { icon: 'calculate', t: 'A calculator in every dollar field', d: 'Every amount field now works like a calculator: type an expression such as 40+5*2 and it adds it up left-to-right (like a cash register), showing a little running tape as you go and filling in the answer when you press Enter or click away. Plain amounts also fill in cents automatically — “5014” becomes “5014.00” — so dollar fields are always consistent. Percent and quantity fields keep the calculator but skip the cents.' },
+  ] },
   { v: '0.68.12', items: [
     { icon: 'call_split', t: 'Split one payment across accounts', d: 'When adding a transaction, “＋ Add split” now lets you divide one payment across several accounts — e.g. part Supplies, part Retail. The leftover auto-fills the next line so it always balances to the amount, with no need for the Journal tool. (Editing an existing split comes next.) The Journal-entry tool also gained a × to remove a line and an “Auto-balance” button that fills the last line to make debits equal credits.' },
   ] },

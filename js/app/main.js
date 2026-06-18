@@ -30,6 +30,7 @@ import { openGuide, openQuickRef } from './guide.js';
 import { showWhatsNew, maybeShowWhatsNew } from './changelog.js';
 import { stub } from './views/stubs.js';
 import { mountGlobalSearch } from './search.js';
+import { initAmountCalc } from './calc.js';
 
 const VIEWS = {
   dashboard,
@@ -225,6 +226,7 @@ function boot() {
   subscribe(applyFeatureNav);
   setupNavToggle();
   setupCreateMenu();
+  initAmountCalc();
   mountGlobalSearch();
   window.addEventListener('hashchange', route);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkAppVersion(); });

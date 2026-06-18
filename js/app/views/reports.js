@@ -428,7 +428,7 @@ function drawBody(body) {
     : parseFloat(localStorage.getItem(rateKey) || '25');
   const taxEditable = canEdit(getActiveBiz());
   const setAside = net > 0 ? Math.round(net * rate / 100) : 0;
-  const rateIn = el('input', { class: 'field-input', style: 'max-width:90px;margin:0', inputmode: 'decimal', value: String(rate), disabled: !taxEditable,
+  const rateIn = el('input', { class: 'field-input', style: 'max-width:90px;margin:0', inputmode: 'decimal', 'data-nocents': '1', value: String(rate), disabled: !taxEditable,
     onchange: (e) => {
       const v = parseFloat(e.target.value);
       if (!(v >= 0 && v <= 99)) { drawBody(body); return; }

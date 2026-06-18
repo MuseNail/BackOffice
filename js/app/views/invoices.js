@@ -378,7 +378,7 @@ function invoiceModal(existing) {
   };
   const addRow = (li = { description: '', qty: 1, unitPriceCents: 0 }) => {
     const desc = fi(li.description, 'Description', { style: 'flex:1;min-width:160px' });
-    const qty = fi(li.qty, 'Qty', { inputmode: 'decimal', style: 'width:64px' });
+    const qty = fi(li.qty, 'Qty', { inputmode: 'decimal', style: 'width:64px', 'data-nocents': '1' });
     const price = fi(li.unitPriceCents ? (li.unitPriceCents / 100).toFixed(2) : '', 'Unit $', { inputmode: 'decimal', style: 'width:90px' });
     const amt = el('span', { class: 'num', style: 'min-width:80px;text-align:right' }, '$0.00');
     const rm = el('button', { class: 'linklike', style: 'color:var(--red)', onclick: () => { tr.remove(); recalc(); } }, '✕');
