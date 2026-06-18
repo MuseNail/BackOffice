@@ -18,6 +18,9 @@ account_id = "7e47fe5134a4b77582cf7746bff3fb62"
 # Optional vars: AI_MODEL (defaults to claude-opus-4-8; e.g. claude-haiku-4-5 for cheaper batches)
 
 [vars]
+# AI categorize model — Haiku 4.5 ($1/$5 per 1M tok) for cheap, high-volume
+# bank-row classification. Override to claude-opus-4-8 for max accuracy.
+AI_MODEL = "claude-haiku-4-5"
 # Plaid bank feed (the secret is PLAID_SECRET, set via `wrangler secret put`).
 PLAID_CLIENT_ID = "6a2eb9669d3c7c000eacc5e0"
 PLAID_ENV = "production"   # live bank data — needs the PRODUCTION secret + the redirect URI registered in the Plaid dashboard

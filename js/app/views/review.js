@@ -688,6 +688,25 @@ function drawNoMatch(m, row, why) {
   );
 }
 
+// Few-shot for the AI: distinct, most-recent (description → account) pairs the user
+// has already approved, so Claude categorizes new rows the way THEY do — not from
+// generic merchant knowledge. The deterministic history match still handles exact
+// repeats for free; this makes the AI good at near-matches.
+function aiExamplesFromHistory(limit = 80) {
+  const seen = new Set(), out = [];
+  const approved = entities('staged')
+    .filter(s => s.status === 'approved' && s.categoryId && (s.desc || '').trim())
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  for (const s of approved) {
+    const key = s.desc.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ desc: s.desc, categoryId: s.categoryId });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 async function askAI(rows, categories, body, editable) {
   aiBusy = true;
   drawBody(body, editable);
@@ -697,6 +716,7 @@ async function askAI(rows, categories, body, editable) {
       body: JSON.stringify({
         rows: rows.slice(0, 40).map(r => ({ id: r.id, desc: r.desc, amountCents: r.amountCents, date: r.date })),
         categories: categories.map(c => ({ id: c.id, name: c.name, type: c.type })),
+        examples: aiExamplesFromHistory(),
       }),
     });
     if (res.status === 501) { toast('AI isn’t set up yet — the owner adds the ANTHROPIC_API_KEY secret to enable it', 'err'); return; }
@@ -708,7 +728,18 @@ async function askAI(rows, categories, body, editable) {
       return;
     }
     if (res.status === 400) { toast('Add some accounts to your chart of accounts first — the AI needs a list to choose from', 'err'); return; }
-    if (res.status === 502) { toast('The AI service didn’t respond — the owner may need to check the ANTHROPIC_API_KEY', 'err'); return; }
+    if (res.status === 502) {
+      let b = null; try { b = await res.json(); } catch { /* no body */ }
+      const msg = (b && b.message) || '';
+      if (/credit balance|too low|billing|quota|insufficient/i.test(msg)) {
+        toast('AI is out of Anthropic credits — add credits in the Anthropic console (Plans & Billing). You can categorize manually meanwhile.', 'err');
+      } else {
+        const why = b && b.upstream ? ` (${b.upstream}${b.type ? ' ' + b.type : ''}${b.message ? ': ' + b.message : ''})` : '';
+        console.error('[ai] upstream error', why);
+        toast(('AI service error' + why).slice(0, 200) + ' — check the ANTHROPIC_API_KEY / model access', 'err');
+      }
+      return;
+    }
     if (!res.ok) { toast('AI suggestions failed — categorize manually for now', 'err'); return; }
     const { suggestions } = await res.json();
     let got = 0;

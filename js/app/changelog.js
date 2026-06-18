@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.14', items: [
+    { icon: 'smart_toy', t: 'AI suggestions that learn from you', d: 'When you tap “✨ Get AI suggestions”, the AI now also sees how you’ve categorized past transactions and follows your own patterns, so new rows get the account you’d pick. It runs on the cheaper Haiku model, and if it ever can’t run it now tells you exactly why (for example, the Anthropic account is out of credits).' },
+  ] },
   { v: '0.68.13', items: [
     { icon: 'calculate', t: 'A calculator in every dollar field', d: 'Every amount field now works like a calculator: type an expression such as 40+5*2 and it adds it up left-to-right (like a cash register), showing a little running tape as you go and filling in the answer when you press Enter or click away. Plain amounts also fill in cents automatically — “5014” becomes “5014.00” — so dollar fields are always consistent. Percent and quantity fields keep the calculator but skip the cents.' },
   ] },

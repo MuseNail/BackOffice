@@ -35,7 +35,7 @@ const SCHEMA = {
   additionalProperties: false,
 };
 
-const SYSTEM = `You are a bookkeeping assistant for small businesses. You receive bank-statement transactions and the business's chart of accounts. For each transaction, pick the single most appropriate category account id from the provided list, or null when genuinely unclear — never guess a stretch. Use the merchant/description, the amount sign (negative = money out, so expense/cogs/asset categories; positive = money in, so income/liability categories), and each account's type. confidence is 0-100: 90+ only for unmistakable merchants, below 60 means you are mostly guessing.`;
+const SYSTEM = `You are a bookkeeping assistant for small businesses. You receive bank-statement transactions and the business's chart of accounts. For each transaction, pick the single most appropriate category account id from the provided list, or null when genuinely unclear — never guess a stretch. Use the merchant/description, the amount sign (negative = money out, so expense/cogs/asset categories; positive = money in, so income/liability categories), and each account's type. confidence is 0-100: 90+ only for unmistakable merchants, below 60 means you are mostly guessing. You are also given "examples": how THIS business has already categorized past transactions (description → categoryId). Treat these as your strongest signal — when a transaction's description resembles an example (same merchant, or a clear shared pattern), assign the SAME categoryId with high confidence. Fall back to general reasoning only when no example is similar.`;
 
 // $/1M tokens → microdollars per token. Stamped onto each usage record at call
 // time so history stays correct if prices change later.
@@ -59,10 +59,17 @@ export async function handleCategorize(req, env, bizId) {
 
   let body;
   try { body = await req.json(); } catch { return json({ error: 'bad request' }, 400); }
-  const { rows, categories } = body || {};
+  const { rows, categories, examples } = body || {};
   if (!Array.isArray(rows) || !rows.length || rows.length > MAX_ROWS || !Array.isArray(categories) || !categories.length) {
     return json({ error: `bad request — 1..${MAX_ROWS} rows + categories required` }, 400);
   }
+  const catIds = new Set(categories.map(c => String(c.id)));
+  // Few-shot: how THIS business has categorized past rows (desc → categoryId), so the
+  // model learns the user's own patterns. Validated against the known accounts; capped.
+  const exampleList = (Array.isArray(examples) ? examples : [])
+    .filter(e => e && typeof e.desc === 'string' && e.desc.trim() && catIds.has(String(e.categoryId)))
+    .slice(0, 100)
+    .map(e => ({ description: String(e.desc).slice(0, 200), categoryId: String(e.categoryId) }));
 
   const payload = {
     transactions: rows.map(r => ({
@@ -72,6 +79,7 @@ export async function handleCategorize(req, env, bizId) {
       date: r.date,
     })),
     categories: categories.map(c => ({ id: String(c.id), name: String(c.name || ''), type: String(c.type || '') })),
+    examples: exampleList,
   };
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -92,8 +100,15 @@ export async function handleCategorize(req, env, bizId) {
   });
 
   if (!res.ok) {
-    console.error('[ai] anthropic', res.status, await res.text().catch(() => ''));
-    return json({ error: 'ai_failed' }, 502);
+    const raw = await res.text().catch(() => '');
+    console.error('[ai] anthropic', res.status, raw);
+    // Surface the real upstream error so failures are diagnosable (the Anthropic
+    // error body carries a type/message but never the API key) — e.g. 401
+    // authentication_error (bad key), 404 not_found_error (model), 403 permission_error.
+    let type = '', message = '';
+    try { const e = JSON.parse(raw)?.error; type = e?.type || ''; message = String(e?.message || '').slice(0, 300); }
+    catch { message = raw.slice(0, 300); }
+    return json({ error: 'ai_failed', upstream: res.status, type, message }, 502);
   }
 
   const data = await res.json();
@@ -101,11 +116,10 @@ export async function handleCategorize(req, env, bizId) {
   try {
     parsed = data.content?.find(b => b.type === 'tool_use')?.input;
     if (!parsed) throw new Error('no tool_use block');
-  } catch { return json({ error: 'ai_failed' }, 502); }
+  } catch { return json({ error: 'ai_failed', upstream: 200, type: 'no_tool_use', message: 'model returned no suggestions block' }, 502); }
 
   // Trust nothing: only known row ids, only known category ids, clamped confidence.
   const rowIds = new Set(payload.transactions.map(t => t.id));
-  const catIds = new Set(payload.categories.map(c => c.id));
   const suggestions = (parsed.suggestions || [])
     .filter(s => rowIds.has(s.id) && (s.categoryId === null || catIds.has(s.categoryId)))
     .map(s => ({ id: s.id, categoryId: s.categoryId, confidence: Math.max(0, Math.min(100, s.confidence | 0)) }));
