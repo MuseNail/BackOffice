@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.24', items: [
+    { icon: 'tune', t: 'Review & rules: lots of small wins', d: 'Review’s title, description, search and filters now stay fixed at the top while only the rows scroll. In a Review row the fields are reordered to Vendor → Account → Invoice → Note, the chosen account is easier to read (full name on hover, and the field scrolls to show child-account names), and picking a vendor that has a memorized account fills the account in for you. The Invoice field is now type-to-search by number or customer. The “saved” confirmation always shows on top now.' },
+    { icon: 'edit', t: 'Edit transactions from vendor/customer drill-downs + searchable rule accounts', d: 'In a vendor or customer drill-down, each transaction now has an Edit button that opens the full editor (amount, date, splits, delete). The Edit-rule account box lets you type to search instead of scrolling. And you can now save a rule that just maps a vendor to an account — no description match required.' },
+  ] },
   { v: '0.68.23', items: [
     { icon: 'flip_to_front', t: 'Windows stay below the menus; search jumps to the transaction', d: 'The top search bar, the hover-open sidebar, and pop-ups now always sit above your windows — no window can hide them anymore, no matter how many you’ve clicked through. Clicking a transaction in the global search now opens the Ledger filtered to it. And Escape is now smarter: it closes an open autofill/drop-down first, then a pop-up — and only closes the window when nothing else is open and you’re not typing in a field.' },
   ] },

@@ -9,6 +9,7 @@ import { entities, subscribe, usesInvoices } from './store.js';
 import { canEdit, getActiveBiz } from './session.js';
 import { categoryField, vendorField, memoField, invoiceField, categoryName, stackedEditor } from './txn-inline.js';
 import { dateRangeControl } from './daterange.js';
+import { editTxnModal } from './views/ledger.js';
 
 const lineOn = (txn, acctId) => (txn.lines || []).filter(l => l.accountId === acctId).reduce((s, l) => s + l.amountCents, 0);
 const magnitude = (txn) => (txn.lines || []).reduce((s, l) => s + Math.max(0, l.amountCents), 0);
@@ -86,7 +87,9 @@ function drawRegister(body, opts, state) {
       chevron);
     const summary = el('tr', {},
       el('td', { style: 'white-space:nowrap' }, t.date),
-      el('td', {}, el('b', {}, t.payee || '—'), compact),
+      el('td', {}, el('b', {}, t.payee || '—'),
+        el('button', { class: 'btn sm ghost', style: 'margin-left:8px;padding:2px 9px;font-size:11px', title: 'Open the full transaction editor (amount, date, splits, delete)', onclick: () => editTxnModal(t) }, 'Edit'),
+        compact),
       el('td', { class: 'txinline' }, categoryField(t)),
       el('td', { class: 'txinline' }, vendorField(t)),
       el('td', { class: 'txinline' }, memoField(t)),

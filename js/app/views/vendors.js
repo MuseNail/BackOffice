@@ -8,6 +8,7 @@ import { normalizeDesc } from '../lib/match.js';
 import { renderRegister } from '../register.js';
 import { dateRangeControl, inRange } from '../daterange.js';
 import { ruleConditionsEditor, buildMatchers, ruleSummary } from '../rule-editor.js';
+import { combobox } from '../combobox.js';
 
 let unsub = null;
 let vendorRange = { from: null, to: null };
@@ -175,12 +176,11 @@ function ruleModal(existing) {
   const categories = active.filter(a => !isBankish(a)).sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)));
   const name = el('input', { class: 'field-input', value: existing?.name || '', placeholder: 'Vendor name' });
   const editor = ruleConditionsEditor({ seed: existing?.matchers || {} });
-  const cat = el('select', { class: 'field-input' },
-    el('option', { value: '' }, '— account —'),
-    transferTargets.length ? el('optgroup', { label: '↔ Transfer to / from' },
-      ...transferTargets.map(a => el('option', { value: a.id, selected: a.id === existing?.defaultAccountId }, accountLabel(a, byId)))) : null,
-    el('optgroup', { label: 'Accounts' },
-      ...categories.map(a => el('option', { value: a.id, selected: a.id === existing?.defaultAccountId }, accountLabel(a, byId)))));
+  const catGroups = [];
+  if (transferTargets.length) catGroups.push({ label: '↔ Transfer to / from', items: transferTargets.map(a => ({ value: a.id, label: accountLabel(a, byId) })) });
+  catGroups.push({ label: 'Accounts', items: categories.map(a => ({ value: a.id, label: accountLabel(a, byId) })) });
+  const cat = combobox({ groups: catGroups, value: existing?.defaultAccountId || '', placeholder: 'Search accounts…', minWidth: 260 });
+  cat.style.cssText = 'display:block;width:100%;max-width:360px';
   m.body.append(
     el('label', { class: 'field-label' }, 'Vendor'), name,
     editor.el,
@@ -189,7 +189,10 @@ function ruleModal(existing) {
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', onclick: () => {
         const spec = editor.get();
-        if (!name.value.trim() || !spec.conditions.length) { toast('Add a vendor name and at least one match condition', 'err'); return; }
+        if (!name.value.trim()) { toast('Add a vendor name', 'err'); return; }
+        // Need at least a match condition (auto-tag by description) OR an account
+        // (memorize vendor→account for manual picks). Either alone is a valid rule.
+        if (!spec.conditions.length && !cat.value) { toast('Add a match condition or an account', 'err'); return; }
         dispatch({ op: 'entity.upsert', kind: 'vendor', value: {
           ...(existing || { used: 0 }),
           id: existing?.id || 'v-' + name.value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30),

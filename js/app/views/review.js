@@ -66,17 +66,19 @@ export function render(root) {
     oninput: (e) => { reviewFilter.q = e.target.value; draw(); } });
   reviewFiltersHost = el('div');
   reviewActionsHost = el('div');
-  // The whole header (title, blurb, search, filters, action buttons) sticks to the
-  // top so it never scrolls out of reach on a long list.
+  // The whole header (title, blurb, search, filters, action buttons) is a FIXED top
+  // section that never scrolls — only the rows below it scroll. A flex column inside
+  // the window body guarantees the title/description stay visible on a long list.
   root.append(
-    el('div', { class: 'review-head' },
-      el('h2', { style: 'margin:0 0 2px' }, 'Review'),
-      el('p', { class: 'sub', style: 'margin:0 0 8px' }, 'Imported transactions wait here, grouped by account. Nothing posts without your approval — and transfers between your own accounts never count as income or expense.'),
-      el('div', { class: 'no-print', style: 'display:flex;align-items:center;gap:8px;margin-bottom:8px' },
-        el('span', { class: 'ms', style: 'color:var(--mut);font-size:20px' }, 'search'), reviewSearchEl),
-      reviewFiltersHost,
-      reviewActionsHost),
-    body,
+    el('div', { class: 'review-wrap' },
+      el('div', { class: 'review-head' },
+        el('h2', { style: 'margin:0 0 2px' }, 'Review'),
+        el('p', { class: 'sub', style: 'margin:0 0 8px' }, 'Imported transactions wait here, grouped by account. Nothing posts without your approval — and transfers between your own accounts never count as income or expense.'),
+        el('div', { class: 'no-print', style: 'display:flex;align-items:center;gap:8px;margin-bottom:8px' },
+          el('span', { class: 'ms', style: 'color:var(--mut);font-size:20px' }, 'search'), reviewSearchEl),
+        reviewFiltersHost,
+        reviewActionsHost),
+      el('div', { class: 'review-scroll' }, body)),
   );
   reviewDateCtl = dateRangeControl({ initial: 'all', onChange: (r) => { reviewFilter.from = r.from || ''; reviewFilter.to = r.to || ''; draw(); } });
   unsub = subscribe(draw);
@@ -152,7 +154,7 @@ function categoryGroups(row, categories, accountsById) {
 
 function categorySelect(row, categories, accountsById, preselect, afterAdd) {
   return combobox({ groups: categoryGroups(row, categories, accountsById), value: preselect || '',
-    placeholder: 'Search accounts…', minWidth: 180, addLabel: 'Add account…',
+    placeholder: 'Search accounts…', minWidth: 230, addLabel: 'Add account…',
     onAdd: () => quickAddAccountModal((account) => afterAdd?.(account)),
     // Typed a name that isn't an account yet → confirm-add popup, prefilled with it.
     onAddText: (typed) => quickAddAccountModal((account) => afterAdd?.(account), 'expense', typed) });
@@ -170,9 +172,13 @@ function vendorSelect(vendors, preselect, afterAdd) {
 // Invoice picker for a Review row (only when the business uses invoices) — tags the
 // expense to an invoice for per-invoice profit margin. Invoices newest-first.
 function invoiceSelect(invoices, preselect) {
-  return el('select', { class: 'field-input', style: 'margin:4px 0 0;min-width:190px;font-size:.82em' },
-    el('option', { value: '' }, '— invoice (optional) —'),
-    ...invoices.map(i => el('option', { value: i.id, selected: i.id === preselect }, `#${i.number || i.id} · ${(i.clientName || '').slice(0, 24)}`)));
+  // Type-to-search by invoice number OR customer name; the "— none —" option clears it.
+  return combobox({
+    groups: [{ label: '', items: [
+      { value: '', label: '— none —' },
+      ...invoices.map(i => ({ value: i.id, label: `#${i.number || i.id} · ${(i.clientName || '').slice(0, 30)}` })),
+    ] }],
+    value: preselect || '', placeholder: 'Find invoice # or customer…', minWidth: 200 });
 }
 
 function drawBody(body, editable) {
@@ -239,7 +245,15 @@ function drawBody(body, editable) {
       approveRow(row, sel.value, sug, { memo: memoIn.value.trim(), vendorId: vendSel.value, invoiceId: invSel?.value || '' });
     } }, 'Approve');
     sel.addEventListener('change', () => { if (sel.value) lastCategory.set(row.id, sel.value); approve.disabled = !sel.value; });
-    vendSel.addEventListener('change', () => { lastVendor.set(row.id, vendSel.value); });
+    vendSel.addEventListener('change', () => {
+      lastVendor.set(row.id, vendSel.value);
+      // Picking a vendor that has a memorized default account fills the account too
+      // (only when it's still empty — never clobber a pick the user already made).
+      const v = entities('vendor').find(x => x.id === vendSel.value);
+      if (v?.defaultAccountId && !sel.value && accountsById.has(v.defaultAccountId)) {
+        sel.value = v.defaultAccountId; lastCategory.set(row.id, v.defaultAccountId); approve.disabled = false;
+      }
+    });
     const actions = [approve,
       el('button', { class: 'btn sm ghost', onclick: () => skipRow(row) }, 'Skip'),
       el('button', { class: 'btn sm ghost', title: 'Auto-categorize this vendor from now on', onclick: () => makeRuleModal(row, sel.value, vendSel.value, categories, accountsById) }, '⚡ Rule')];
@@ -257,8 +271,8 @@ function drawBody(body, editable) {
         el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
         chip),
       editable ? el('div', { class: 'revfields' },
-        field('Account', sel),
         field('Vendor', vendSel),
+        field('Account', sel),
         invSel ? field('Invoice', invSel) : null,
         field('Note', memoIn),
         el('div', { class: 'rvf rvactions' }, ...actions)) : null);
@@ -863,7 +877,10 @@ function makeRuleModal(row, pickedCategoryId, pickedVendorId, categories, accoun
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', onclick: () => {
         const nm = name.value.trim(); const spec = editor.get();
-        if (!nm || !spec.conditions.length) { toast('Add a vendor name and at least one match condition', 'err'); return; }
+        if (!nm) { toast('Add a vendor name', 'err'); return; }
+        // A rule needs at least ONE of: a match condition (auto-tags by description) or
+        // an account (memorizes vendor→account for when you pick the vendor by hand).
+        if (!spec.conditions.length && !cat.value) { toast('Add a match condition or an account', 'err'); return; }
         const existing = findVendor(nm);
         // Extend an existing vendor's rule (don't clobber) — merge conditions by type+text.
         const mergedConds = existing

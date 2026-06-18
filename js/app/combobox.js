@@ -32,7 +32,14 @@ export function combobox({ groups = [], value = '', placeholder = '— pick —'
   const panel = el('div', { class: 'cbx-panel', hidden: true });
   const wrap = el('div', { class: 'cbx', style: `min-width:${minWidth}px` }, input, panel);
 
-  const setDisplay = () => { input.value = current ? labelFor(current) : ''; };
+  // Show the full chosen label on hover (title) and scroll the field to its END when
+  // unfocused, so a long "Parent › Child" account reveals the CHILD you actually picked
+  // (the meaningful part) instead of clipping it off the right edge.
+  const setDisplay = () => {
+    input.value = current ? labelFor(current) : '';
+    input.title = input.value;
+    if (input.value) setTimeout(() => { if (document.activeElement !== input) input.scrollLeft = input.scrollWidth; }, 0);
+  };
   setDisplay();
 
   const fireChange = () => wrap.dispatchEvent(new Event('change'));
