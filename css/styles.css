@@ -315,3 +315,29 @@ table.data.cmp th,table.data.cmp td{padding-left:12px;padding-right:12px}
 body.nav-collapsed .side:not(:hover) .navitem{justify-content:center;gap:0;padding-left:0;padding-right:0;font-size:0}
 body.nav-collapsed .side:not(:hover) .navitem .ms{font-size:19px}
 body.nav-collapsed .side:not(:hover) .navitem .badge{display:none}
+
+/* ── MDI workspace — QuickBooks-style tab windows (one window per view) ── */
+body.has-windows #view{max-width:none;padding:0;display:flex;flex-direction:column;height:calc(100vh - 53px);overflow:hidden}
+.mdi-workspace{position:relative;flex:1;overflow:hidden;background:#eef1f6}
+.mdi-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:14px;pointer-events:none}
+.mdi-win{position:absolute;display:flex;flex-direction:column;background:#fff;border:1px solid #c9cedd;border-radius:12px;box-shadow:0 10px 30px rgba(20,30,55,.18);overflow:hidden;min-width:300px;min-height:200px}
+.mdi-win.focused{border-color:var(--brand);box-shadow:0 16px 42px rgba(20,30,55,.30)}
+.mdi-win.maxd{border-radius:0}
+.mdi-bar{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#f1f3f8;border-bottom:1px solid #e3e7f0;cursor:move;user-select:none;touch-action:none;flex:none}
+.mdi-win.focused .mdi-bar{background:var(--brand);color:#fff;border-bottom-color:var(--brand)}
+.mdi-ticon{font-size:17px;color:var(--brand)}
+.mdi-win.focused .mdi-ticon{color:#fff}
+.mdi-title{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mdi-spacer{flex:1}
+.mdi-btn{border:none;background:transparent;cursor:pointer;color:inherit;padding:2px;border-radius:6px;display:flex;opacity:.85}
+.mdi-btn:hover{opacity:1;background:rgba(0,0,0,.08)}
+.mdi-win.focused .mdi-btn:hover{background:rgba(255,255,255,.22)}
+.mdi-btn .ms{font-size:17px}
+.mdi-body{flex:1;overflow:auto;padding:14px 16px;background:#fff;min-height:0}
+.mdi-resize{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;touch-action:none}
+.mdi-resize::after{content:"";position:absolute;right:3px;bottom:3px;width:7px;height:7px;border-right:2px solid #9aa1b5;border-bottom:2px solid #9aa1b5}
+.mdi-taskbar{display:flex;align-items:center;gap:7px;padding:6px 10px;background:#fff;border-top:1px solid var(--line);min-height:40px;flex:none;overflow-x:auto}
+.mdi-taskbar-lbl{font-size:12px;color:var(--mut);font-weight:600;flex:none}
+.mdi-chip{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:5px 12px;border-radius:999px;cursor:pointer;border:1px solid var(--brand);background:var(--brand);color:#fff;white-space:nowrap;flex:none}
+.mdi-chip.min{background:#f0f2f7;color:var(--mut);border-color:#d9deea}
+.mdi-chip .ms{font-size:14px}

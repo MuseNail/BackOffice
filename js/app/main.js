@@ -24,6 +24,7 @@ import * as reports from './views/reports.js';
 import * as inventory from './views/inventory.js';
 import * as audit from './views/audit.js';
 import * as settings from './views/settings.js';
+import * as windows from './windows.js';
 import { subscribe } from './store.js';
 import { entities, usesInvoices, usesMuseSync } from './store.js';
 import { openGuide, openQuickRef } from './guide.js';
@@ -53,29 +54,59 @@ const VIEWS = {
 let current = null;
 let opened = ''; // in-memory — getActiveBiz() persists across reloads, but the
                  // store does not; a fresh page must always re-open the business
+let workspaceMode = false; // true while the MDI windowed workspace is mounted
 
 function route() {
   const hash = location.hash || '#/';
   const root = document.getElementById('view');
-  current?.unmount?.();
 
-  if (!getToken()) { current = mount(login, root); return; }
+  if (!getToken()) { leaveWorkspace(); current = mount(login, root); return; }
 
-  if (hash.startsWith('#/setup')) { setNav('businesses', ''); current = mount(setup, root); return; }
+  if (hash.startsWith('#/setup')) { leaveWorkspace(); setNav('businesses', ''); current = mount(setup, root); return; }
 
   const m = hash.match(/^#\/b\/([a-z0-9-]+)\/(\w+)(?:\/(.+))?$/);
   if (m) {
     const [, biz, viewName, detail] = m;
-    if (opened !== biz) { opened = biz; setActiveBiz(biz); openBusiness(biz).catch(console.error); }
+    if (opened !== biz) { opened = biz; setActiveBiz(biz); windows.closeAll(); openBusiness(biz).catch(console.error); }
     setNav(viewName, biz);
-    current = mount(VIEWS[viewName] || VIEWS.dashboard, root, detail);   // detail = a drill-down target id (register views)
+    enterWorkspace(root);
+    windows.openView(viewName, detail);   // opens/focuses a window; detail = drill-down/new token
     return;
   }
   // 3b UI shaping: single-business users have no selector — land in their books.
   const mine = getBusinesses();
   if (!getUser()?.isOwner && mine.length === 1) { location.hash = `#/b/${mine[0].id}/dashboard`; return; }
+  leaveWorkspace();
   setNav('businesses', '');
   current = mount(businesses, root);
+}
+
+// Each business view opens as a floating window in the MDI workspace (QuickBooks
+// style). Full-screen views (login / businesses / setup) replace #view directly.
+function enterWorkspace(root) {
+  if (workspaceMode) return;
+  current?.unmount?.(); current = null;
+  root.replaceChildren();
+  document.body.classList.add('has-windows');
+  windows.create(root);
+  workspaceMode = true;
+}
+function leaveWorkspace() {
+  if (workspaceMode) { windows.destroy(); document.body.classList.remove('has-windows'); workspaceMode = false; }
+  else { current?.unmount?.(); }
+}
+// Title + Material icon for a view, read from its sidebar item (single source of truth).
+function viewMeta(name) {
+  const nav = document.querySelector(`#sidebar .navitem[data-v="${name}"]`);
+  let title = name, icon = 'tab';
+  if (nav) {
+    icon = nav.querySelector('.ms')?.textContent?.trim() || icon;
+    nav.childNodes.forEach((n) => { if (n.nodeType === 3 && n.textContent.trim()) title = n.textContent.trim(); });
+  }
+  return { view: VIEWS[name] || VIEWS.dashboard, title, icon };
+}
+function setNavActive(name) {
+  document.querySelectorAll('#sidebar .navitem').forEach((n) => n.classList.toggle('on', n.dataset.v === name));
 }
 
 function mount(view, root, detail) {
@@ -222,6 +253,8 @@ function boot() {
     else if (act === 'reset') promptHardReload();
     else if (act === 'logout') doLogout();
   });
+  windows.setResolver(viewMeta);
+  windows.setOnFocus(setNavActive);
   subscribe(updateReviewBadge);
   subscribe(applyFeatureNav);
   setupNavToggle();

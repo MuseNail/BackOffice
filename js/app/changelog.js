@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.21', items: [
+    { icon: 'select_window', t: 'Tabs are now movable windows (QuickBooks-style)', d: 'Each tab opens as its own window in the workspace — open several at once and stack them. Drag a window by its title bar, resize from the bottom-right corner, and use the title-bar buttons to minimize (to the “Open windows” bar at the bottom), maximize/restore to full screen, or close. Clicking a tab that’s already open just brings its window to the front. Double-click a title bar to maximize.' },
+  ] },
   { v: '0.68.20', items: [
     { icon: 'menu', t: 'Collapsed menu — no more text sliver', d: 'When the sidebar is collapsed to the icon rail, the menu labels are now fully hidden (and centered icons only) instead of leaving a distracting sliver of text peeking past the edge. Hover the rail to see the full labels as before.' },
   ] },
