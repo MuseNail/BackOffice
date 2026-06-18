@@ -184,18 +184,18 @@ function ruleModal(existing) {
   m.body.append(
     el('label', { class: 'field-label' }, 'Vendor'), name,
     editor.el,
-    el('label', { class: 'field-label' }, 'Account'), cat,
+    el('label', { class: 'field-label' }, 'Account (optional — leave blank to just memorize the vendor)'), cat,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', onclick: () => {
         const spec = editor.get();
-        if (!name.value.trim() || !spec.conditions.length || !cat.value) { toast('Add a vendor name, at least one match condition, and an account', 'err'); return; }
+        if (!name.value.trim() || !spec.conditions.length) { toast('Add a vendor name and at least one match condition', 'err'); return; }
         dispatch({ op: 'entity.upsert', kind: 'vendor', value: {
           ...(existing || { used: 0 }),
           id: existing?.id || 'v-' + name.value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30),
           name: name.value.trim(),
           matchers: buildMatchers(spec),
-          defaultAccountId: cat.value,
+          defaultAccountId: cat.value || existing?.defaultAccountId || null,
         } });
         toast('Rule saved');
         m.close();

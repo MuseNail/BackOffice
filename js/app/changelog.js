@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.19', items: [
+    { icon: 'rule', t: 'Smarter rules: vendor-only + “does not contain”', d: 'When making a rule, the account is now optional — leave it blank to just memorize the vendor for matching descriptions and pick the account yourself each time (matching rows show a “⚡ Vendor · pick account” tag). Rules also gained a “does not contain” condition, so you can match things like “AMZN but NOT Prime.”' },
+  ] },
   { v: '0.68.18', items: [
     { icon: 'drag_pan', t: 'Pop-ups are now movable windows', d: 'Every dialog now works like a file-explorer window — grab its title bar and drag it anywhere on the screen so you can see (and read) whatever is behind it. The dark dimming behind dialogs is gone too, so the rest of the app stays visible while a dialog is open.' },
   ] },

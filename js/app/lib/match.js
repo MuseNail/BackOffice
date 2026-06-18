@@ -46,6 +46,24 @@ export function suggestFor(row, { vendors = [], history = [] } = {}) {
 
 const hit = (v, by) => ({ accountId: v.defaultAccountId, by, vendorId: v.id, vendorName: v.name });
 
+// Find a vendor whose rule matches this row, IGNORING whether the vendor has a
+// default account. Lets a "memorized vendor, no account" rule auto-fill the Vendor
+// field even though it intentionally suggests no account. row: { desc, amountCents }.
+export function vendorForRow(row, vendors = []) {
+  const desc = normalizeDesc(row?.desc);
+  if (!desc) return null;
+  for (const v of vendors) {
+    if ((v.matchers?.exact || []).some(m => desc === normalizeDesc(m))) return { vendorId: v.id, vendorName: v.name };
+  }
+  for (const v of vendors) {
+    if ((v.matchers?.keywords || []).some(k => { const kk = normalizeDesc(k); return kk && desc.includes(kk); })) return { vendorId: v.id, vendorName: v.name };
+  }
+  for (const v of vendors) {
+    if (matchesRule(v.matchers, row)) return { vendorId: v.id, vendorName: v.name };
+  }
+  return null;
+}
+
 // True when a row satisfies a matchers object's advanced conditions (ALL of them)
 // AND its direction / amount-range gate. Pure — shared by suggestFor and the rule
 // builder's live preview. row: { desc, amountCents }.
@@ -61,6 +79,7 @@ function matchCond(c, desc, rawDesc) {
   if (!t) return false;
   if (c.type === 'starts') return desc.startsWith(t);
   if (c.type === 'exact') return desc === t;
+  if (c.type === 'not-contains') return !desc.includes(t);
   if (c.type === 'regex') { try { return new RegExp(c.text, 'i').test(rawDesc); } catch { return false; } }
   return desc.includes(t);   // 'contains' (default)
 }

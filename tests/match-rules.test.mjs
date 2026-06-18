@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchesRule } from '../js/app/lib/match.js';
+import { matchesRule, vendorForRow } from '../js/app/lib/match.js';
+import { buildMatchers } from '../js/app/rule-editor.js';
 
 const row = (desc, amountCents = -1000) => ({ desc, amountCents });
 
@@ -43,6 +44,35 @@ test('amount-range gate works on the absolute amount', () => {
   assert.equal(matchesRule(m, row('CHECK 1042', -2000)), true);
   assert.equal(matchesRule(m, row('CHECK 1042', -200)), false);   // below min
   assert.equal(matchesRule(m, row('CHECK 1042', -6000)), false);  // above max
+});
+
+test('not-contains excludes rows that contain the text', () => {
+  // "AMZN but NOT the PRIME subscription"
+  const m = { conditions: [{ type: 'contains', text: 'AMZN' }, { type: 'not-contains', text: 'PRIME' }] };
+  assert.equal(matchesRule(m, row('AMZN MKTP US')), true);
+  assert.equal(matchesRule(m, row('AMZN PRIME')), false);
+  // a lone not-contains matches anything without the text
+  assert.equal(matchesRule({ conditions: [{ type: 'not-contains', text: 'REFUND' }] }, row('SALE 123')), true);
+  assert.equal(matchesRule({ conditions: [{ type: 'not-contains', text: 'REFUND' }] }, row('REFUND 123')), false);
+});
+
+test('a negation rule never writes legacy keywords/exact (so old code cannot over-match)', () => {
+  const matchers = buildMatchers({ conditions: [{ type: 'contains', text: 'AMZN' }, { type: 'not-contains', text: 'PRIME' }], direction: 'any', amountMin: null, amountMax: null });
+  assert.deepEqual(matchers.keywords, []);
+  assert.deepEqual(matchers.exact, []);
+  // a plain rule still writes them for backward compatibility
+  const plain = buildMatchers({ conditions: [{ type: 'contains', text: 'AMZN' }], direction: 'any', amountMin: null, amountMax: null });
+  assert.deepEqual(plain.keywords, ['AMZN']);
+});
+
+test('vendorForRow matches a vendor even with no default account', () => {
+  const vendors = [
+    { id: 'v-sally', name: 'Sally Beauty', defaultAccountId: '', matchers: { conditions: [{ type: 'contains', text: 'SALLY' }] } },
+    { id: 'v-costco', name: 'Costco', defaultAccountId: 'acc-supplies', matchers: { keywords: ['COSTCO'] } },
+  ];
+  assert.deepEqual(vendorForRow(row('SALLY BEAUTY #10'), vendors), { vendorId: 'v-sally', vendorName: 'Sally Beauty' });
+  assert.deepEqual(vendorForRow(row('COSTCO WHSE'), vendors), { vendorId: 'v-costco', vendorName: 'Costco' });
+  assert.equal(vendorForRow(row('UNKNOWN VENDOR'), vendors), null);
 });
 
 test('no conditions never matches', () => {

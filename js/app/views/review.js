@@ -11,7 +11,7 @@ import { entities, subscribe, getState, usesInvoices } from '../store.js';
 import { dispatch, api } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { validateTxn, simpleTxn } from '../lib/posting.js';
-import { suggestFor, guessVendorName, matchesRule } from '../lib/match.js';
+import { suggestFor, guessVendorName, matchesRule, vendorForRow } from '../lib/match.js';
 import { ruleConditionsEditor, buildMatchers, matchersToConditions, rulePreview } from '../rule-editor.js';
 import { bindSuggest } from '../suggest.js';
 import { accountLabel } from '../lib/coa-templates.js';
@@ -212,8 +212,13 @@ function drawBody(body, editable) {
     }
     if (sug) suggested.push({ row, sug });
 
+    // A vendor rule with NO account still tags the vendor — surface it even when there's
+    // no account suggestion, so "memorized vendor, pick the account yourself" rules work.
+    const vendorTag = sug?.vendorId ? { vendorId: sug.vendorId, vendorName: sug.vendorName }
+      : vendorForRow(row, matchCtx.vendors);
+
     const preselect = lastCategory.get(row.id) || sug?.accountId;
-    const vendPreselect = lastVendor.has(row.id) ? lastVendor.get(row.id) : sug?.vendorId;
+    const vendPreselect = lastVendor.has(row.id) ? lastVendor.get(row.id) : vendorTag?.vendorId;
     const sel = categorySelect(row, categories, accountsById, preselect,
       (account) => { lastCategory.set(row.id, account.id); drawBody(body, editable); });
     const memoIn = el('input', { class: 'field-input', placeholder: 'Add a note…', style: 'margin:0;min-width:150px', value: row.memo || '' });
@@ -225,7 +230,9 @@ function drawBody(body, editable) {
       ? (sug.by === 'rule' ? el('span', { class: 'pill blue' }, `⚡ ${sug.vendorName}`)
         : sug.by === 'ai' ? el('span', { class: 'pill amber' }, `✨ AI ${sug.confidence}%`)
         : el('span', { class: 'pill green' }, '🕘 Seen before'))
-      : el('span', { class: 'pill gray' }, 'No match');
+      : vendorTag
+        ? el('span', { class: 'pill blue', title: 'Vendor matched — choose an account' }, `⚡ ${vendorTag.vendorName} · pick account`)
+        : el('span', { class: 'pill gray' }, 'No match');
 
     const approve = el('button', { class: 'btn sm green', disabled: !preselect, onclick: () => {
       lastCategory.delete(row.id); lastVendor.delete(row.id);
@@ -847,16 +854,16 @@ function makeRuleModal(row, pickedCategoryId, pickedVendorId, categories, accoun
   name.addEventListener('input', syncExisting);
   syncExisting();
   m.body.append(
-    el('p', { class: 'sub' }, 'Bank descriptions matching the conditions below get this account suggested automatically.'),
+    el('p', { class: 'sub' }, 'Bank descriptions matching the conditions below get this vendor (and, if you set one, this account) filled in automatically.'),
     el('label', { class: 'field-label' }, 'Vendor name'), name, dl, hint,
     editor.el,
-    el('label', { class: 'field-label' }, 'Account'), cat,
+    el('label', { class: 'field-label' }, 'Account (optional — leave blank to just memorize the vendor)'), cat,
     preview.el,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', onclick: () => {
         const nm = name.value.trim(); const spec = editor.get();
-        if (!nm || !spec.conditions.length || !cat.value) { toast('Add a vendor name, at least one match condition, and an account', 'err'); return; }
+        if (!nm || !spec.conditions.length) { toast('Add a vendor name and at least one match condition', 'err'); return; }
         const existing = findVendor(nm);
         // Extend an existing vendor's rule (don't clobber) — merge conditions by type+text.
         const mergedConds = existing
@@ -864,14 +871,18 @@ function makeRuleModal(row, pickedCategoryId, pickedVendorId, categories, accoun
           : spec.conditions;
         const matchers = buildMatchers({ ...spec, conditions: mergedConds });
         const vId = existing?.id || ('v-' + nm.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30));
+        // Account is optional — when left blank, memorize ONLY the vendor (but never wipe
+        // an existing vendor's account).
+        const acctId = cat.value || existing?.defaultAccountId || '';
         // Carry the rule just made back onto the row it was opened from — set BEFORE
         // dispatch so the redraw it triggers picks up the selection.
-        lastCategory.set(row.id, cat.value);
+        if (acctId) lastCategory.set(row.id, acctId);
         lastVendor.set(row.id, vId);
         dispatch({ op: 'entity.upsert', kind: 'vendor', value: {
-          ...(existing || {}), id: vId, name: nm, matchers, defaultAccountId: cat.value, used: existing?.used || 0,
+          ...(existing || {}), id: vId, name: nm, matchers, defaultAccountId: acctId, used: existing?.used || 0,
         } });
-        logAudit('rule', { summary: `${existing ? 'Updated' : 'Created'} rule “${nm}” → ${entities('account').find(a => a.id === cat.value)?.name || cat.value}`, kind: 'vendor', entityId: vId });
+        const acctName = acctId ? (entities('account').find(a => a.id === acctId)?.name || acctId) : '(vendor only)';
+        logAudit('rule', { summary: `${existing ? 'Updated' : 'Created'} rule “${nm}” → ${acctName}`, kind: 'vendor', entityId: vId });
         toast(existing ? `Rule updated for “${nm}”` : 'Rule saved — future imports match automatically');
         m.close();
       } }, 'Save rule')),

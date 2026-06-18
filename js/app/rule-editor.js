@@ -7,7 +7,7 @@
 import { el } from './ui.js';
 import { parseMoney } from './lib/money.js';
 
-const TYPES = [['contains', 'contains'], ['starts', 'starts with'], ['exact', 'is exactly'], ['regex', 'matches pattern']];
+const TYPES = [['contains', 'contains'], ['not-contains', 'does not contain'], ['starts', 'starts with'], ['exact', 'is exactly'], ['regex', 'matches pattern']];
 
 // Normalize any matchers (new or legacy) into a conditions array for seeding the editor.
 export function matchersToConditions(matchers = {}) {
@@ -86,7 +86,11 @@ export function ruleConditionsEditor({ seed = {}, onChange } = {}) {
 // amount, no range) we also write the plain text into legacy exact[]/keywords[] so
 // older code keeps matching; restricted/advanced rules rely on `conditions` only.
 export function buildMatchers(spec) {
-  const unrestricted = spec.direction === 'any' && spec.amountMin == null && spec.amountMax == null;
+  // A negation ("does not contain") can't be expressed in legacy exact[]/keywords[],
+  // so any rule using one must rely on `conditions` only — otherwise old code would
+  // match on the positive part alone and ignore the exclusion.
+  const hasNegation = spec.conditions.some(c => c.type === 'not-contains');
+  const unrestricted = !hasNegation && spec.direction === 'any' && spec.amountMin == null && spec.amountMax == null;
   const keywords = unrestricted ? [...new Set(spec.conditions.filter(c => c.type === 'contains').map(c => c.text))] : [];
   const exact = unrestricted ? [...new Set(spec.conditions.filter(c => c.type === 'exact').map(c => c.text))] : [];
   return { exact, keywords, conditions: spec.conditions, direction: spec.direction, amountMin: spec.amountMin, amountMax: spec.amountMax };
@@ -96,7 +100,7 @@ export function buildMatchers(spec) {
 export function ruleSummary(matchers = {}) {
   const conds = matchersToConditions(matchers);
   if (!conds.length) return 'no rule';
-  const verb = { contains: 'contains', starts: 'starts with', exact: 'is', regex: 'matches' };
+  const verb = { contains: 'contains', 'not-contains': 'does not contain', starts: 'starts with', exact: 'is', regex: 'matches' };
   let s = conds.map(c => `${verb[c.type] || 'contains'} “${c.text}”`).join(' + ');
   if (matchers.direction === 'in') s += ' · deposits';
   else if (matchers.direction === 'out') s += ' · withdrawals';
