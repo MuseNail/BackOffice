@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.18', items: [
+    { icon: 'drag_pan', t: 'Pop-ups are now movable windows', d: 'Every dialog now works like a file-explorer window — grab its title bar and drag it anywhere on the screen so you can see (and read) whatever is behind it. The dark dimming behind dialogs is gone too, so the rest of the app stays visible while a dialog is open.' },
+  ] },
   { v: '0.68.17', items: [
     { icon: 'account_tree', t: 'See full account names + quick-add accounts', d: 'The account picker dropdown is now wider and wraps long names, so you can read full parent › child account paths instead of them getting cut off. Typing an account that doesn’t exist yet pops up a quick “add it?” setup (prefilled with what you typed) — just like vendors. And approving a batch of transactions now shows a “⏳ Approving…” indicator so you know it’s working.' },
   ] },
