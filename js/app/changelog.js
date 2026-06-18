@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.17', items: [
+    { icon: 'account_tree', t: 'See full account names + quick-add accounts', d: 'The account picker dropdown is now wider and wraps long names, so you can read full parent › child account paths instead of them getting cut off. Typing an account that doesn’t exist yet pops up a quick “add it?” setup (prefilled with what you typed) — just like vendors. And approving a batch of transactions now shows a “⏳ Approving…” indicator so you know it’s working.' },
+  ] },
   { v: '0.68.16', items: [
     { icon: 'edit_note', t: 'Vendor-picker & Review polish', d: 'In a vendor box, pressing Tab on a highlighted vendor now selects it and jumps to the next field. Typing a vendor that doesn’t exist pops up a quick “add it?” confirm (prefilled) instead of dropping it. The ⚡ Rule button carries over the account and vendor you already picked on the row. And on the Review tab, the title, search box, filters, and action buttons now stay pinned at the top as you scroll through a long list.' },
   ] },

@@ -153,7 +153,9 @@ function categoryGroups(row, categories, accountsById) {
 function categorySelect(row, categories, accountsById, preselect, afterAdd) {
   return combobox({ groups: categoryGroups(row, categories, accountsById), value: preselect || '',
     placeholder: 'Search accounts…', minWidth: 180, addLabel: 'Add account…',
-    onAdd: () => quickAddAccountModal((account) => afterAdd?.(account)) });
+    onAdd: () => quickAddAccountModal((account) => afterAdd?.(account)),
+    // Typed a name that isn't an account yet → confirm-add popup, prefilled with it.
+    onAddText: (typed) => quickAddAccountModal((account) => afterAdd?.(account), 'expense', typed) });
 }
 
 // Vendor picker for a Review row — tags THIS transaction with a vendor (separate from
@@ -400,8 +402,12 @@ function drawBody(body, editable) {
   clear(reviewActionsHost).append(
     el('div', { style: 'display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:8px' },
       (editable && categorized.length) ? el('button', { class: 'btn sm green', onclick: () => {
-        for (const { row, accountId, sug } of categorized) { lastCategory.delete(row.id); approveRow(row, accountId, sug, { quiet: true }); }
-        toast(`${categorized.length} approved`);
+        const items = categorized.slice();
+        toast('⏳ Approving…');
+        setTimeout(() => {
+          for (const { row, accountId, sug } of items) { lastCategory.delete(row.id); approveRow(row, accountId, sug, { quiet: true }); }
+          toast(`${items.length} approved`);
+        }, 30);
       } }, `Approve all categorized (${categorized.length})`) : el('span'),
       (editable && unmatched.length && !aiBusy) ? el('button', { class: 'btn sm', onclick: () => askAI(unmatched, categories, body, editable) }, `✨ Get AI suggestions (${unmatched.length})`) : el('span'),
       aiBusy ? el('span', { class: 'pill gray' }, '✨ Asking Claude…') : el('span')),
@@ -504,17 +510,23 @@ function skipRow(row) {
 // Approve posts every selected row that has a resolved category; rows still missing
 // one stay selected so nothing is silently dropped.
 function bulkApprove(byCat, body, editable) {
-  let done = 0;
-  for (const id of [...selected]) {
-    const c = byCat.get(id);
-    if (!c) continue;
-    lastCategory.delete(c.row.id);
-    approveRow(c.row, c.accountId, c.sug, { quiet: true, vendorId: lastVendor.get(c.row.id) || '' });
-    selected.delete(id); done++;
-  }
-  if (!selected.size) selectedBank = null;
-  toast(done ? `${done} approved${selected.size ? ` · ${selected.size} still need an account` : ''}` : 'Those rows still need an account', done ? 'ok' : 'err');
-  drawBody(body, editable);
+  const ids = [...selected];
+  if (!ids.length) return;
+  toast('⏳ Approving…');
+  // Defer the (synchronous) approve loop + redraw one tick so the "working" toast paints first.
+  setTimeout(() => {
+    let done = 0;
+    for (const id of ids) {
+      const c = byCat.get(id);
+      if (!c) continue;
+      lastCategory.delete(c.row.id);
+      approveRow(c.row, c.accountId, c.sug, { quiet: true, vendorId: lastVendor.get(c.row.id) || '' });
+      selected.delete(id); done++;
+    }
+    if (!selected.size) selectedBank = null;
+    toast(done ? `${done} approved${selected.size ? ` · ${selected.size} still need an account` : ''}` : 'Those rows still need an account', done ? 'ok' : 'err');
+    drawBody(body, editable);
+  }, 30);
 }
 function bulkSkip(pending, body, editable) {
   const byId = new Map(pending.map(r => [r.id, r]));
@@ -818,11 +830,12 @@ function makeRuleModal(row, pickedCategoryId, pickedVendorId, categories, accoun
   catGroups.push({ label: 'Accounts', items: categories
     .sort((a, b) => accountLabel(a, accountsById).localeCompare(accountLabel(b, accountsById)))
     .map(a => ({ value: a.id, label: accountLabel(a, accountsById) })) });
+  const addRuleAccount = (typed) => quickAddAccountModal((account) => {
+    catGroups.find(g => g.label === 'Accounts').items.push({ value: account.id, label: account.name });
+    cat.setGroups(catGroups); cat.value = account.id;
+  }, 'expense', typed);
   const cat = combobox({ groups: catGroups, value: pickedCategoryId || '', placeholder: 'Search accounts…', minWidth: 240,
-    addLabel: 'Add account…', onAdd: () => quickAddAccountModal((account) => {
-      catGroups.find(g => g.label === 'Accounts').items.push({ value: account.id, label: account.name });
-      cat.setGroups(catGroups); cat.value = account.id;
-    }) });
+    addLabel: 'Add account…', onAdd: () => addRuleAccount(''), onAddText: (typed) => addRuleAccount(typed) });
   cat.style.cssText = 'display:block;width:100%;max-width:340px';
   // When the typed name matches a vendor that already exists, say so and adopt its
   // category — so the user keeps building one vendor rather than making a duplicate.
@@ -847,7 +860,7 @@ function makeRuleModal(row, pickedCategoryId, pickedVendorId, categories, accoun
         const existing = findVendor(nm);
         // Extend an existing vendor's rule (don't clobber) — merge conditions by type+text.
         const mergedConds = existing
-          ? Array.from(new Map([...matchersToConditions(existing.matchers), ...spec.conditions].map(c => [c.type + ' ' + c.text, c])).values())
+          ? Array.from(new Map([...matchersToConditions(existing.matchers), ...spec.conditions].map(c => [c.type + '' + c.text, c])).values())
           : spec.conditions;
         const matchers = buildMatchers({ ...spec, conditions: mergedConds });
         const vId = existing?.id || ('v-' + nm.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30));

@@ -297,3 +297,7 @@ table.data.cmp th,table.data.cmp td{padding-left:12px;padding-right:12px}
 /* Review — sticky header (title, search, filters, action buttons pin to the top) */
 .review-head{position:sticky;top:53px;z-index:7;background:var(--bg);padding:8px 0;margin-bottom:8px;border-bottom:1px solid var(--line)}
 .review-head .review-bulkbar{position:static;top:auto;z-index:auto;margin-bottom:0}
+
+/* Combobox: show full long / child-account names — panel sizes to content, options wrap */
+.cbx-panel{right:auto;min-width:100%;max-width:460px}
+.cbx-opt{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.3}

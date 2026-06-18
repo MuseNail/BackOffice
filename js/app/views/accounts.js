@@ -128,9 +128,9 @@ function drawTable(body, editable) {
 
 // Exported so other views (review) can open a quick "add category" modal inline
 // without navigating away. Only creates — the full edit lives in editAccount().
-export function quickAddAccountModal(oncreate, defaultType = 'expense') {
-  const m = modal('Add account');
-  const name = el('input', { class: 'field-input', placeholder: 'Account name' });
+export function quickAddAccountModal(oncreate, defaultType = 'expense', prefillName = '') {
+  const m = modal(prefillName ? 'Add new account?' : 'Add account');
+  const name = el('input', { class: 'field-input', placeholder: 'Account name', value: prefillName || '' });
   const type = el('select', { class: 'field-input' },
     ...['income', 'cogs', 'expense', 'other-expense', 'personal-expense', 'asset', 'liability', 'equity'].map(t =>
       el('option', { value: t, selected: t === defaultType }, TYPE_LABELS[t])));
@@ -146,6 +146,7 @@ export function quickAddAccountModal(oncreate, defaultType = 'expense') {
   type.addEventListener('change', redrawParents);
   redrawParents();
   m.body.append(
+    prefillName ? el('p', { class: 'sub', style: 'margin:0 0 8px' }, `“${prefillName}” isn’t an account yet — set it up below.`) : el('span'),
     el('label', { class: 'field-label' }, 'Name'), name,
     el('label', { class: 'field-label' }, 'Type'), type,
     el('label', { class: 'field-label' }, 'Subaccount of (optional)'), parent,
