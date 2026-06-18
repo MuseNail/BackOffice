@@ -7,6 +7,7 @@ import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { renderRegister } from '../register.js';
 import { dateRangeControl, inRange } from '../daterange.js';
+import { openMergeModal, mergeCustomer } from '../merge.js';
 
 let unsub = null;
 let customerRange = { from: null, to: null };
@@ -111,8 +112,9 @@ function customerDrilldown(c, refresh) {
     c.email ? el('p', { class: 'sub', style: 'margin-top:0' }, c.email) : el('span'),
     el('div', { style: 'display:flex;gap:8px;align-items:center;margin:6px 0' }, el('span', { class: 'sub', style: 'margin:0' }, 'Totals for'), rangeCtl.el),
     listHost,
-    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap' },
       el('button', { class: 'btn ghost', style: 'color:var(--red)', onclick: () => { m.close(); confirmDelete(c); } }, 'Delete'),
+      el('button', { class: 'btn ghost', onclick: () => { m.close(); openMergeModal({ title: 'customer', source: c, candidates: entities('customer'), labelOf: (x) => x.name, run: mergeCustomer, onDone: refresh }); } }, 'Merge…'),
       el('button', { class: 'btn', onclick: () => { m.close(); customerModal(c); } }, 'Edit'),
       el('button', { class: 'btn ghost', onclick: m.close }, 'Close')));
   drawList();

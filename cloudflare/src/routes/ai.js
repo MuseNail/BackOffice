@@ -24,9 +24,10 @@ const SCHEMA = {
         properties: {
           id: { type: 'string' },
           categoryId: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+          vendor: { anyOf: [{ type: 'string' }, { type: 'null' }] },
           confidence: { type: 'integer' },
         },
-        required: ['id', 'categoryId', 'confidence'],
+        required: ['id', 'categoryId', 'vendor', 'confidence'],
         additionalProperties: false,
       },
     },
@@ -35,7 +36,9 @@ const SCHEMA = {
   additionalProperties: false,
 };
 
-const SYSTEM = `You are a bookkeeping assistant for small businesses. You receive bank-statement transactions and the business's chart of accounts. For each transaction, pick the single most appropriate category account id from the provided list, or null when genuinely unclear — never guess a stretch. Use the merchant/description, the amount sign (negative = money out, so expense/cogs/asset categories; positive = money in, so income/liability categories), and each account's type. confidence is 0-100: 90+ only for unmistakable merchants, below 60 means you are mostly guessing. You are also given "examples": how THIS business has already categorized past transactions (description → categoryId). Treat these as your strongest signal — when a transaction's description resembles an example (same merchant, or a clear shared pattern), assign the SAME categoryId with high confidence. Fall back to general reasoning only when no example is similar.`;
+const SYSTEM = `You are a bookkeeping assistant for small businesses. You receive bank-statement transactions and the business's chart of accounts. For each transaction, pick the single most appropriate category account id from the provided list, or null when genuinely unclear — never guess a stretch. Use the merchant/description, the amount sign (negative = money out, so expense/cogs/asset categories; positive = money in, so income/liability categories), and each account's type. confidence is 0-100: 90+ only for unmistakable merchants, below 60 means you are mostly guessing. You are also given "examples": how THIS business has already categorized past transactions (description → categoryId). Treat these as your strongest signal — when a transaction's description resembles an example (same merchant, or a clear shared pattern), assign the SAME categoryId with high confidence. Fall back to general reasoning only when no example is similar.
+
+Also return "vendor": a short, clean merchant or payee name pulled from the description — e.g. "SALLY BEAUTY SUPPLY #1234 LA CA" → "Sally Beauty Supply"; "PYMT SENT VENMO *RAUL ALEXANDER M" → "Raul Alexander"; "POS DEBIT NETFLIX COM LOS GATOS CA" → "Netflix". Strip store numbers, cities, states, card last-4, and payment-rail noise (POS DEBIT, ACH, PYMT SENT, ORIG CO NAME, ENTRY DESCR, IND ID, etc.). You are given "vendors": the names this business already uses — when your cleaned name is clearly the same merchant as one of them, return that EXACT existing name (case and spelling) so it is not duplicated. Use null only when there is no meaningful payee (e.g. a bank fee or internal transfer).`;
 
 // $/1M tokens → microdollars per token. Stamped onto each usage record at call
 // time so history stays correct if prices change later.
@@ -59,7 +62,7 @@ export async function handleCategorize(req, env, bizId) {
 
   let body;
   try { body = await req.json(); } catch { return json({ error: 'bad request' }, 400); }
-  const { rows, categories, examples } = body || {};
+  const { rows, categories, examples, vendors } = body || {};
   if (!Array.isArray(rows) || !rows.length || rows.length > MAX_ROWS || !Array.isArray(categories) || !categories.length) {
     return json({ error: `bad request — 1..${MAX_ROWS} rows + categories required` }, 400);
   }
@@ -80,6 +83,7 @@ export async function handleCategorize(req, env, bizId) {
     })),
     categories: categories.map(c => ({ id: String(c.id), name: String(c.name || ''), type: String(c.type || '') })),
     examples: exampleList,
+    vendors: (Array.isArray(vendors) ? vendors : []).filter(n => typeof n === 'string' && n.trim()).map(n => n.trim().slice(0, 60)).slice(0, 200),
   };
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -122,7 +126,7 @@ export async function handleCategorize(req, env, bizId) {
   const rowIds = new Set(payload.transactions.map(t => t.id));
   const suggestions = (parsed.suggestions || [])
     .filter(s => rowIds.has(s.id) && (s.categoryId === null || catIds.has(s.categoryId)))
-    .map(s => ({ id: s.id, categoryId: s.categoryId, confidence: Math.max(0, Math.min(100, s.confidence | 0)) }));
+    .map(s => ({ id: s.id, categoryId: s.categoryId, vendor: (typeof s.vendor === 'string' && s.vendor.trim()) ? s.vendor.trim().slice(0, 60) : null, confidence: Math.max(0, Math.min(100, s.confidence | 0)) }));
 
   // record the spend in the business's own books (broadcasts live to the app)
   const model = env.AI_MODEL || 'claude-opus-4-8';

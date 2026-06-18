@@ -17,13 +17,14 @@
 //   minWidth:    px for the control
 import { el } from './ui.js';
 
-export function combobox({ groups = [], value = '', placeholder = '— pick —', onAdd = null, onAddText = null, addLabel = 'Add…', minWidth = 190 } = {}) {
+export function combobox({ groups = [], value = '', text = '', placeholder = '— pick —', onAdd = null, onAddText = null, addLabel = 'Add…', minWidth = 190 } = {}) {
   const flat = [];
   for (const g of groups) for (const it of g.items) flat.push(it);
   const labelFor = (v) => flat.find(x => x.value === v)?.label || '';
   const existsLabel = (t) => flat.some(x => (x.label || '').toLowerCase() === t.toLowerCase());
 
   let current = value || '';
+  let pendingText = (!current && text) ? text : '';   // shown until the user picks/types (e.g. an AI-suggested name)
   let open = false;
   let hl = -1;          // highlighted index into the currently-visible option list
   let visible = [];     // flat list of {value,label} currently shown (post-filter)
@@ -36,11 +37,15 @@ export function combobox({ groups = [], value = '', placeholder = '— pick —'
   // unfocused, so a long "Parent › Child" account reveals the CHILD you actually picked
   // (the meaningful part) instead of clipping it off the right edge.
   const setDisplay = () => {
-    input.value = current ? labelFor(current) : '';
+    input.value = current ? labelFor(current) : pendingText;
     input.title = input.value;
     if (input.value) setTimeout(() => { if (document.activeElement !== input) input.scrollLeft = input.scrollWidth; }, 0);
   };
   setDisplay();
+
+  // The live text in the box — lets a caller read a typed/prefilled name that isn't a
+  // saved option yet (e.g. to find-or-create a vendor on approve).
+  Object.defineProperty(wrap, 'inputText', { get: () => input.value.trim(), configurable: true });
 
   const fireChange = () => wrap.dispatchEvent(new Event('change'));
 
@@ -100,13 +105,14 @@ export function combobox({ groups = [], value = '', placeholder = '— pick —'
   function pick(v) {
     const changed = v !== current;
     current = v;
+    pendingText = '';
     closePanel();
     if (changed) fireChange();
   }
 
   input.addEventListener('focus', openPanel);
   input.addEventListener('click', openPanel);
-  input.addEventListener('input', () => { if (!open) openPanel(); buildPanel(input.value); });
+  input.addEventListener('input', () => { pendingText = ''; if (!open) openPanel(); buildPanel(input.value); });
   // The typed text doesn't match any option AND isn't the current selection → it's a
   // candidate to create. Returns the trimmed text, or '' when there's nothing to add.
   const newTyped = () => {

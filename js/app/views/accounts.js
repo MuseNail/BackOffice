@@ -8,6 +8,7 @@ import { getActiveBiz, canEdit } from '../session.js';
 import { ACCOUNT_TYPES, accountLabel } from '../lib/coa-templates.js';
 import { renderRegister } from '../register.js';
 import { logAudit } from '../audit.js';
+import { openMergeModal, mergeAccount, accountMergeBlockers } from '../merge.js';
 
 const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
@@ -112,6 +113,7 @@ function drawTable(body, editable) {
           el('button', { class: 'linklike', onclick: () => editAccount(a) }, 'Edit'),
           ' · ',
           el('button', { class: 'linklike', onclick: () => archive(a) }, a.active === false ? 'Restore' : 'Archive'),
+          ...(a.active !== false ? [' · ', el('button', { class: 'linklike', onclick: () => mergeAccountFlow(a) }, 'Merge')] : []),
         ] : [])),
       ));
     }
@@ -206,6 +208,28 @@ function editAccount(existing) {
       } }, existing ? 'Save' : 'Add')),
   );
   setTimeout(() => name.focus(), 0);
+}
+
+// Merge this account into another of the same type: re-point all its transaction
+// lines, then archive it. Blocked when any affected month is closed (locked).
+function mergeAccountFlow(a) {
+  const byId = new Map(entities('account').map(x => [x.id, x]));
+  const { count, lockedMonths } = accountMergeBlockers(a.id);
+  if (lockedMonths.length) {
+    const m = modal('Can’t merge yet');
+    m.body.append(
+      el('p', {}, `“${a.name}” has transactions in closed month${lockedMonths.length > 1 ? 's' : ''} ${lockedMonths.join(', ')}. Merging rewrites those transactions, which a closed period blocks.`),
+      el('p', { class: 'sub' }, 'Reopen those months in Settings → Close the books, merge, then close them again.'),
+      el('div', { style: 'display:flex;justify-content:flex-end;margin-top:12px' }, el('button', { class: 'btn ghost', onclick: m.close }, 'OK')));
+    return;
+  }
+  openMergeModal({
+    title: 'account', source: a,
+    candidates: entities('account').filter(x => x.type === a.type && x.active !== false),
+    labelOf: (x) => accountLabel(x, byId),
+    run: mergeAccount,
+    note: `${count} transaction${count === 1 ? '' : 's'} will move to the target, and “${a.name}” will be archived. Only ${TYPE_LABELS[a.type] || a.type} accounts are offered.`,
+  });
 }
 
 function archive(a) {

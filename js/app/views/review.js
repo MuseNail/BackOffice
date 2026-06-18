@@ -162,9 +162,9 @@ function categorySelect(row, categories, accountsById, preselect, afterAdd) {
 
 // Vendor picker for a Review row — tags THIS transaction with a vendor (separate from
 // the ⚡ "make a rule" flow). Inline "＋ Add vendor" creates a name-only vendor.
-function vendorSelect(vendors, preselect, afterAdd) {
+function vendorSelect(vendors, preselect, afterAdd, prefillText) {
   return combobox({ groups: [{ label: '', items: vendors.map(v => ({ value: v.id, label: v.name })) }],
-    value: preselect || '', placeholder: 'Search vendors…', minWidth: 180, addLabel: 'Add vendor…',
+    value: preselect || '', text: prefillText || '', placeholder: 'Search vendors…', minWidth: 180, addLabel: 'Add vendor…',
     onAdd: () => quickAddVendorModal((vendor) => afterAdd?.(vendor)),
     // Typed a name that isn't a vendor yet → confirm-add popup, prefilled with it.
     onAddText: (typed) => quickAddVendorModal((vendor) => afterAdd?.(vendor), typed) });
@@ -209,19 +209,27 @@ function drawBody(body, editable) {
   // category / vendor / invoice / note / actions below, divided by dashed rules.
   const field = (label, node) => el('div', { class: 'rvf' }, el('label', { class: 'field-label', style: 'margin:0 0 2px' }, label), node);
   const rowCard = (row) => {
+    const aiSug = aiSuggestions.get(row.id);
     let sug = suggestFor(row, matchCtx);
     if (sug && (!accountsById.has(sug.accountId) || accountsById.get(sug.accountId).active === false)) sug = null;
     if (!sug) {
-      const ai = aiSuggestions.get(row.id);
-      if (ai?.accountId && accountsById.has(ai.accountId) && accountsById.get(ai.accountId).active !== false) sug = { accountId: ai.accountId, by: 'ai', confidence: ai.confidence };
+      if (aiSug?.accountId && accountsById.has(aiSug.accountId) && accountsById.get(aiSug.accountId).active !== false) sug = { accountId: aiSug.accountId, by: 'ai', confidence: aiSug.confidence };
       else unmatched.push(row);
     }
     if (sug) suggested.push({ row, sug });
 
     // A vendor rule with NO account still tags the vendor — surface it even when there's
     // no account suggestion, so "memorized vendor, pick the account yourself" rules work.
-    const vendorTag = sug?.vendorId ? { vendorId: sug.vendorId, vendorName: sug.vendorName }
+    let vendorTag = sug?.vendorId ? { vendorId: sug.vendorId, vendorName: sug.vendorName }
       : vendorForRow(row, matchCtx.vendors);
+    // AI extracts a clean vendor name from the description — reuse an existing vendor if
+    // it matches one, else prefill the field with the name (created on approve).
+    let vendPrefillText = '';
+    if (!vendorTag && aiSug?.vendorName) {
+      const match = matchCtx.vendors.find(v => (v.name || '').toLowerCase() === aiSug.vendorName.toLowerCase());
+      if (match) vendorTag = { vendorId: match.id, vendorName: match.name };
+      else vendPrefillText = aiSug.vendorName;
+    }
 
     const preselect = lastCategory.get(row.id) || sug?.accountId;
     const vendPreselect = lastVendor.has(row.id) ? lastVendor.get(row.id) : vendorTag?.vendorId;
@@ -230,7 +238,7 @@ function drawBody(body, editable) {
     const memoIn = el('input', { class: 'field-input', placeholder: 'Add a note…', style: 'margin:0;min-width:150px', value: row.memo || '' });
     bindSuggest(memoIn, 'memo');
     const vendSel = vendorSelect(vendorsList, vendPreselect,
-      (vendor) => { lastVendor.set(row.id, vendor.id); drawBody(body, editable); });
+      (vendor) => { lastVendor.set(row.id, vendor.id); drawBody(body, editable); }, vendPrefillText);
     const invSel = showInvoices ? invoiceSelect(invoicesList) : null; if (invSel) invSel.style.margin = '0';
     const chip = sug
       ? (sug.by === 'rule' ? el('span', { class: 'pill blue' }, `⚡ ${sug.vendorName}`)
@@ -238,11 +246,14 @@ function drawBody(body, editable) {
         : el('span', { class: 'pill green' }, '🕘 Seen before'))
       : vendorTag
         ? el('span', { class: 'pill blue', title: 'Vendor matched — choose an account' }, `⚡ ${vendorTag.vendorName} · pick account`)
-        : el('span', { class: 'pill gray' }, 'No match');
+        : vendPrefillText
+          ? el('span', { class: 'pill amber', title: 'AI-suggested vendor — saved when you approve' }, `✨ ${vendPrefillText} · pick account`)
+          : el('span', { class: 'pill gray' }, 'No match');
 
     const approve = el('button', { class: 'btn sm green', disabled: !preselect, onclick: () => {
       lastCategory.delete(row.id); lastVendor.delete(row.id);
-      approveRow(row, sel.value, sug, { memo: memoIn.value.trim(), vendorId: vendSel.value, invoiceId: invSel?.value || '' });
+      // A typed/AI-prefilled vendor name with no saved id → find-or-create it on approve.
+      approveRow(row, sel.value, sug, { memo: memoIn.value.trim(), vendorId: vendSel.value, vendorName: vendSel.value ? '' : vendSel.inputText, invoiceId: invSel?.value || '' });
     } }, 'Approve');
     sel.addEventListener('change', () => { if (sel.value) lastCategory.set(row.id, sel.value); approve.disabled = !sel.value; });
     vendSel.addEventListener('change', () => {
@@ -470,7 +481,19 @@ function approveSyncRow(row, categoryId) {
   toast('Posted');
 }
 
-function approveRow(row, categoryId, sug, { quiet = false, memo = '', vendorId = '', invoiceId = '' } = {}) {
+// Find a vendor by name (case-insensitive) or create a name-only one. Used to turn an
+// AI-extracted / typed vendor name into a real vendor tag at approval time.
+function findOrCreateVendor(name) {
+  const n = (name || '').trim();
+  if (!n) return '';
+  const existing = entities('vendor').find(v => (v.name || '').toLowerCase() === n.toLowerCase());
+  if (existing) return existing.id;
+  const id = 'v-' + (n.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'vendor') + '-' + Math.random().toString(36).slice(2, 6);
+  dispatch({ op: 'entity.upsert', kind: 'vendor', value: { id, name: n, matchers: { exact: [], keywords: [] }, defaultAccountId: null, used: 0, updatedAt: Date.now() } });
+  return id;
+}
+
+function approveRow(row, categoryId, sug, { quiet = false, memo = '', vendorId = '', vendorName = '', invoiceId = '' } = {}) {
   const bankacct = entities('bankacct').find(b => b.id === row.bankacctId);
   if (!bankacct || !categoryId) { toast('Pick an account first', 'err'); return; }
   const target = entities('account').find(a => a.id === categoryId);
@@ -488,8 +511,14 @@ function approveRow(row, categoryId, sug, { quiet = false, memo = '', vendorId =
   });
   // Stamp the vendor (Option B) when this row matched a vendor rule and was approved
   // to that vendor's category — so the vendor's register is exact going forward.
-  if (vendorId) txn.vendorId = vendorId;                                  // explicit pick wins
-  else if (sug?.vendorId && sug.accountId === categoryId) txn.vendorId = sug.vendorId;
+  // Vendor resolution: an explicit pick wins; then a typed/AI-prefilled name (find or
+  // create); then a rule's vendor; then the AI-extracted name stored for this row (so
+  // bulk-approve also tags/creates the AI vendor).
+  let vId = vendorId || '';
+  if (!vId && vendorName) vId = findOrCreateVendor(vendorName);
+  if (!vId && sug?.vendorId && sug.accountId === categoryId) vId = sug.vendorId;
+  if (!vId) { const ai = aiSuggestions.get(row.id); if (ai?.vendorName) vId = findOrCreateVendor(ai.vendorName); }
+  if (vId) txn.vendorId = vId;
   if (invoiceId) txn.invoiceId = invoiceId;                              // tag the expense to an invoice (margin)
   const v = validateTxn(txn, postCtx());
   if (!v.ok) { toast(v.error, 'err'); return; }
@@ -784,6 +813,7 @@ async function askAI(rows, categories, body, editable) {
         rows: rows.slice(0, 40).map(r => ({ id: r.id, desc: r.desc, amountCents: r.amountCents, date: r.date })),
         categories: categories.map(c => ({ id: c.id, name: c.name, type: c.type })),
         examples: aiExamplesFromHistory(),
+        vendors: entities('vendor').map(v => v.name).filter(Boolean),
       }),
     });
     if (res.status === 501) { toast('AI isn’t set up yet — the owner adds the ANTHROPIC_API_KEY secret to enable it', 'err'); return; }
@@ -811,7 +841,7 @@ async function askAI(rows, categories, body, editable) {
     const { suggestions } = await res.json();
     let got = 0;
     for (const s of suggestions) {
-      if (s.categoryId) { aiSuggestions.set(s.id, { accountId: s.categoryId, confidence: s.confidence }); got++; }
+      if (s.categoryId || s.vendor) { aiSuggestions.set(s.id, { accountId: s.categoryId || '', confidence: s.confidence, vendorName: s.vendor || '' }); got++; }
     }
     toast(got ? `${got} AI suggestion${got === 1 ? '' : 's'} — review and approve` : 'AI had no confident matches');
   } catch { /* api() handles auth; network errors just leave rows unmatched */ }

@@ -9,10 +9,14 @@ import { renderRegister } from '../register.js';
 import { dateRangeControl, inRange } from '../daterange.js';
 import { ruleConditionsEditor, buildMatchers, ruleSummary } from '../rule-editor.js';
 import { combobox } from '../combobox.js';
+import { openMergeModal, mergeVendor } from '../merge.js';
 
 let unsub = null;
 let vendorRange = { from: null, to: null };
 let vendorQuery = '';
+let vendorRulesOnly = false;   // Vendors tab filter: show only vendors that have a rule
+// A vendor "has a rule" if it auto-matches by description or memorizes a default account.
+const vendorHasRule = (v) => !!(v.matchers?.conditions?.length || v.matchers?.exact?.length || v.matchers?.keywords?.length || v.defaultAccountId);
 let pageRangeCtl = null;   // the page "Totals for" picker — kept in sync with the drilldown's
 const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
@@ -44,6 +48,8 @@ export function render(root, detail) {
     el('div', { class: 'sticky-toolbar' },
       editable ? el('button', { class: 'btn sm', onclick: () => ruleModal(null) }, '＋ New vendor / rule') : el('span'),
       search,
+      el('label', { style: 'display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:#3c3f48;cursor:pointer' },
+        el('input', { type: 'checkbox', checked: vendorRulesOnly, onchange: (e) => { vendorRulesOnly = e.target.checked; draw(); } }), 'Rules only'),
       el('span', { class: 'sub', style: 'margin:0' }, 'Totals for'), pageRangeCtl.el),
     body,
   );
@@ -52,7 +58,7 @@ export function render(root, detail) {
   if (openNew && editable) ruleModal(null);
 }
 
-export function unmount() { unsub?.(); unsub = null; pageRangeCtl = null; vendorQuery = ''; }
+export function unmount() { unsub?.(); unsub = null; pageRangeCtl = null; vendorQuery = ''; vendorRulesOnly = false; }
 
 // Vendor register (drill-down): every posted transaction from this vendor, total
 // spent + export. Reached via #/b/<biz>/vendors/<vendorId>.
@@ -85,9 +91,10 @@ function drawTable(body, editable) {
     return;
   }
   const q = vendorQuery.trim().toLowerCase();
-  const vendors = q ? all.filter(v => (v.name || '').toLowerCase().includes(q) || ruleSummary(v.matchers).toLowerCase().includes(q)) : all.slice();
+  let vendors = q ? all.filter(v => (v.name || '').toLowerCase().includes(q) || ruleSummary(v.matchers).toLowerCase().includes(q)) : all.slice();
+  if (vendorRulesOnly) vendors = vendors.filter(vendorHasRule);
   if (!vendors.length) {
-    clear(body).append(el('p', { class: 'sub' }, 'No vendors match your search.'));
+    clear(body).append(el('p', { class: 'sub' }, vendorRulesOnly ? 'No vendors with a rule yet.' : 'No vendors match your search.'));
     return;
   }
   const expenseIds = new Set(entities('account').filter(a => EXPENSE_TYPES.has(a.type)).map(a => a.id));
@@ -144,8 +151,9 @@ function vendorDrilldown(v, refresh) {
     catSel,
     el('div', { style: 'display:flex;gap:8px;align-items:center;margin-top:12px' }, el('span', { class: 'sub', style: 'margin:0' }, 'Totals for'), rangeCtl.el),
     listHost,
-    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap' },
       el('button', { class: 'btn ghost', style: 'color:var(--red)', onclick: () => { m.close(); confirmDeleteRule(v); } }, 'Delete'),
+      el('button', { class: 'btn ghost', onclick: () => { m.close(); openMergeModal({ title: 'vendor', source: v, candidates: entities('vendor'), labelOf: (x) => x.name, run: mergeVendor, onDone: refresh }); } }, 'Merge…'),
       el('button', { class: 'btn', onclick: () => { m.close(); ruleModal(v); } }, 'Edit'),
       el('button', { class: 'btn ghost', onclick: m.close }, 'Close')));
   drawList();

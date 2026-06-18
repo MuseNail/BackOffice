@@ -6,6 +6,11 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.25', items: [
+    { icon: 'call_merge', t: 'Merge duplicate vendors, customers & accounts', d: 'Open a vendor or customer (or an account in the Accounts list) and use “Merge…” to fold a duplicate into another one — all its transactions move over and the duplicate is removed (accounts are archived, and a merge is blocked if it touches a closed month). Delete is still there for vendors and customers.' },
+    { icon: 'auto_awesome', t: 'AI now fills in the vendor too', d: 'Get AI suggestions now also reads a clean vendor/payee name out of each bank description (e.g. “POS DEBIT NETFLIX COM LOS GATOS CA” → “Netflix”). It reuses a vendor you already have when it matches, and otherwise pre-fills the name and creates the vendor when you approve — so your vendor list builds itself from your transactions.' },
+    { icon: 'visibility', t: 'See all your rules + clearer Review dates', d: 'The Vendors tab has a “Rules only” checkbox to list just the vendors that have an auto-categorize rule or a memorized account. And the date on each Review row is now dark and easy to read.' },
+  ] },
   { v: '0.68.24', items: [
     { icon: 'tune', t: 'Review & rules: lots of small wins', d: 'Review’s title, description, search and filters now stay fixed at the top while only the rows scroll. In a Review row the fields are reordered to Vendor → Account → Invoice → Note, the chosen account is easier to read (full name on hover, and the field scrolls to show child-account names), and picking a vendor that has a memorized account fills the account in for you. The Invoice field is now type-to-search by number or customer. The “saved” confirmation always shows on top now.' },
     { icon: 'edit', t: 'Edit transactions from vendor/customer drill-downs + searchable rule accounts', d: 'In a vendor or customer drill-down, each transaction now has an Edit button that opens the full editor (amount, date, splits, delete). The Edit-rule account box lets you type to search instead of scrolling. And you can now save a rule that just maps a vendor to an account — no description match required.' },
