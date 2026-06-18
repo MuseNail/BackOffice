@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.12', items: [
+    { icon: 'call_split', t: 'Split one payment across accounts', d: 'When adding a transaction, “＋ Add split” now lets you divide one payment across several accounts — e.g. part Supplies, part Retail. The leftover auto-fills the next line so it always balances to the amount, with no need for the Journal tool. (Editing an existing split comes next.) The Journal-entry tool also gained a × to remove a line and an “Auto-balance” button that fills the last line to make debits equal credits.' },
+  ] },
   { v: '0.68.11', items: [
     { icon: 'chevron_right', t: 'Breadcrumb trail on drill-down screens', d: 'When you open a vendor, account, customer, or invoice, a trail now shows at the top — e.g. “Vendors › Sally Beauty”. Click the parent to step back. The ← Back button is still there too.' },
     { icon: 'manage_search', t: 'Payee & Memo now autocomplete', d: 'Start typing a payee or a note and the app suggests names and notes you’ve used before — in the Add/Edit transaction forms, the Review notes, and the inline edits in the Ledger and registers. Less typing, consistent spelling.' },

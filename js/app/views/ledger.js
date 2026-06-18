@@ -445,7 +445,7 @@ function addTxnModal() {
     direction = d;
     dirOut.className = d === 'out' ? 'btn sm' : 'btn sm ghost';
     dirIn.className = d === 'in' ? 'btn sm' : 'btn sm ghost';
-    redrawCategory();
+    rebuildCatOptions();
   };
   dirOut.addEventListener('click', () => setDir('out'));
   dirIn.addEventListener('click', () => setDir('in'));
@@ -455,17 +455,66 @@ function addTxnModal() {
   const payee = el('input', { class: 'field-input', placeholder: 'Who?' });
   const bank = el('select', { class: 'field-input' }, ...accountOptions(bankish));
   const checkNo = el('input', { class: 'field-input', placeholder: 'optional' });
-  const category = el('select', { class: 'field-input' });
-  const redrawCategory = () => {
-    clear(category).append(
-      ...accountOptions(a => !bankish(a) && (direction === 'out' ? a.type !== 'income' : a.type !== 'expense' && a.type !== 'cogs')),
-      el('option', { value: '__new__' }, '＋ Add account…'));
-  };
-  redrawCategory();
-  attachAddCategory(category);
   const vendor = vendorSelectEl();
   const memo = el('input', { class: 'field-input', placeholder: 'optional' });
   bindSuggest(payee, 'payee'); bindSuggest(memo, 'memo');
+
+  // ── account / split section ──
+  // One account line behaves exactly like a simple transaction. "＋ Add split" turns
+  // the single Account into several lines that each take part of the amount; the
+  // leftover auto-fills the new line so it always balances back to the total.
+  const catPred = (a) => !bankish(a) && (direction === 'out' ? a.type !== 'income' : a.type !== 'expense' && a.type !== 'cogs');
+  const splitBox = el('div');
+  const remindEl = el('div', { class: 'split-remind', hidden: true });
+  const lines = [];
+  const totalCents = () => parseMoney(amount.value) || 0;
+  const assignedCents = () => lines.reduce((s, l) => s + (parseMoney(l.amt.value) || 0), 0);
+  function recalcSplit() {
+    const multi = lines.length > 1;
+    remindEl.hidden = !multi;
+    if (!multi) return;
+    const left = totalCents() - assignedCents();
+    const ok = left === 0 && totalCents() > 0;
+    remindEl.className = 'split-remind ' + (ok ? 'ok' : 'bad');
+    clear(remindEl).append(
+      el('span', {}, ok ? 'Balanced' : 'Remaining to assign'),
+      el('span', {}, ok ? fmtMoney(totalCents()) + ' ✓' : fmtMoney(left)));
+  }
+  const makeLine = (selVal, amtVal) => {
+    const sel = el('select', { class: 'field-input', style: 'flex:2;min-width:0;margin:0' });
+    sel.append(...accountOptions(catPred), el('option', { value: '__new__' }, '＋ Add account…'));
+    if (selVal) sel.value = selVal;
+    attachAddCategory(sel);
+    const amt = el('input', { class: 'field-input', placeholder: '$', inputmode: 'decimal', style: 'flex:1;min-width:0;margin:0', value: amtVal || '' });
+    amt.addEventListener('input', recalcSplit);
+    return { sel, amt };
+  };
+  const rebuildCatOptions = () => {
+    for (const l of lines) {
+      const v = l.sel.value;
+      clear(l.sel).append(...accountOptions(catPred), el('option', { value: '__new__' }, '＋ Add account…'));
+      if (v && v !== '__new__') l.sel.value = v;
+    }
+  };
+  const renderSplit = () => {
+    const multi = lines.length > 1;
+    clear(splitBox);
+    lines.forEach((l, i) => {
+      const cells = [l.sel];
+      if (multi) cells.push(l.amt, el('button', { class: 'iconbtn', type: 'button', title: 'Remove', onclick: () => { lines.splice(i, 1); renderSplit(); recalcSplit(); } }, '×'));
+      splitBox.append(el('div', { style: 'display:flex;gap:7px;align-items:center;margin-bottom:6px' }, ...cells));
+    });
+    recalcSplit();
+  };
+  const addSplit = el('button', { class: 'btn sm ghost', type: 'button', onclick: () => {
+    if (lines.length === 1 && !parseMoney(lines[0].amt.value)) lines[0].amt.value = totalCents() ? (totalCents() / 100).toFixed(2) : '';
+    const left = totalCents() - assignedCents();
+    lines.push(makeLine('', left > 0 ? (left / 100).toFixed(2) : ''));
+    renderSplit();
+  } }, '＋ Add split');
+  amount.addEventListener('input', recalcSplit);
+  lines.push(makeLine('', ''));
+  renderSplit();
 
   m.body.append(
     el('div', { style: 'display:flex;gap:8px;margin-bottom:12px' }, dirOut, dirIn),
@@ -476,7 +525,7 @@ function addTxnModal() {
     el('div', { class: 'f2' },
       el('div', {}, el('label', { class: 'field-label' }, 'Account (paid from / into)'), bank),
       el('div', {}, el('label', { class: 'field-label' }, 'Check #'), checkNo)),
-    el('label', { class: 'field-label' }, 'Account'), category,
+    el('label', { class: 'field-label' }, 'Account'), splitBox, addSplit, remindEl,
     el('label', { class: 'field-label' }, 'Vendor (optional)'), vendor,
     el('label', { class: 'field-label' }, 'Memo'), memo,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
@@ -484,17 +533,34 @@ function addTxnModal() {
       el('button', { class: 'btn green', onclick: () => {
         const cents = parseMoney(amount.value);
         if (!cents || cents <= 0) { toast('Enter an amount like 84.17', 'err'); return; }
-        if (!bank.value || !category.value || category.value === '__new__') { toast('Pick the accounts', 'err'); return; }
-        const txn = simpleTxn({
-          id: txnId(), date: date.value, payee: payee.value.trim(), memo: memo.value.trim(),
-          checkNo: checkNo.value.trim(), amountCents: cents, direction,
-          bankAccountId: bank.value, categoryAccountId: category.value,
-        });
+        if (!bank.value) { toast('Pick the account paid from / into', 'err'); return; }
+        const cats = [];
+        for (const l of lines) {
+          if (!l.sel.value || l.sel.value === '__new__') { toast('Pick an account for each line', 'err'); return; }
+          const amt = lines.length > 1 ? (parseMoney(l.amt.value) || 0) : cents;
+          if (amt <= 0) { toast('Enter an amount for each split line', 'err'); return; }
+          cats.push({ accountId: l.sel.value, amountCents: amt });
+        }
+        if (lines.length > 1) {
+          const sum = cats.reduce((s, c) => s + c.amountCents, 0);
+          if (sum !== cents) { toast(`Splits add up to ${fmtMoney(sum)} — they must total ${fmtMoney(cents)}`, 'err'); return; }
+        }
+        let txn;
+        if (lines.length === 1) {
+          txn = simpleTxn({ id: txnId(), date: date.value, payee: payee.value.trim(), memo: memo.value.trim(), checkNo: checkNo.value.trim(), amountCents: cents, direction, bankAccountId: bank.value, categoryAccountId: cats[0].accountId });
+        } else {
+          const txnLines = [{ accountId: bank.value, amountCents: direction === 'out' ? -cents : cents },
+            ...cats.map(c => ({ accountId: c.accountId, amountCents: direction === 'out' ? c.amountCents : -c.amountCents }))];
+          txn = { id: txnId(), date: date.value, payee: payee.value.trim(), memo: memo.value.trim(), checkNo: checkNo.value.trim(), lines: txnLines, status: 'posted', source: { app: 'manual' } };
+        }
         if (vendor.value) txn.vendorId = vendor.value;
         const v = validateTxn(txn, ctx());
         if (!v.ok) { toast(v.error, 'err'); return; }
         dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
-        logAudit('post', { summary: `${direction === 'out' ? 'Paid' : 'Received'} ${fmtMoney(cents)} · ${payee.value.trim() || '—'} → ${acctName(category.value)}`, kind: 'txn', entityId: txn.id, amountCents: direction === 'out' ? -cents : cents });
+        const summary = lines.length === 1
+          ? `${direction === 'out' ? 'Paid' : 'Received'} ${fmtMoney(cents)} · ${payee.value.trim() || '—'} → ${acctName(cats[0].accountId)}`
+          : `${direction === 'out' ? 'Paid' : 'Received'} ${fmtMoney(cents)} · ${payee.value.trim() || '—'} → split across ${cats.length} accounts`;
+        logAudit('post', { summary, kind: 'txn', entityId: txn.id, amountCents: direction === 'out' ? -cents : cents });
         toast('Saved to the ledger');
         m.close();
       } }, 'Save to ledger')),
@@ -512,13 +578,16 @@ function journalModal() {
   const lines = [];
 
   const addLine = () => {
-    const acct = el('select', { class: 'field-input', style: 'flex:2;margin:0' }, el('option', { value: '' }, '— account —'), ...accountOptions(() => true));
-    const debit = el('input', { class: 'field-input', placeholder: 'Debit', inputmode: 'decimal', style: 'flex:1;margin:0' });
-    const credit = el('input', { class: 'field-input', placeholder: 'Credit', inputmode: 'decimal', style: 'flex:1;margin:0' });
+    const acct = el('select', { class: 'field-input', style: 'flex:2;margin:0;min-width:0' }, el('option', { value: '' }, '— account —'), ...accountOptions(() => true));
+    const debit = el('input', { class: 'field-input', placeholder: 'Debit', inputmode: 'decimal', style: 'flex:1;margin:0;min-width:0' });
+    const credit = el('input', { class: 'field-input', placeholder: 'Credit', inputmode: 'decimal', style: 'flex:1;margin:0;min-width:0' });
     for (const i of [debit, credit]) i.addEventListener('input', recalc);
     acct.addEventListener('change', recalc);
-    lines.push({ acct, debit, credit });
-    linesBox.append(el('div', { style: 'display:flex;gap:8px;margin-bottom:8px' }, acct, debit, credit));
+    const entry = { acct, debit, credit };
+    const rm = el('button', { class: 'iconbtn', type: 'button', title: 'Remove line', onclick: () => { const i = lines.indexOf(entry); if (i >= 0) lines.splice(i, 1); row.remove(); recalc(); } }, '×');
+    const row = el('div', { style: 'display:flex;gap:8px;margin-bottom:8px' }, acct, debit, credit, rm);
+    lines.push(entry);
+    linesBox.append(row);
   };
 
   const recalc = () => {
@@ -529,6 +598,19 @@ function journalModal() {
       el('span', {}, ok ? 'Balanced ✓' : `Debits ${fmtMoney(d)} · Credits ${fmtMoney(c)}`),
       el('span', { style: ok ? 'color:var(--green)' : 'color:var(--red)' }, ok ? fmtMoney(d) : 'must match'));
     post.disabled = !ok;
+  };
+
+  // Fill the difference into the first blank line (or the last line) so debits = credits.
+  const autoBalance = () => {
+    let d = 0, c = 0;
+    for (const l of lines) { d += parseMoney(l.debit.value) || 0; c += parseMoney(l.credit.value) || 0; }
+    const diff = d - c;
+    if (diff === 0) { recalc(); return; }
+    const target = lines.find(l => !parseMoney(l.debit.value) && !parseMoney(l.credit.value)) || lines[lines.length - 1];
+    if (!target) return;
+    if (diff > 0) { target.credit.value = (diff / 100).toFixed(2); target.debit.value = ''; }
+    else { target.debit.value = (Math.abs(diff) / 100).toFixed(2); target.credit.value = ''; }
+    recalc();
   };
 
   const post = el('button', { class: 'btn green', disabled: true, onclick: () => {
@@ -555,7 +637,9 @@ function journalModal() {
       el('div', {}, el('label', { class: 'field-label' }, 'Date'), date),
       el('div', {}, el('label', { class: 'field-label' }, 'Memo'), memo)),
     linesBox,
-    el('button', { class: 'btn sm ghost', onclick: () => { addLine(); recalc(); } }, 'Add line'),
+    el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' },
+      el('button', { class: 'btn sm ghost', type: 'button', onclick: () => { addLine(); recalc(); } }, '＋ Add line'),
+      el('button', { class: 'btn sm ghost', type: 'button', onclick: autoBalance }, 'Auto-balance')),
     totals,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'), post),
