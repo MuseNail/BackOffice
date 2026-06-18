@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.16', items: [
+    { icon: 'edit_note', t: 'Vendor-picker & Review polish', d: 'In a vendor box, pressing Tab on a highlighted vendor now selects it and jumps to the next field. Typing a vendor that doesn’t exist pops up a quick “add it?” confirm (prefilled) instead of dropping it. The ⚡ Rule button carries over the account and vendor you already picked on the row. And on the Review tab, the title, search box, filters, and action buttons now stay pinned at the top as you scroll through a long list.' },
+  ] },
   { v: '0.68.15', items: [
     { icon: 'search', t: 'Search bars on Review, Vendors & Customers', d: 'Review now has a search box that finds transactions by description, amount, or matched vendor. The Vendors tab searches by name or rule text, and the Customers tab by name. (Reminder: your auto-categorize rules live on the Vendors tab — see the “Rule” column next to each vendor.)' },
   ] },

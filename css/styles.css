@@ -293,3 +293,7 @@ table.data.cmp th,table.data.cmp td{padding-left:12px;padding-right:12px}
 .split-remind{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;margin:8px 0 4px;padding:7px 10px;border-radius:8px}
 .split-remind.ok{background:var(--green-soft);color:var(--green)}
 .split-remind.bad{background:var(--amber-soft);color:var(--amber)}
+
+/* Review — sticky header (title, search, filters, action buttons pin to the top) */
+.review-head{position:sticky;top:53px;z-index:7;background:var(--bg);padding:8px 0;margin-bottom:8px;border-bottom:1px solid var(--line)}
+.review-head .review-bulkbar{position:static;top:auto;z-index:auto;margin-bottom:0}

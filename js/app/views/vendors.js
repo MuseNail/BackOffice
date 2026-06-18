@@ -207,10 +207,11 @@ function ruleModal(existing) {
 // Lightweight "add vendor" (name only) for inline use in Review's vendor picker.
 // Creates a vendor with no rule (empty matchers, no default category) and calls
 // oncreate(vendor). To auto-categorize future imports, use the ⚡ "make a rule" flow.
-export function quickAddVendorModal(oncreate) {
-  const m = modal('Add vendor');
-  const name = el('input', { class: 'field-input', placeholder: 'Vendor name' });
+export function quickAddVendorModal(oncreate, prefillName = '') {
+  const m = modal(prefillName ? 'Add new vendor?' : 'Add vendor');
+  const name = el('input', { class: 'field-input', placeholder: 'Vendor name', value: prefillName || '' });
   m.body.append(
+    prefillName ? el('p', { class: 'sub', style: 'margin-top:0' }, `“${prefillName}” isn’t a vendor yet — add it?`) : null,
     el('label', { class: 'field-label' }, 'Name'), name,
     el('p', { class: 'sub' }, 'Just tags this transaction with the vendor. To auto-categorize a vendor on future imports, use “⚡” in Review.'),
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },

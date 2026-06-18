@@ -36,6 +36,8 @@ let reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc', 
 // redraw; the search box lives ABOVE the body so typing never loses focus).
 let reviewDateCtl = null;
 let reviewSearchEl = null;
+let reviewFiltersHost = null;   // sticky-header slots filled by drawBody (filters + action buttons)
+let reviewActionsHost = null;
 const REVIEW_FILTER_DEFAULT = () => ({ dir: 'all', status: 'all', bank: 'all', sort: 'date-desc', amountMin: '', amountMax: '', from: '', to: '', q: '' });
 // Preserve per-row category / vendor selection across drawBody re-renders (store
 // changes trigger a full redraw, so we save the user's pick here and restore it).
@@ -62,11 +64,18 @@ export function render(root) {
   const draw = () => drawBody(body, editable);
   reviewSearchEl = el('input', { class: 'field-input', type: 'search', placeholder: 'Search description, vendor, or amount…', style: 'max-width:340px;margin:0', value: reviewFilter.q || '',
     oninput: (e) => { reviewFilter.q = e.target.value; draw(); } });
+  reviewFiltersHost = el('div');
+  reviewActionsHost = el('div');
+  // The whole header (title, blurb, search, filters, action buttons) sticks to the
+  // top so it never scrolls out of reach on a long list.
   root.append(
-    el('h2', {}, 'Review'),
-    el('p', { class: 'sub' }, 'Imported transactions wait here, grouped by account. Nothing posts without your approval — and transfers between your own accounts never count as income or expense.'),
-    el('div', { class: 'no-print', style: 'display:flex;align-items:center;gap:8px;margin-bottom:10px' },
-      el('span', { class: 'ms', style: 'color:var(--mut);font-size:20px' }, 'search'), reviewSearchEl),
+    el('div', { class: 'review-head' },
+      el('h2', { style: 'margin:0 0 2px' }, 'Review'),
+      el('p', { class: 'sub', style: 'margin:0 0 8px' }, 'Imported transactions wait here, grouped by account. Nothing posts without your approval — and transfers between your own accounts never count as income or expense.'),
+      el('div', { class: 'no-print', style: 'display:flex;align-items:center;gap:8px;margin-bottom:8px' },
+        el('span', { class: 'ms', style: 'color:var(--mut);font-size:20px' }, 'search'), reviewSearchEl),
+      reviewFiltersHost,
+      reviewActionsHost),
     body,
   );
   reviewDateCtl = dateRangeControl({ initial: 'all', onChange: (r) => { reviewFilter.from = r.from || ''; reviewFilter.to = r.to || ''; draw(); } });
@@ -74,7 +83,7 @@ export function render(root) {
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); collapsedBanks = new Set(); bankPage = new Map(); selected = new Set(); selectedBank = null; reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; reviewSearchEl = null; }
+export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); collapsedBanks = new Set(); bankPage = new Map(); selected = new Set(); selectedBank = null; reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; reviewSearchEl = null; reviewFiltersHost = null; reviewActionsHost = null; }
 
 // A row is "ready" if it has a resolved category — a valid rule/history suggestion,
 // an AI suggestion, or a manual pick (lastCategory). Drives the needs/ready filter.
@@ -152,7 +161,9 @@ function categorySelect(row, categories, accountsById, preselect, afterAdd) {
 function vendorSelect(vendors, preselect, afterAdd) {
   return combobox({ groups: [{ label: '', items: vendors.map(v => ({ value: v.id, label: v.name })) }],
     value: preselect || '', placeholder: 'Search vendors…', minWidth: 180, addLabel: 'Add vendor…',
-    onAdd: () => quickAddVendorModal((vendor) => afterAdd?.(vendor)) });
+    onAdd: () => quickAddVendorModal((vendor) => afterAdd?.(vendor)),
+    // Typed a name that isn't a vendor yet → confirm-add popup, prefilled with it.
+    onAddText: (typed) => quickAddVendorModal((vendor) => afterAdd?.(vendor), typed) });
 }
 // Invoice picker for a Review row (only when the business uses invoices) — tags the
 // expense to an invoice for per-invoice profit margin. Invoices newest-first.
@@ -167,6 +178,8 @@ function drawBody(body, editable) {
     .filter(s => s.status === 'pending')
     .sort((a, b) => b.date.localeCompare(a.date));
   if (!pending.length) {
+    if (reviewFiltersHost) clear(reviewFiltersHost);
+    if (reviewActionsHost) clear(reviewActionsHost);
     clear(body).append(el('p', { class: 'sub' }, 'All caught up — nothing waiting. Import a CSV from Banking to fill this screen.'));
     return;
   }
@@ -220,7 +233,7 @@ function drawBody(body, editable) {
     vendSel.addEventListener('change', () => { lastVendor.set(row.id, vendSel.value); });
     const actions = [approve,
       el('button', { class: 'btn sm ghost', onclick: () => skipRow(row) }, 'Skip'),
-      el('button', { class: 'btn sm ghost', title: 'Auto-categorize this vendor from now on', onclick: () => makeRuleModal(row, sel.value, categories, accountsById) }, '⚡ Rule')];
+      el('button', { class: 'btn sm ghost', title: 'Auto-categorize this vendor from now on', onclick: () => makeRuleModal(row, sel.value, vendSel.value, categories, accountsById) }, '⚡ Rule')];
     if (row.amountCents > 0) {
       actions.push(el('button', { class: 'btn sm ghost', title: 'Deposit with a processing fee taken out', onclick: () => feeSplitModal(row, accountsById) }, '% Fee'));
       actions.push(el('button', { class: 'btn sm ghost', title: 'Match this deposit to recorded sales/payments', onclick: () => matchDepositModal(row, accountsById) }, '⚡$ Match'));
@@ -383,16 +396,17 @@ function drawBody(body, editable) {
     el('button', { class: 'btn sm green', onclick: () => bulkApprove(byCat, body, editable) }, 'Approve'),
     el('button', { class: 'btn sm ghost', onclick: () => bulkSkip(pending, body, editable) }, 'Skip'),
     el('button', { class: 'btn sm ghost', onclick: () => { selected.clear(); selectedBank = null; drawBody(body, editable); } }, 'Clear')) : null;
-  clear(body).append(
-    bulkBar || el('span'),
-    filterBar,
-    el('div', { style: 'display:flex;gap:9px;align-items:center;margin-bottom:12px;flex-wrap:wrap' },
+  clear(reviewFiltersHost).append(filterBar);
+  clear(reviewActionsHost).append(
+    el('div', { style: 'display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:8px' },
       (editable && categorized.length) ? el('button', { class: 'btn sm green', onclick: () => {
         for (const { row, accountId, sug } of categorized) { lastCategory.delete(row.id); approveRow(row, accountId, sug, { quiet: true }); }
         toast(`${categorized.length} approved`);
       } }, `Approve all categorized (${categorized.length})`) : el('span'),
       (editable && unmatched.length && !aiBusy) ? el('button', { class: 'btn sm', onclick: () => askAI(unmatched, categories, body, editable) }, `✨ Get AI suggestions (${unmatched.length})`) : el('span'),
       aiBusy ? el('span', { class: 'pill gray' }, '✨ Asking Claude…') : el('span')),
+    bulkBar || el('span'));
+  clear(body).append(
     ...sections,
     sections.length ? el('span') : el('p', { class: 'sub' }, 'No transactions match these filters.'),
   );
@@ -774,14 +788,16 @@ async function askAI(rows, categories, body, editable) {
   }
 }
 
-function makeRuleModal(row, pickedCategoryId, categories, accountsById) {
+function makeRuleModal(row, pickedCategoryId, pickedVendorId, categories, accountsById) {
   const m = modal('Auto-categorize this vendor');
   // Existing vendors are offered for reuse (datalist autocomplete) so a second rule
   // for the same vendor extends it instead of silently overwriting it.
   const existingVendors = entities('vendor').slice().sort((a, b) => a.name.localeCompare(b.name));
   const findVendor = (nm) => { const t = nm.trim().toLowerCase(); return t ? existingVendors.find(v => (v.name || '').trim().toLowerCase() === t) : null; };
   const dl = el('datalist', { id: 'mr-existing-vendors' }, ...existingVendors.map(v => el('option', { value: v.name })));
-  const name = el('input', { class: 'field-input', list: 'mr-existing-vendors', value: guessVendorName(row.desc) });
+  // Prefill the vendor from whatever was already picked on the row; else guess from desc.
+  const pickedVendor = pickedVendorId ? existingVendors.find(v => v.id === pickedVendorId) : null;
+  const name = el('input', { class: 'field-input', list: 'mr-existing-vendors', value: pickedVendor ? pickedVendor.name : guessVendorName(row.desc) });
   const hint = el('p', { class: 'sub', style: 'margin:4px 0 0;color:var(--green)' }, '');
   const editor = ruleConditionsEditor({ seed: { conditions: [{ type: 'contains', text: guessVendorName(row.desc).toUpperCase() }] }, onChange: () => updatePreview() });
   const preview = rulePreview();

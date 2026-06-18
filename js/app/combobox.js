@@ -10,14 +10,18 @@
 //   value:       initial selected value
 //   placeholder: shown when nothing is selected
 //   onAdd:       optional () => void — renders a pinned "＋ <addLabel>" action
+//   onAddText:   optional (typedText) => void — when you Tab/Enter on a name that
+//                isn't in the list, this fires with what you typed (e.g. to confirm
+//                creating it) instead of silently reverting.
 //   addLabel:    text for that action (default 'Add…')
 //   minWidth:    px for the control
 import { el } from './ui.js';
 
-export function combobox({ groups = [], value = '', placeholder = '— pick —', onAdd = null, addLabel = 'Add…', minWidth = 190 } = {}) {
+export function combobox({ groups = [], value = '', placeholder = '— pick —', onAdd = null, onAddText = null, addLabel = 'Add…', minWidth = 190 } = {}) {
   const flat = [];
   for (const g of groups) for (const it of g.items) flat.push(it);
   const labelFor = (v) => flat.find(x => x.value === v)?.label || '';
+  const existsLabel = (t) => flat.some(x => (x.label || '').toLowerCase() === t.toLowerCase());
 
   let current = value || '';
   let open = false;
@@ -96,12 +100,27 @@ export function combobox({ groups = [], value = '', placeholder = '— pick —'
   input.addEventListener('focus', openPanel);
   input.addEventListener('click', openPanel);
   input.addEventListener('input', () => { if (!open) openPanel(); buildPanel(input.value); });
+  // The typed text doesn't match any option AND isn't the current selection → it's a
+  // candidate to create. Returns the trimmed text, or '' when there's nothing to add.
+  const newTyped = () => {
+    const t = input.value.trim();
+    return (t && onAddText && !existsLabel(t) && t.toLowerCase() !== (labelFor(current) || '').toLowerCase()) ? t : '';
+  };
   input.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) return openPanel(); setHl(Math.min(hl + 1, visible.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setHl(Math.max(hl - 1, 0)); }
-    else if (e.key === 'Enter') { e.preventDefault(); if (open && hl >= 0 && visible[hl]) pick(visible[hl].value); else closePanel(); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (open && hl >= 0 && visible[hl]) pick(visible[hl].value);
+      else { const t = newTyped(); if (t) { closePanel(); onAddText(t); } else closePanel(); }
+    }
     else if (e.key === 'Escape') { if (open) { e.stopPropagation(); closePanel(); input.blur(); } }
-    else if (e.key === 'Tab') { closePanel(); }
+    else if (e.key === 'Tab') {
+      // Tab on a highlighted option SELECTS it and moves to the next field (no
+      // preventDefault). Tab on a typed-but-unknown name offers to add it.
+      if (open && hl >= 0 && visible[hl]) { pick(visible[hl].value); }
+      else { const t = newTyped(); if (t) { e.preventDefault(); closePanel(); onAddText(t); } else closePanel(); }
+    }
   });
   input.addEventListener('blur', () => { setTimeout(() => { if (open) closePanel(); }, 120); });
 
