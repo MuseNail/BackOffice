@@ -10,6 +10,7 @@ import { dateRangeControl, inRange } from '../daterange.js';
 
 let unsub = null;
 let customerRange = { from: null, to: null };
+let customerQuery = '';
 let pageRangeCtl = null;   // the page "Totals for" picker — kept in sync with the drilldown's
 const slug = (s) => 'c-' + String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
@@ -22,6 +23,7 @@ export function render(root, detail) {
   const editable = canEdit(getActiveBiz());
   const body = el('div');
   const draw = () => drawTable(body, editable);
+  const search = el('input', { class: 'field-input', type: 'search', placeholder: 'Search customers…', style: 'max-width:240px;margin:0', value: customerQuery, oninput: (e) => { customerQuery = e.target.value; draw(); } });
   pageRangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { customerRange = r; draw(); } });
   customerRange = pageRangeCtl.getRange();
   root.append(
@@ -29,6 +31,7 @@ export function render(root, detail) {
     el('p', { class: 'sub' }, 'Your clients. Click a customer to see their transactions and total received. Income is tagged to a customer the same way expenses are tagged to a vendor.'),
     el('div', { class: 'sticky-toolbar' },
       editable ? el('button', { class: 'btn sm', onclick: () => customerModal(null) }, '＋ New customer') : el('span'),
+      search,
       el('span', { class: 'sub', style: 'margin:0' }, 'Totals for'), pageRangeCtl.el),
     body);
   unsub = subscribe(draw);
@@ -36,7 +39,7 @@ export function render(root, detail) {
   if (openNew && editable) customerModal(null);
 }
 
-export function unmount() { unsub?.(); unsub = null; pageRangeCtl = null; }
+export function unmount() { unsub?.(); unsub = null; pageRangeCtl = null; customerQuery = ''; }
 
 // Per-customer register (drill-down) — reached via #/b/<biz>/customers/<id>.
 function renderCustomerRegister(root, id) {
@@ -56,9 +59,15 @@ function renderCustomerRegister(root, id) {
 }
 
 function drawTable(body, editable) {
-  const customers = entities('customer').slice();
-  if (!customers.length) {
+  const all = entities('customer');
+  if (!all.length) {
     clear(body).append(el('p', { class: 'sub' }, 'No customers yet. Add one here, or they’ll appear once income transactions are tagged to a customer.'));
+    return;
+  }
+  const q = customerQuery.trim().toLowerCase();
+  const customers = q ? all.filter(c => (c.name || '').toLowerCase().includes(q)) : all.slice();
+  if (!customers.length) {
+    clear(body).append(el('p', { class: 'sub' }, 'No customers match your search.'));
     return;
   }
   const incomeIds = new Set(entities('account').filter(a => a.type === 'income').map(a => a.id));

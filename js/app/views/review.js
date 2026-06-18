@@ -31,10 +31,12 @@ let aiBusy = false;
 let showSkipped = false;
 // Review filter/sort (bank-row sections only). dir: all|in|out · status: all|needs|ready
 // · bank: all|<bankId> · sort: date-desc|date-asc|amount-desc|amount-asc.
-let reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc', amountMin: '', amountMax: '', from: '', to: '' };
-// The shared date picker, built once (the filter bar is rebuilt on every redraw).
+let reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc', amountMin: '', amountMax: '', from: '', to: '', q: '' };
+// The shared date picker + search box, built once (the filter bar is rebuilt on every
+// redraw; the search box lives ABOVE the body so typing never loses focus).
 let reviewDateCtl = null;
-const REVIEW_FILTER_DEFAULT = () => ({ dir: 'all', status: 'all', bank: 'all', sort: 'date-desc', amountMin: '', amountMax: '', from: '', to: '' });
+let reviewSearchEl = null;
+const REVIEW_FILTER_DEFAULT = () => ({ dir: 'all', status: 'all', bank: 'all', sort: 'date-desc', amountMin: '', amountMax: '', from: '', to: '', q: '' });
 // Preserve per-row category / vendor selection across drawBody re-renders (store
 // changes trigger a full redraw, so we save the user's pick here and restore it).
 let lastCategory = new Map();
@@ -57,18 +59,22 @@ const TYPE_GROUPS = [
 export function render(root) {
   const editable = canEdit(getActiveBiz());
   const body = el('div');
+  const draw = () => drawBody(body, editable);
+  reviewSearchEl = el('input', { class: 'field-input', type: 'search', placeholder: 'Search description, vendor, or amount…', style: 'max-width:340px;margin:0', value: reviewFilter.q || '',
+    oninput: (e) => { reviewFilter.q = e.target.value; draw(); } });
   root.append(
     el('h2', {}, 'Review'),
     el('p', { class: 'sub' }, 'Imported transactions wait here, grouped by account. Nothing posts without your approval — and transfers between your own accounts never count as income or expense.'),
+    el('div', { class: 'no-print', style: 'display:flex;align-items:center;gap:8px;margin-bottom:10px' },
+      el('span', { class: 'ms', style: 'color:var(--mut);font-size:20px' }, 'search'), reviewSearchEl),
     body,
   );
-  const draw = () => drawBody(body, editable);
   reviewDateCtl = dateRangeControl({ initial: 'all', onChange: (r) => { reviewFilter.from = r.from || ''; reviewFilter.to = r.to || ''; draw(); } });
   unsub = subscribe(draw);
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); collapsedBanks = new Set(); bankPage = new Map(); selected = new Set(); selectedBank = null; reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; }
+export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); collapsedBanks = new Set(); bankPage = new Map(); selected = new Set(); selectedBank = null; reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; reviewSearchEl = null; }
 
 // A row is "ready" if it has a resolved category — a valid rule/history suggestion,
 // an AI suggestion, or a manual pick (lastCategory). Drives the needs/ready filter.
@@ -78,6 +84,19 @@ function rowReady(row, matchCtx, accountsById) {
   if (sug && accountsById.has(sug.accountId) && accountsById.get(sug.accountId).active !== false) return true;
   const ai = aiSuggestions.get(row.id);
   return !!(ai?.accountId && accountsById.has(ai.accountId) && accountsById.get(ai.accountId).active !== false);
+}
+// Free-text Review search — matches the bank description, a matched vendor's name, or
+// the amount (so "182.40", "sally", or "venmo" all work).
+function rowMatchesQuery(r, q, matchCtx) {
+  if (!q) return true;
+  if ((r.desc || '').toLowerCase().includes(q)) return true;
+  const dollars = Math.abs(r.amountCents) / 100;
+  if (dollars.toFixed(2).includes(q) || String(dollars).includes(q)) return true;
+  const sug = suggestFor(r, matchCtx);
+  if (sug?.vendorName && sug.vendorName.toLowerCase().includes(q)) return true;
+  const vId = lastVendor.get(r.id);
+  if (vId) { const v = (matchCtx.vendors || []).find(x => x.id === vId); if (v && (v.name || '').toLowerCase().includes(q)) return true; }
+  return false;
 }
 function applyReviewFilter(rows, matchCtx, accountsById) {
   const filtered = rows.filter(r => {
@@ -90,6 +109,7 @@ function applyReviewFilter(rows, matchCtx, accountsById) {
     const absC = Math.abs(r.amountCents);
     if (reviewFilter.amountMin && absC < reviewFilter.amountMin) return false;
     if (reviewFilter.amountMax && absC > reviewFilter.amountMax) return false;
+    if (reviewFilter.q && !rowMatchesQuery(r, reviewFilter.q.trim().toLowerCase(), matchCtx)) return false;
     return true;
   });
   const [key, dir] = reviewFilter.sort.split('-');
@@ -335,7 +355,7 @@ function drawBody(body, editable) {
     value: reviewFilter[key] ? (reviewFilter[key] / 100).toFixed(2) : '',
     onchange: (e) => { const c = parseMoney(e.target.value); reviewFilter[key] = (c != null && c > 0) ? c : ''; drawBody(body, editable); } });
   if (reviewDateCtl) reviewDateCtl.setRange({ from: reviewFilter.from || null, to: reviewFilter.to || null });
-  const filtersOn = reviewFilter.dir !== 'all' || reviewFilter.status !== 'all' || reviewFilter.bank !== 'all' || reviewFilter.sort !== 'date-desc' || reviewFilter.amountMin !== '' || reviewFilter.amountMax !== '' || reviewFilter.from !== '' || reviewFilter.to !== '';
+  const filtersOn = reviewFilter.dir !== 'all' || reviewFilter.status !== 'all' || reviewFilter.bank !== 'all' || reviewFilter.sort !== 'date-desc' || reviewFilter.amountMin !== '' || reviewFilter.amountMax !== '' || reviewFilter.from !== '' || reviewFilter.to !== '' || reviewFilter.q !== '';
   // Fixed two-row filter bar: row 1 = what to show / order; row 2 = amount, date, clear.
   const rowStyle = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap';
   const filterBar = el('div', { style: 'margin-bottom:12px' },
@@ -348,7 +368,7 @@ function drawBody(body, editable) {
     el('div', { style: rowStyle },
       el('span', { class: 'sub', style: 'margin:0' }, 'Amount'), amtIn('amountMin', 'min $'), el('span', { class: 'sub', style: 'margin:0' }, '–'), amtIn('amountMax', 'max $'),
       reviewDateCtl ? reviewDateCtl.el : el('span'),
-      el('button', { class: 'btn sm ghost', disabled: !filtersOn, onclick: () => { reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl?.setRange({ from: null, to: null }); drawBody(body, editable); } }, 'Clear filters')));
+      el('button', { class: 'btn sm ghost', disabled: !filtersOn, onclick: () => { reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl?.setRange({ from: null, to: null }); if (reviewSearchEl) reviewSearchEl.value = ''; drawBody(body, editable); } }, 'Clear filters')));
   // Sticky bulk-action bar — shown while a (per-account) selection is active.
   const byCat = new Map(categorized.map(c => [c.row.id, c]));
   const selRows = pending.filter(r => selected.has(r.id));

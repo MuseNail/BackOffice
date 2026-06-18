@@ -11,6 +11,7 @@ import { ruleConditionsEditor, buildMatchers, ruleSummary } from '../rule-editor
 
 let unsub = null;
 let vendorRange = { from: null, to: null };
+let vendorQuery = '';
 let pageRangeCtl = null;   // the page "Totals for" picker — kept in sync with the drilldown's
 const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
@@ -33,6 +34,7 @@ export function render(root, detail) {
   const editable = canEdit(getActiveBiz());
   const body = el('div');
   const draw = () => drawTable(body, editable);
+  const search = el('input', { class: 'field-input', type: 'search', placeholder: 'Search vendors / rules…', style: 'max-width:240px;margin:0', value: vendorQuery, oninput: (e) => { vendorQuery = e.target.value; draw(); } });
   pageRangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { vendorRange = r; draw(); } });
   vendorRange = pageRangeCtl.getRange();
   root.append(
@@ -40,6 +42,7 @@ export function render(root, detail) {
     el('p', { class: 'sub' }, 'Your suppliers — who you pay. Click a vendor to see its transactions and total paid. Auto-categorize rules (from ⚡ in Review) live in each vendor’s Edit.'),
     el('div', { class: 'sticky-toolbar' },
       editable ? el('button', { class: 'btn sm', onclick: () => ruleModal(null) }, '＋ New vendor / rule') : el('span'),
+      search,
       el('span', { class: 'sub', style: 'margin:0' }, 'Totals for'), pageRangeCtl.el),
     body,
   );
@@ -48,7 +51,7 @@ export function render(root, detail) {
   if (openNew && editable) ruleModal(null);
 }
 
-export function unmount() { unsub?.(); unsub = null; pageRangeCtl = null; }
+export function unmount() { unsub?.(); unsub = null; pageRangeCtl = null; vendorQuery = ''; }
 
 // Vendor register (drill-down): every posted transaction from this vendor, total
 // spent + export. Reached via #/b/<biz>/vendors/<vendorId>.
@@ -75,9 +78,15 @@ const EXPENSE_TYPES = new Set(['expense', 'cogs', 'other-expense', 'personal-exp
 const expenseOf = (t, expenseIds) => (t.lines || []).reduce((a, l) => a + (expenseIds.has(l.accountId) ? l.amountCents : 0), 0);
 
 function drawTable(body, editable) {
-  const vendors = entities('vendor').slice();
-  if (!vendors.length) {
+  const all = entities('vendor');
+  if (!all.length) {
     clear(body).append(el('p', { class: 'sub' }, 'No vendors yet — tap ⚡ on any row in Review, or add one here.'));
+    return;
+  }
+  const q = vendorQuery.trim().toLowerCase();
+  const vendors = q ? all.filter(v => (v.name || '').toLowerCase().includes(q) || ruleSummary(v.matchers).toLowerCase().includes(q)) : all.slice();
+  if (!vendors.length) {
+    clear(body).append(el('p', { class: 'sub' }, 'No vendors match your search.'));
     return;
   }
   const expenseIds = new Set(entities('account').filter(a => EXPENSE_TYPES.has(a.type)).map(a => a.id));

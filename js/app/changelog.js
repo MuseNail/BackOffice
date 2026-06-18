@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.15', items: [
+    { icon: 'search', t: 'Search bars on Review, Vendors & Customers', d: 'Review now has a search box that finds transactions by description, amount, or matched vendor. The Vendors tab searches by name or rule text, and the Customers tab by name. (Reminder: your auto-categorize rules live on the Vendors tab — see the “Rule” column next to each vendor.)' },
+  ] },
   { v: '0.68.14', items: [
     { icon: 'smart_toy', t: 'AI suggestions that learn from you', d: 'When you tap “✨ Get AI suggestions”, the AI now also sees how you’ve categorized past transactions and follows your own patterns, so new rows get the account you’d pick. It runs on the cheaper Haiku model, and if it ever can’t run it now tells you exactly why (for example, the Anthropic account is out of credits).' },
   ] },
