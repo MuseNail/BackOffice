@@ -309,3 +309,9 @@ table.data.cmp th,table.data.cmp td{padding-left:12px;padding-right:12px}
 .modal{border:1px solid var(--line);box-shadow:0 18px 50px rgba(0,0,0,.28),0 2px 10px rgba(0,0,0,.12)}
 .mhead{margin:-20px -20px 14px;padding:11px 14px;background:#f5f6f8;border-bottom:1px solid var(--line);border-radius:16px 16px 0 0;cursor:move;user-select:none;touch-action:none}
 .mhead .mclose{cursor:pointer}
+
+/* Collapsed nav rail (not hovered): show ONLY the centered icon — no clipped text
+   sliver bleeding past the 54px edge, no half-cut badge. Labels return on hover. */
+body.nav-collapsed .side:not(:hover) .navitem{justify-content:center;gap:0;padding-left:0;padding-right:0;font-size:0}
+body.nav-collapsed .side:not(:hover) .navitem .ms{font-size:19px}
+body.nav-collapsed .side:not(:hover) .navitem .badge{display:none}

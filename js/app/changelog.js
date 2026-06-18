@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.20', items: [
+    { icon: 'menu', t: 'Collapsed menu — no more text sliver', d: 'When the sidebar is collapsed to the icon rail, the menu labels are now fully hidden (and centered icons only) instead of leaving a distracting sliver of text peeking past the edge. Hover the rail to see the full labels as before.' },
+  ] },
   { v: '0.68.19', items: [
     { icon: 'rule', t: 'Smarter rules: vendor-only + “does not contain”', d: 'When making a rule, the account is now optional — leave it blank to just memorize the vendor for matching descriptions and pick the account yourself each time (matching rows show a “⚡ Vendor · pick account” tag). Rules also gained a “does not contain” condition, so you can match things like “AMZN but NOT Prime.”' },
   ] },
