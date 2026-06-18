@@ -262,6 +262,19 @@ function boot() {
   initAmountCalc();
   mountGlobalSearch();
   window.addEventListener('hashchange', route);
+  // Graduated Escape: close the most specific open thing first. Open dropdowns
+  // (combobox) stop the event themselves; modals close via their own handler (this
+  // runs first and defers while an .overlay exists). Esc inside a field cancels the
+  // field / its autofill. Only with nothing else open and focus outside a field does
+  // Esc close the focused window. So one Esc never closes both an autofill AND a window.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !workspaceMode) return;
+    if (document.querySelector('.overlay, #app-update-popup')) return;
+    if (document.querySelector('.cbx-panel:not([hidden]), .dpk-pop:not([hidden]), #gsearch-results:not([hidden])')) return;
+    const t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    windows.closeFocused();
+  });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkAppVersion(); });
   setInterval(() => { if (!document.hidden) checkAppVersion(); }, 20 * 60 * 1000);   // poll so an always-open app self-updates
   route();

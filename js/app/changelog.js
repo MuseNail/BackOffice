@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.68.23', items: [
+    { icon: 'flip_to_front', t: 'Windows stay below the menus; search jumps to the transaction', d: 'The top search bar, the hover-open sidebar, and pop-ups now always sit above your windows — no window can hide them anymore, no matter how many you’ve clicked through. Clicking a transaction in the global search now opens the Ledger filtered to it. And Escape is now smarter: it closes an open autofill/drop-down first, then a pop-up — and only closes the window when nothing else is open and you’re not typing in a field.' },
+  ] },
   { v: '0.68.22', items: [
     { icon: 'select_window', t: 'Window polish: flush headers + resize any edge', d: 'Inside a window, the sticky header of a tab (like Review’s title/search/filters) now pins flush to the top — no more empty band above it, and rows no longer scroll up behind it into a gap. And you can now resize a window from any edge or corner — top, bottom, left, right, or the four corners — not just the bottom-right.' },
   ] },

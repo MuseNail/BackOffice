@@ -43,12 +43,13 @@ export function closeAll() {
 
 // Open (or focus) the window for a view. `detail` = a drill-down/new-modal token
 // the view reads on render; a changed detail re-renders the already-open window.
-export function openView(name, detail) {
+export function openView(name, detail, force = false) {
+  if (!workspace) return;
   let w = wins.get(name);
   if (w) {
     if (w.min) restore(w);
     focus(w);
-    if (detail != null && detail !== w.detail) renderBody(w, detail);
+    if (force || (detail != null && detail !== w.detail)) renderBody(w, detail);
     return;
   }
   const meta = resolver?.(name);
@@ -90,7 +91,7 @@ function makeWindow(name, detail, meta) {
 }
 
 function renderBody(w, detail) {
-  if (w.detail !== undefined && w.detail !== detail) { try { w.view?.unmount?.(); } catch { /* ignore */ } }
+  try { w.view?.unmount?.(); } catch { /* ignore — view may never have mounted */ }
   w.detail = detail;
   w.body.replaceChildren();
   try {
@@ -113,6 +114,13 @@ function focusTop() {
   let top = null;
   for (const o of wins.values()) if (!o.min && (!top || +o.el.style.zIndex > +top.el.style.zIndex)) top = o;
   if (top) focus(top);
+}
+// Close the top-most (focused) window — used by the graduated Escape handler.
+export function closeFocused() {
+  let top = null;
+  for (const w of wins.values()) if (!w.min && (!top || +w.el.style.zIndex > +top.el.style.zIndex)) top = w;
+  if (top) { closeWin(top); return true; }
+  return false;
 }
 function minimize(w) { w.min = true; w.el.style.display = 'none'; renderTaskbar(); focusTop(); }
 function restore(w) { w.min = false; w.el.style.display = ''; renderTaskbar(); }

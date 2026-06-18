@@ -4,6 +4,7 @@
 import { entities } from './store.js';
 import { getActiveBiz } from './session.js';
 import { setLedgerQuery } from './views/ledger.js';
+import { openView } from './windows.js';
 
 let _input, _panel, _wrap;
 const money = (c) => (c < 0 ? '−$' : '$') + (Math.abs(c || 0) / 100).toFixed(2);
@@ -37,7 +38,15 @@ function searchAll(ql) {
   };
 }
 
-function go(hash) { _panel.hidden = true; _input.value = ''; location.hash = hash; }
+// Open (or focus) the view's window directly — robust even when the hash is already
+// the target (which would not fire a hashchange) — then sync the URL. force=true
+// re-renders so a freshly-applied filter (e.g. a clicked transaction) always shows.
+function goView(name, detail) {
+  const biz = getActiveBiz();
+  _panel.hidden = true; _input.value = '';
+  openView(name, detail, true);
+  if (biz) location.hash = `#/b/${biz}/${name}${detail ? '/' + detail : ''}`;
+}
 
 function render(q) {
   const biz = getActiveBiz();
@@ -62,10 +71,10 @@ function render(q) {
     }
   };
   addGroup('Transactions', r.txns, t => `${txnType(t, acctById)} · ${t.date} · ${t.payee || '—'} · ${money(t.lines?.reduce((s, l) => l.amountCents > 0 ? s + l.amountCents : s, 0) || 0)}`,
-    t => { setLedgerQuery(t.payee || t.memo || ''); go(`#/b/${biz}/ledger`); });
-  addGroup('Invoices', r.invoices, i => `#${i.number || i.id} · ${i.clientName || ''}`, i => go(`#/b/${biz}/invoices/${i.id}`));
-  addGroup('Vendors', r.vendors, v => v.name, v => go(`#/b/${biz}/vendors/${v.id}`));
-  addGroup('Accounts', r.accounts, a => a.name, a => go(`#/b/${biz}/accounts/${a.id}`));
+    t => { setLedgerQuery(t.payee || t.memo || t.checkNo || ''); goView('ledger'); });
+  addGroup('Invoices', r.invoices, i => `#${i.number || i.id} · ${i.clientName || ''}`, i => goView('invoices', i.id));
+  addGroup('Vendors', r.vendors, v => v.name, v => goView('vendors', v.id));
+  addGroup('Accounts', r.accounts, a => a.name, a => goView('accounts', a.id));
   if (!(r.txns.length || r.invoices.length || r.vendors.length || r.accounts.length)) {
     const d = document.createElement('div');
     d.textContent = 'No matches';
