@@ -13,8 +13,8 @@ import { parseIifAccounts } from '../lib/qb-iif-import.js';
 import { buildQbImport } from '../lib/qb-history-import.js';
 import { ORIGIN, LS } from '../config.js';
 
-const ROLES = ['owner', 'manager', 'bookkeeper', 'viewer'];
-const ROLE_HELP = { owner: 'everything', manager: 'everything but deleting the business', bookkeeper: 'edit the books', viewer: 'read-only' };
+const ROLES = ['owner', 'manager', 'bookkeeper', 'client', 'viewer'];
+const ROLE_HELP = { owner: 'everything', manager: 'everything but deleting the business', bookkeeper: 'edit the books', client: 'suggest categories + notes, view reports/invoices (client app)', viewer: 'read-only' };
 
 export function render(root) {
   const biz = getActiveBiz();

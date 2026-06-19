@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.0', items: [
+    { icon: 'group_add', t: 'New: a Client workspace', d: 'You can now give a bookkeeper/assistant their own simple app (client.html). In Settings → Users, create a user with the new “Client” role and give them the link + their PIN. They can suggest a vendor, account and invoice on each waiting transaction and leave you a note — but nothing posts; it all comes to your Review pre-filled with a “💬 Client suggested” badge and their note, for you to approve. They can also view Invoices (with per-invoice net profit) and Reports, read-only. They can’t import, edit the books, add vendors, or export.' },
+  ] },
   { v: '0.68.25', items: [
     { icon: 'call_merge', t: 'Merge duplicate vendors, customers & accounts', d: 'Open a vendor or customer (or an account in the Accounts list) and use “Merge…” to fold a duplicate into another one — all its transactions move over and the duplicate is removed (accounts are archived, and a merge is blocked if it touches a closed month). Delete is still there for vendors and customers.' },
     { icon: 'auto_awesome', t: 'AI now fills in the vendor too', d: 'Get AI suggestions now also reads a clean vendor/payee name out of each bank description (e.g. “POS DEBIT NETFLIX COM LOS GATOS CA” → “Netflix”). It reuses a vendor you already have when it matches, and otherwise pre-fills the name and creates the vendor when you approve — so your vendor list builds itself from your transactions.' },

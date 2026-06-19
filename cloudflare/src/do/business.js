@@ -118,6 +118,32 @@ export class BusinessDO {
       return json({ ok: true, created: fresh.length - updated, updated, skipped });
     }
 
+    // internal: a client's category/vendor/invoice SUGGESTION + note for a waiting row.
+    // Writes ONLY the suggestion fields onto the staged entity — never amounts, status,
+    // dates, etc. — so a low-privilege client can propose without altering the books.
+    if (path === '/_suggest' && req.method === 'POST') {
+      const { stagedId, suggestedAccountId, suggestedVendorId, suggestedInvoiceId, clientNote, userId } = await req.json();
+      if (!stagedId) return json({ error: 'bad' }, 400);
+      const existing = await this.state.storage.get(`staged:${stagedId}`);
+      if (!existing) return json({ error: 'not found' }, 404);
+      if (existing.status !== 'pending') return json({ error: 'not pending' }, 409);
+      const now = Date.now();
+      const merged = {
+        ...existing,
+        suggestedAccountId: suggestedAccountId || '',
+        suggestedVendorId: suggestedVendorId || '',
+        suggestedInvoiceId: suggestedInvoiceId || '',
+        clientNote: String(clientNote || '').slice(0, 1000),
+        suggestedBy: userId || '',
+        suggestedAt: now,
+        updatedAt: now,
+        updatedBy: userId || 'client',
+      };
+      const res = await this.apply({ op: 'entity.upsert', kind: 'staged', value: merged, device: '' });
+      if (res.rejected) return json({ error: res.reason }, 400);
+      return json({ ok: true });
+    }
+
     // ── Plaid bank feed (server-only token; never in the client snapshot) ───────
     // The access token + sync cursor live under `plaid:<itemId>`. Kind 'plaid' is
     // NOT in ENTITY_KINDS, so snapshot() skips it and it never reaches a browser.

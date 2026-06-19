@@ -18,7 +18,7 @@ const json = (data, status = 200) =>
     headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
   });
 
-const ROLES = ['owner', 'manager', 'bookkeeper', 'viewer'];
+const ROLES = ['owner', 'manager', 'bookkeeper', 'client', 'viewer'];
 const SESSION_TTL = 30 * 24 * 3600 * 1000;
 const LOCKOUT_FAILS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;

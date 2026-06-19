@@ -350,3 +350,11 @@ body.has-windows #view{max-width:none;padding:0;display:flex;flex-direction:colu
 .mdi-chip{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:5px 12px;border-radius:999px;cursor:pointer;border:1px solid var(--brand);background:var(--brand);color:#fff;white-space:nowrap;flex:none}
 .mdi-chip.min{background:#f0f2f7;color:var(--mut);border-color:#d9deea}
 .mdi-chip .ms{font-size:14px}
+
+/* ── Client app (client.html) — slim suggest/view workspace ── */
+.clienttabs{display:flex;gap:8px;padding:12px 18px 0;max-width:1000px;margin:0 auto;flex-wrap:wrap}
+.clienttab{display:inline-flex;align-items:center;gap:7px;border:1px solid #d9deea;background:#fff;color:#3c3f48;border-radius:999px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer}
+.clienttab.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.clienttab .ms{font-size:16px}
+.bo-client .main{padding:16px 18px}
+.client-note{display:flex;align-items:flex-start;gap:7px;margin-top:8px;background:#e8effb;border:1px solid #c5d6f1;color:#1d4e8f;border-radius:9px;padding:8px 11px;font-size:12.5px;font-weight:500;line-height:1.4}

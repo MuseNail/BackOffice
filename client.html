@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Muse Books — Client</title>
+<meta name="theme-color" content="#2456a6">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="bo-client">
+<div class="topbar">
+  <div class="logo"><span class="ms">account_balance</span> Muse Books <span class="ver" style="background:#e8effb;color:#1d4e8f">Client</span></div>
+  <div class="spacer"></div>
+  <div id="syncpill" class="syncpill"></div>
+  <div id="clientchip" style="display:none;align-items:center;gap:8px;margin-left:12px">
+    <span id="clientname" style="font-size:13px;font-weight:600"></span>
+    <button id="clientlogout" class="btn sm ghost" type="button">Sign out</button>
+  </div>
+</div>
+<nav id="clienttabs" class="clienttabs" style="display:none"></nav>
+<main class="main" id="view" style="max-width:1000px;margin:0 auto"></main>
+<script type="module" src="js/app/client.js"></script>
+</body>
+</html>

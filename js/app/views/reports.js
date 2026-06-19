@@ -467,8 +467,9 @@ function drawBody(body) {
           el('div', { style: 'display:flex;align-items:center;gap:10px;margin-bottom:8px' },
             el('div', { class: 'cardtitle', style: 'margin:0' }, 'Profit & Loss'),
             el('span', { style: 'flex:1' }),
-            el('button', { class: 'btn sm ghost no-print', onclick: () => window.print() }, 'Print / PDF'),
-            el('button', { class: 'btn sm ghost no-print', onclick: () => downloadCsv(
+            // The client app is view-only — no export/print of the books.
+            document.body.classList.contains('bo-client') ? null : el('button', { class: 'btn sm ghost no-print', onclick: () => window.print() }, 'Print / PDF'),
+            document.body.classList.contains('bo-client') ? null : el('button', { class: 'btn sm ghost no-print', onclick: () => downloadCsv(
               `${getActiveBiz()}-reports.csv`,
               buildReportsCsv(presetLabel, s.asOf, plData, { assets, liabilities, equity, netToDate }, csvCmp)) }, 'Export CSV')),
           el('div', { class: 'sub print-only', style: 'margin:0 0 6px' },

@@ -88,6 +88,15 @@ export default {
       if (!role) return json({ error: 'forbidden' }, 403);
       // suggestions are read-only — any member may ask; nothing is written
       if (m[2] === '/ai/categorize' && req.method === 'POST') return withCors(await handleCategorize(req, env, bizId));
+      // A client's category/vendor/invoice/note SUGGESTION — a NARROW write any member
+      // may make (the DO merges ONLY the suggestion fields onto the staged row). This is
+      // the one write a `client`/`viewer` is allowed; it runs before the read-only gate.
+      if (m[2] === '/suggest' && req.method === 'POST') {
+        const payload = await req.json().catch(() => ({}));
+        return withCors(await env.BUSINESS_DO.get(env.BUSINESS_DO.idFromName(bizId)).fetch(
+          new Request('https://do/_suggest', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...payload, userId: sess.userId }) })));
+      }
       if (m[2] === '/processor/helcim/transactions' && req.method === 'GET') return withCors(await handleHelcimTransactions(req, env));
       if (m[2] === '/processor/helcim/batches' && req.method === 'GET') return withCors(await handleHelcimBatches(req, env));
       // Plaid bank feed — connecting/syncing changes state, so owner/manager only.
@@ -99,7 +108,9 @@ export default {
         if (m[2] === '/plaid/sync')       return withCors(await handlePlaidSync(req, env, bizId));
         if (m[2] === '/plaid/disconnect') return withCors(await handlePlaidDisconnect(req, env, bizId));
       }
-      if (role === 'viewer' && req.method !== 'GET' && !m[2].endsWith('/ws')) return json({ error: 'read only' }, 403);
+      // `viewer` and `client` are read-only on the books (the /suggest narrow write
+      // above is their only exception); everything else here is GET or the WebSocket.
+      if ((role === 'viewer' || role === 'client') && req.method !== 'GET' && !m[2].endsWith('/ws')) return json({ error: 'read only' }, 403);
       const fwd = new Request(req);
       fwd.headers.set('X-Bo-Role', role);
       fwd.headers.set('X-Bo-User', sess.userId);

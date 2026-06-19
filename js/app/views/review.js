@@ -231,24 +231,27 @@ function drawBody(body, editable) {
       else vendPrefillText = aiSug.vendorName;
     }
 
-    const preselect = lastCategory.get(row.id) || sug?.accountId;
-    const vendPreselect = lastVendor.has(row.id) ? lastVendor.get(row.id) : vendorTag?.vendorId;
+    // A client's suggestion (from the client app) pre-fills the fields too.
+    const preselect = lastCategory.get(row.id) || row.suggestedAccountId || sug?.accountId;
+    const vendPreselect = lastVendor.has(row.id) ? lastVendor.get(row.id) : (row.suggestedVendorId || vendorTag?.vendorId);
     const sel = categorySelect(row, categories, accountsById, preselect,
       (account) => { lastCategory.set(row.id, account.id); drawBody(body, editable); });
     const memoIn = el('input', { class: 'field-input', placeholder: 'Add a note…', style: 'margin:0;min-width:150px', value: row.memo || '' });
     bindSuggest(memoIn, 'memo');
     const vendSel = vendorSelect(vendorsList, vendPreselect,
       (vendor) => { lastVendor.set(row.id, vendor.id); drawBody(body, editable); }, vendPrefillText);
-    const invSel = showInvoices ? invoiceSelect(invoicesList) : null; if (invSel) invSel.style.margin = '0';
-    const chip = sug
-      ? (sug.by === 'rule' ? el('span', { class: 'pill blue' }, `⚡ ${sug.vendorName}`)
-        : sug.by === 'ai' ? el('span', { class: 'pill amber' }, `✨ AI ${sug.confidence}%`)
-        : el('span', { class: 'pill green' }, '🕘 Seen before'))
-      : vendorTag
-        ? el('span', { class: 'pill blue', title: 'Vendor matched — choose an account' }, `⚡ ${vendorTag.vendorName} · pick account`)
-        : vendPrefillText
-          ? el('span', { class: 'pill amber', title: 'AI-suggested vendor — saved when you approve' }, `✨ ${vendPrefillText} · pick account`)
-          : el('span', { class: 'pill gray' }, 'No match');
+    const invSel = showInvoices ? invoiceSelect(invoicesList, row.suggestedInvoiceId) : null; if (invSel) invSel.style.margin = '0';
+    const chip = row.suggestedAt
+      ? el('span', { class: 'pill blue', title: 'Filled in by your client — review and approve' }, '💬 Client suggested')
+      : sug
+        ? (sug.by === 'rule' ? el('span', { class: 'pill blue' }, `⚡ ${sug.vendorName}`)
+          : sug.by === 'ai' ? el('span', { class: 'pill amber' }, `✨ AI ${sug.confidence}%`)
+          : el('span', { class: 'pill green' }, '🕘 Seen before'))
+        : vendorTag
+          ? el('span', { class: 'pill blue', title: 'Vendor matched — choose an account' }, `⚡ ${vendorTag.vendorName} · pick account`)
+          : vendPrefillText
+            ? el('span', { class: 'pill amber', title: 'AI-suggested vendor — saved when you approve' }, `✨ ${vendPrefillText} · pick account`)
+            : el('span', { class: 'pill gray' }, 'No match');
 
     const approve = el('button', { class: 'btn sm green', disabled: !preselect, onclick: () => {
       lastCategory.delete(row.id); lastVendor.delete(row.id);
@@ -281,6 +284,8 @@ function drawBody(body, editable) {
         el('span', { class: 'revdesc' }, row.desc || ''),
         el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
         chip),
+      // The client's note to you (message, not the memo) — surfaced so you don't miss it.
+      row.clientNote ? el('div', { class: 'client-note' }, el('span', { class: 'ms', style: 'font-size:15px' }, 'chat'), el('span', {}, row.clientNote)) : null,
       editable ? el('div', { class: 'revfields' },
         field('Vendor', vendSel),
         field('Account', sel),
