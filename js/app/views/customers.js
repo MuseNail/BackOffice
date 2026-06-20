@@ -1,7 +1,7 @@
 // ── view: customers — client directory + per-customer register ─────────────────
 // Mirrors Vendors, but for the income side: your clients. Income transactions are
 // tagged to a customer (t.customerId) the way expenses are tagged to a vendor.
-import { el, clear, toast, modal, fmtMoney } from '../ui.js';
+import { el, clear, toast, modal, fmtMoney, sortTh, sortBy } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -12,6 +12,7 @@ import { openMergeModal, mergeCustomer } from '../merge.js';
 let unsub = null;
 let customerRange = { from: null, to: null };
 let customerQuery = '';
+let customerSort = { key: 'customer', dir: 'asc' };   // default: alphabetical; headers re-sort
 let pageRangeCtl = null;   // the page "Totals for" picker — kept in sync with the drilldown's
 const slug = (s) => 'c-' + String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
@@ -73,10 +74,15 @@ function drawTable(body, editable) {
   }
   const incomeIds = new Set(entities('account').filter(a => a.type === 'income').map(a => a.id));
   const incomeOf = (t) => (t.lines || []).reduce((a, l) => a + (incomeIds.has(l.accountId) ? -l.amountCents : 0), 0);
-  const rows = customers.map(c => { const tx = txnsForCustomer(c).filter(t => inRange(t.date, customerRange)); return { c, n: tx.length, total: tx.reduce((s, t) => s + incomeOf(t), 0) }; })
-    .sort((a, b) => b.total - a.total || a.c.name.localeCompare(b.c.name));
+  const rows = sortBy(
+    customers.map(c => { const tx = txnsForCustomer(c).filter(t => inRange(t.date, customerRange)); return { c, n: tx.length, total: tx.reduce((s, t) => s + incomeOf(t), 0) }; }),
+    customerSort, { customer: r => r.c.name, txns: r => r.n, total: r => r.total });
+  const redraw = () => drawTable(body, editable);
   const tbl = el('table', { class: 'data' },
-    el('tr', {}, el('th', {}, 'Customer'), el('th', { class: 'num' }, 'Transactions'), el('th', { class: 'num' }, 'Total received')),
+    el('tr', {},
+      sortTh(customerSort, 'customer', 'Customer', redraw),
+      sortTh(customerSort, 'txns', 'Transactions', redraw, { numeric: true, cls: 'num' }),
+      sortTh(customerSort, 'total', 'Total received', redraw, { numeric: true, cls: 'num' })),
     ...rows.map(({ c, n, total }) => el('tr', { style: 'cursor:pointer', title: 'View transactions / edit', onclick: () => customerDrilldown(c, () => drawTable(body, editable)) },
       el('td', {}, el('b', {}, c.name)),
       el('td', { class: 'num' }, String(n)),
@@ -94,14 +100,16 @@ function customerDrilldown(c, refresh) {
   const catOf = (t) => { const l = (t.lines || []).find(x => incomeIds.has(x.accountId)); const a = l && accts.get(l.accountId); return a ? a.name : '—'; };
 
   const listHost = el('div');
+  const txnSort = { key: 'date', dir: 'desc' };
   const drawList = () => {
-    const txns = txnsForCustomer(c).filter(t => inRange(t.date, customerRange)).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const txns = sortBy(txnsForCustomer(c).filter(t => inRange(t.date, customerRange)), txnSort,
+      { date: t => t.date, desc: t => t.payee || t.memo || '', account: t => catOf(t), amount: t => incomeOf(t) });
     const total = txns.reduce((s, t) => s + incomeOf(t), 0);
     clear(listHost).append(
       el('div', { style: 'font-weight:800;font-size:18px;margin:2px 0 10px' }, fmtMoney(total), el('span', { class: 'sub', style: 'font-weight:400;margin-left:8px' }, `received · ${txns.length} transactions`)),
       txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
         el('table', { class: 'data' },
-          el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', {}, 'Account'), el('th', { class: 'num' }, 'Amount')),
+          el('tr', {}, sortTh(txnSort, 'date', 'Date', drawList), sortTh(txnSort, 'desc', 'Description', drawList), sortTh(txnSort, 'account', 'Account', drawList), sortTh(txnSort, 'amount', 'Amount', drawList, { numeric: true, cls: 'num' })),
           ...txns.map(t => el('tr', {}, el('td', {}, t.date), el('td', {}, t.payee || t.memo || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, fmtMoney(Math.abs(incomeOf(t))))))))
         : el('p', { class: 'sub' }, 'No transactions yet.'));
   };

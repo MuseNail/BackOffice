@@ -1,5 +1,5 @@
 // ── view: vendors — vendors, their auto-categorize rules, and per-vendor register ─
-import { el, clear, toast, modal, fmtMoney } from '../ui.js';
+import { el, clear, toast, modal, fmtMoney, sortTh, sortBy } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -15,6 +15,7 @@ let unsub = null;
 let vendorRange = { from: null, to: null };
 let vendorQuery = '';
 let vendorRulesOnly = false;   // Vendors tab filter: show only vendors that have a rule
+let vendorSort = { key: 'vendor', dir: 'asc' };   // default: alphabetical; headers re-sort
 // A vendor "has a rule" if it auto-matches by description or memorizes a default account.
 const vendorHasRule = (v) => !!(v.matchers?.conditions?.length || v.matchers?.exact?.length || v.matchers?.keywords?.length || v.defaultAccountId);
 let pageRangeCtl = null;   // the page "Totals for" picker — kept in sync with the drilldown's
@@ -98,10 +99,16 @@ function drawTable(body, editable) {
     return;
   }
   const expenseIds = new Set(entities('account').filter(a => EXPENSE_TYPES.has(a.type)).map(a => a.id));
-  const rows = vendors.map(v => { const tx = txnsForVendor(v).filter(t => inRange(t.date, vendorRange)); return { v, n: tx.length, total: tx.reduce((s, t) => s + expenseOf(t, expenseIds), 0) }; })
-    .sort((a, b) => b.total - a.total || a.v.name.localeCompare(b.v.name));
+  const rows = sortBy(
+    vendors.map(v => { const tx = txnsForVendor(v).filter(t => inRange(t.date, vendorRange)); return { v, n: tx.length, total: tx.reduce((s, t) => s + expenseOf(t, expenseIds), 0) }; }),
+    vendorSort, { vendor: r => r.v.name, rule: r => ruleSummary(r.v.matchers), txns: r => r.n, total: r => r.total });
+  const redraw = () => drawTable(body, editable);
   const tbl = el('table', { class: 'data' },
-    el('tr', {}, el('th', {}, 'Vendor'), el('th', {}, 'Rule'), el('th', { class: 'num' }, 'Transactions'), el('th', { class: 'num' }, 'Total paid')),
+    el('tr', {},
+      sortTh(vendorSort, 'vendor', 'Vendor', redraw),
+      sortTh(vendorSort, 'rule', 'Rule', redraw),
+      sortTh(vendorSort, 'txns', 'Transactions', redraw, { numeric: true, cls: 'num' }),
+      sortTh(vendorSort, 'total', 'Total paid', redraw, { numeric: true, cls: 'num' })),
     ...rows.map(({ v, n, total }) => el('tr', { style: 'cursor:pointer', title: 'View transactions / edit rule', onclick: () => vendorDrilldown(v, () => drawTable(body, editable)) },
       el('td', {}, el('b', {}, v.name)),
       el('td', { class: 'sub', style: 'margin:0;max-width:340px' }, ruleSummary(v.matchers)),
@@ -132,14 +139,16 @@ function vendorDrilldown(v, refresh) {
   });
 
   const listHost = el('div');
+  const txnSort = { key: 'date', dir: 'desc' };
   const drawList = () => {
-    const txns = txnsForVendor(v).filter(t => inRange(t.date, vendorRange)).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const txns = sortBy(txnsForVendor(v).filter(t => inRange(t.date, vendorRange)), txnSort,
+      { date: t => t.date, desc: t => t.payee || t.memo || '', account: t => catOf(t), amount: t => expenseOf(t, expenseIds) });
     const total = txns.reduce((s, t) => s + expenseOf(t, expenseIds), 0);
     clear(listHost).append(
       el('div', { style: 'font-weight:800;font-size:18px;margin:12px 0 10px' }, fmtMoney(total), el('span', { class: 'sub', style: 'font-weight:400;margin-left:8px' }, `paid · ${txns.length} transactions`)),
       txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
         el('table', { class: 'data' },
-          el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', {}, 'Account'), el('th', { class: 'num' }, 'Amount')),
+          el('tr', {}, sortTh(txnSort, 'date', 'Date', drawList), sortTh(txnSort, 'desc', 'Description', drawList), sortTh(txnSort, 'account', 'Account', drawList), sortTh(txnSort, 'amount', 'Amount', drawList, { numeric: true, cls: 'num' })),
           ...txns.map(t => el('tr', {}, el('td', {}, t.date), el('td', {}, t.payee || t.memo || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, fmtMoney(expenseOf(t, expenseIds)))))))
         : el('p', { class: 'sub' }, 'No transactions yet.'));
   };

@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.5', items: [
+    { icon: 'swap_vert', t: 'Sort the Vendors & Customers lists by any column', d: 'Vendors and Customers now start sorted alphabetically, and you can click any column heading — Vendor/Customer, Rule, Transactions, Total — to sort by it. Click again to flip between ascending and descending. The transaction lists inside a vendor’s or customer’s pop-up sort the same way (by date, description, account, or amount).' },
+  ] },
   { v: '0.69.4', items: [
     { icon: 'keyboard_tab', t: 'Adding a vendor keeps you on the keyboard', d: 'After you type a new vendor name and press Enter to add it (in Review or when adding/editing a transaction), the focus now returns to the vendor box with the new vendor filled in — so you can press Tab to move to the next field without reaching for the mouse.' },
   ] },

@@ -16,6 +16,40 @@ export function el(tag, attrs = {}, ...children) {
 
 export function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); return node; }
 
+// ── Sortable tables ────────────────────────────────────────────────────────────
+// Shared so every data table sorts the same way: a clickable <th> that toggles
+// asc/desc (text columns default A→Z, numeric default high→low), plus sortBy() to
+// order the rows. `state` is a plain { key, dir } the caller keeps; onSort re-renders.
+//   const st = { key: 'name', dir: 'asc' };
+//   sortTh(st, 'name', 'Vendor', redraw)            // text column
+//   sortTh(st, 'total', 'Total', redraw, { numeric: true, cls: 'num' })
+//   const sorted = sortBy(rows, st, { name: r => r.name, total: r => r.total });
+export function sortTh(state, key, label, onSort, { numeric = false, cls = '' } = {}) {
+  const active = state.key === key;
+  const caret = active ? (state.dir === 'desc' ? ' ▼' : ' ▲') : '';
+  return el('th', { class: (cls ? cls + ' ' : '') + 'th-sort' + (active ? ' on' : ''), title: 'Click to sort',
+    onclick: () => {
+      if (state.key === key) state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+      else { state.key = key; state.dir = numeric ? 'desc' : 'asc'; }
+      onSort();
+    } }, label + caret);
+}
+
+// Order rows by the current sort state. `getters` maps each sort key to a value
+// function; numbers sort numerically, everything else case-insensitively by text.
+export function sortBy(rows, state, getters) {
+  const get = getters[state.key];
+  if (!get) return rows.slice();
+  const d = state.dir === 'desc' ? -1 : 1;
+  return rows.slice().sort((a, b) => {
+    const va = get(a), vb = get(b);
+    const c = (typeof va === 'number' && typeof vb === 'number')
+      ? va - vb
+      : String(va == null ? '' : va).toLowerCase().localeCompare(String(vb == null ? '' : vb).toLowerCase());
+    return d * c;
+  });
+}
+
 export function toast(msg, kind = 'ok') {
   const t = el('div', { class: `toast ${kind}` }, msg);
   document.body.append(t);

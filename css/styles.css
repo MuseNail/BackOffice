@@ -138,6 +138,9 @@ table.data tr[style*="cursor:pointer"]:hover td,table.data tr[style*="cursor: po
 /* ── data table ── */
 table.data{width:100%;border-collapse:collapse}
 table.data th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);text-align:left;padding:8px 10px;border-bottom:2px solid var(--line);white-space:nowrap}
+th.th-sort{cursor:pointer;user-select:none}
+th.th-sort:hover{color:var(--ink,#23252c)}
+th.th-sort.on{color:var(--brand)}
 table.data td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
 table.data tr:last-child td{border-bottom:none}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
