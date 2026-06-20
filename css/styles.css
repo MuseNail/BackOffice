@@ -146,7 +146,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 /* ── combobox (type-to-search select) ── */
 .cbx{position:relative;display:inline-block;vertical-align:top}
 .cbx .cbx-input{margin:0;cursor:text}
-.cbx-panel{position:absolute;top:calc(100% + 3px);left:0;right:0;min-width:200px;background:#fff;border:1px solid #d2d6e0;border-radius:9px;box-shadow:0 10px 28px rgba(20,30,55,.18);max-height:280px;overflow:auto;z-index:60;padding:4px}
+.cbx-panel{position:fixed;min-width:200px;background:#fff;border:1px solid #d2d6e0;border-radius:9px;box-shadow:0 10px 28px rgba(20,30,55,.18);max-height:280px;overflow:auto;z-index:2000;padding:4px}
 .cbx-group{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:800;padding:7px 9px 3px}
 .cbx-opt{padding:7px 9px;border-radius:7px;cursor:pointer;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cbx-opt.sel{font-weight:700}
@@ -298,9 +298,11 @@ table.data.cmp th,table.data.cmp td{padding-left:12px;padding-right:12px}
 .review-head{position:sticky;top:53px;z-index:7;background:var(--bg);padding:8px 0;margin-bottom:8px;border-bottom:1px solid var(--line)}
 .review-head .review-bulkbar{position:static;top:auto;z-index:auto;margin-bottom:0}
 
-/* Combobox: show full long / child-account names — panel sizes to content, options wrap */
-.cbx-panel{right:auto;min-width:100%;max-width:460px}
-.cbx-opt{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.3}
+/* Combobox: floated above everything (position:fixed, portaled to body), sized to the
+   widest account so names sit on ONE line — JS sets min-width to the field width and
+   left/top each frame; width grows to content up to this cap, then ellipsis. */
+.cbx-panel{width:max-content;max-width:min(620px,calc(100vw - 16px))}
+.cbx-opt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3}
 
 /* Modals are draggable, window-like dialogs — drag the title bar to move the dialog
    aside and see what's behind it. Backdrop is transparent (no dim) so the app stays

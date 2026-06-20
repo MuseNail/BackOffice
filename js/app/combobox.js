@@ -30,8 +30,12 @@ export function combobox({ groups = [], value = '', text = '', placeholder = '�
   let visible = [];     // flat list of {value,label} currently shown (post-filter)
 
   const input = el('input', { class: 'field-input cbx-input', placeholder, autocomplete: 'off', spellcheck: 'false' });
+  // The panel is portaled to <body> (position:fixed) while open, so it floats above the
+  // scrolling list and any modal — opening it can never scroll/shift the page behind it.
   const panel = el('div', { class: 'cbx-panel', hidden: true });
-  const wrap = el('div', { class: 'cbx', style: `min-width:${minWidth}px` }, input, panel);
+  const wrap = el('div', { class: 'cbx', style: `min-width:${minWidth}px` }, input);
+  let panelW = 0, panelH = 0;   // cached panel size (re-measured whenever the option list changes)
+  let raf = 0;                  // requestAnimationFrame handle for the follow-the-field loop
 
   // Show the full chosen label on hover (title) and scroll the field to its END when
   // unfocused, so a long "Parent › Child" account reveals the CHILD you actually picked
@@ -80,27 +84,59 @@ export function combobox({ groups = [], value = '', text = '', placeholder = '�
       panel.append(add);
     }
     hl = visible.findIndex(it => it.value === current);
+    if (open) { panelW = panel.offsetWidth; panelH = panel.offsetHeight; }   // re-measure for positioning
     paintHl();
   }
 
   function paintHl() {
     panel.querySelectorAll('.cbx-opt').forEach((o) => o.classList.toggle('hl', Number(o.dataset.i) === hl));
     const node = panel.querySelector(`.cbx-opt[data-i="${hl}"]`);
-    if (node) node.scrollIntoView({ block: 'nearest' });
+    // Keep the highlighted option visible by scrolling WITHIN the panel only — never
+    // scrollIntoView (which would scroll the page behind and make the row jump).
+    if (node) {
+      if (node.offsetTop < panel.scrollTop) panel.scrollTop = node.offsetTop - 4;
+      else if (node.offsetTop + node.offsetHeight > panel.scrollTop + panel.clientHeight) panel.scrollTop = node.offsetTop + node.offsetHeight - panel.clientHeight + 4;
+    }
   }
   function setHl(i) { hl = i; paintHl(); }
+
+  // Pin the floating panel to the input: below it when there's room, flipped above when
+  // near the bottom, clamped into the viewport. Runs every frame while open so it follows
+  // the field as the list scrolls, and closes itself if the field is re-rendered away.
+  function position() {
+    const r = input.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+    let left = Math.min(r.left, Math.max(8, vw - 8 - panelW));
+    if (left < 8) left = 8;
+    const below = vh - r.bottom;
+    const top = (below >= panelH + 6 || below >= r.top) ? r.bottom + 3 : Math.max(8, r.top - panelH - 3);
+    panel.style.left = left + 'px';
+    panel.style.top = top + 'px';
+  }
+  function track() {
+    if (!open) return;
+    if (!input.isConnected) { closePanel(); return; }   // host re-rendered the row → close
+    position();
+    raf = requestAnimationFrame(track);
+  }
 
   function openPanel() {
     if (open) return;
     open = true;
-    buildPanel('');
+    document.body.appendChild(panel);
     panel.hidden = false;
+    panel.style.minWidth = wrap.getBoundingClientRect().width + 'px';
+    buildPanel('');
+    position();
     input.select();
+    raf = requestAnimationFrame(track);
   }
   function closePanel() {
     open = false;
+    if (raf) { cancelAnimationFrame(raf); raf = 0; }
     panel.hidden = true;
-    setDisplay();   // revert any half-typed filter text to the real selection
+    panel.remove();   // un-portal from <body>
+    setDisplay();     // revert any half-typed filter text to the real selection
   }
   function pick(v) {
     const changed = v !== current;

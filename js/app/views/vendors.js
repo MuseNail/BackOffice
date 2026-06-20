@@ -221,25 +221,28 @@ function ruleModal(existing) {
 export function quickAddVendorModal(oncreate, prefillName = '') {
   const m = modal(prefillName ? 'Add new vendor?' : 'Add vendor');
   const name = el('input', { class: 'field-input', placeholder: 'Vendor name', value: prefillName || '' });
+  const submit = () => {
+    const n = name.value.trim();
+    if (!n) { toast('Name the vendor', 'err'); return; }
+    const taken = new Set(entities('vendor').map(v => v.id));
+    const base = 'v-' + (slug(n) || 'vendor');
+    let id = base, i = 2;
+    while (taken.has(id)) id = `${base}-${i++}`;
+    const vendor = { id, name: n, matchers: { exact: [], keywords: [] }, defaultAccountId: null, used: 0 };
+    dispatch({ op: 'entity.upsert', kind: 'vendor', value: vendor });
+    toast('Vendor added');
+    m.close();
+    oncreate(vendor);
+  };
+  // Enter in the name field adds the vendor (hands stay on the keyboard).
+  name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
   m.body.append(
     prefillName ? el('p', { class: 'sub', style: 'margin-top:0' }, `“${prefillName}” isn’t a vendor yet — add it?`) : null,
     el('label', { class: 'field-label' }, 'Name'), name,
     el('p', { class: 'sub' }, 'Just tags this transaction with the vendor. To auto-categorize a vendor on future imports, use “⚡” in Review.'),
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
-      el('button', { class: 'btn', onclick: () => {
-        const n = name.value.trim();
-        if (!n) { toast('Name the vendor', 'err'); return; }
-        const taken = new Set(entities('vendor').map(v => v.id));
-        const base = 'v-' + (slug(n) || 'vendor');
-        let id = base, i = 2;
-        while (taken.has(id)) id = `${base}-${i++}`;
-        const vendor = { id, name: n, matchers: { exact: [], keywords: [] }, defaultAccountId: null, used: 0 };
-        dispatch({ op: 'entity.upsert', kind: 'vendor', value: vendor });
-        toast('Vendor added');
-        m.close();
-        oncreate(vendor);
-      } }, 'Add vendor')),
+      el('button', { class: 'btn', onclick: submit }, 'Add vendor')),
   );
   setTimeout(() => name.focus(), 0);
 }

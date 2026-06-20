@@ -261,10 +261,11 @@ function drawBody(body, editable) {
     sel.addEventListener('change', () => { if (sel.value) lastCategory.set(row.id, sel.value); approve.disabled = !sel.value; });
     vendSel.addEventListener('change', () => {
       lastVendor.set(row.id, vendSel.value);
-      // Picking a vendor that has a memorized default account fills the account too
-      // (only when it's still empty — never clobber a pick the user already made).
+      // Changing the vendor to one with a memorized default account moves the account to
+      // match it — even when an account was already picked (you switched vendor on purpose,
+      // so the memorized account wins). A vendor with no memorized account leaves it as-is.
       const v = entities('vendor').find(x => x.id === vendSel.value);
-      if (v?.defaultAccountId && !sel.value && accountsById.has(v.defaultAccountId)) {
+      if (v?.defaultAccountId && accountsById.has(v.defaultAccountId)) {
         sel.value = v.defaultAccountId; lastCategory.set(row.id, v.defaultAccountId); approve.disabled = false;
       }
     });

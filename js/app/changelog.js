@@ -6,6 +6,12 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.1', items: [
+    { icon: 'arrow_drop_down_circle', t: 'Drop-downs stop jumping and are wider', d: 'When you open an account or vendor drop-down in Review, the list behind it no longer scrolls or jumps around — the menu now floats on top of the window, opens upward if it’s near the bottom, and is wide enough to show most account names on a single line.' },
+    { icon: 'keyboard_return', t: 'Press Enter to add a new vendor', d: 'In the “Add vendor” pop-up you can now just press Enter to add it — no need to reach for the mouse.' },
+    { icon: 'sync_alt', t: 'Switching the vendor updates the account', d: 'On a Review row, if you change the vendor to one that has a memorized account, the account now switches to match it too — even if an account was already filled in.' },
+    { icon: 'notes', t: 'No more drop-down on Notes', d: 'The Note/memo box is now plain free-text with no autocomplete drop-down getting in the way. (The Payee field still suggests names.)' },
+  ] },
   { v: '0.69.0', items: [
     { icon: 'group_add', t: 'New: a Client workspace', d: 'You can now give a bookkeeper/assistant their own simple app (client.html). In Settings → Users, create a user with the new “Client” role and give them the link + their PIN. They can suggest a vendor, account and invoice on each waiting transaction and leave you a note — but nothing posts; it all comes to your Review pre-filled with a “💬 Client suggested” badge and their note, for you to approve. They can also view Invoices (with per-invoice net profit) and Reports, read-only. They can’t import, edit the books, add vendors, or export.' },
   ] },
