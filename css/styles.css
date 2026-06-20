@@ -122,10 +122,15 @@ table.data tr[style*="cursor:pointer"]:hover td,table.data tr[style*="cursor: po
 /* ── modal ── */
 .overlay{position:fixed;inset:0;background:rgba(20,22,30,.4);display:none;align-items:flex-start;justify-content:center;z-index:20;padding:40px 16px;overflow:auto}
 .overlay.on{display:flex}
-.modal{background:#fff;border-radius:16px;padding:20px;width:470px;max-width:94vw;box-shadow:0 12px 40px rgba(0,0,0,.22)}
+.modal{background:#fff;border-radius:16px;padding:20px;width:510px;min-width:360px;max-width:94vw;box-sizing:border-box;position:relative;box-shadow:0 12px 40px rgba(0,0,0,.22)}
 .mhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 .mhead b{font-size:16px}
 .mclose{cursor:pointer;color:var(--mut)}
+/* Right-edge grip to widen/narrow a dialog (starts below the title bar so it never
+   covers the close button). The little vertical bar is just a visual affordance. */
+.mrz-e{position:absolute;top:52px;bottom:10px;right:0;width:11px;cursor:ew-resize;touch-action:none;z-index:6;border-radius:0 0 16px 0}
+.mrz-e:hover{background:rgba(60,90,160,.10)}
+.mrz-e::after{content:"";position:absolute;top:50%;right:3px;width:3px;height:34px;transform:translateY(-50%);border-radius:3px;background:#c4c9d4}
 .f2{display:flex;gap:12px}
 .f2>*{flex:1}
 .f2 .field-input{max-width:none}

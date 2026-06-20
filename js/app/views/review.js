@@ -51,6 +51,10 @@ const REVIEW_PAGE = 50;
 // account starts a fresh selection there; the sticky bar acts on the selection.
 let selected = new Set();
 let selectedBank = null;
+// Deep-link from global search: stash a query to drop into the Review search box on the
+// next render (survives unmount, which resets reviewFilter — same pattern as the Ledger).
+let pendingReviewQuery = null;
+export function setReviewQuery(q) { pendingReviewQuery = q || ''; }
 
 const TYPE_GROUPS = [
   ['income', 'Income'], ['asset', 'Assets'], ['liability', 'Liabilities'],
@@ -81,6 +85,7 @@ export function render(root) {
       el('div', { class: 'review-scroll' }, body)),
   );
   reviewDateCtl = dateRangeControl({ initial: 'all', onChange: (r) => { reviewFilter.from = r.from || ''; reviewFilter.to = r.to || ''; draw(); } });
+  if (pendingReviewQuery != null) { reviewFilter.q = pendingReviewQuery; reviewSearchEl.value = pendingReviewQuery; pendingReviewQuery = null; }
   unsub = subscribe(draw);
   draw();
 }

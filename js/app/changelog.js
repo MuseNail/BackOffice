@@ -6,6 +6,11 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.2', items: [
+    { icon: 'open_in_full', t: 'Resize any pop-up window', d: 'Pop-up windows (like a vendor’s transaction list) were stuck at one width. Now you can drag the right edge to make any of them wider or narrower — handy when a transaction description or account name is getting cut off.' },
+    { icon: 'search', t: 'Search by dollar amount', d: 'The top search bar now finds transactions by their amount, not just their description. Type “190.64” (or “$1,988.10”) and the matching transaction comes up even if the amount isn’t written in the description.' },
+    { icon: 'fact_check', t: 'Search now includes Review transactions', d: 'Transactions still waiting in your Review tab now show up in the top search too, under an “In Review” heading. Clicking one opens Review filtered to it.' },
+  ] },
   { v: '0.69.1', items: [
     { icon: 'arrow_drop_down_circle', t: 'Drop-downs stop jumping and are wider', d: 'When you open an account or vendor drop-down in Review, the list behind it no longer scrolls or jumps around — the menu now floats on top of the window, opens upward if it’s near the bottom, and is wide enough to show most account names on a single line.' },
     { icon: 'keyboard_return', t: 'Press Enter to add a new vendor', d: 'In the “Add vendor” pop-up you can now just press Enter to add it — no need to reach for the mouse.' },

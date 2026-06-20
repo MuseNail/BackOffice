@@ -47,36 +47,67 @@ export function modal(title, onClose) {
   overlay.addEventListener('click', (e) => { if (e.target === overlay && downOnOverlay) close(); });
   panel.querySelector('.mclose').addEventListener('click', close);
   // Drag the dialog by its title bar (like a file-explorer window) so the user can
-  // move it aside and see what's behind it.
-  makeDraggable(panel, panel.querySelector('.mhead'));
+  // move it aside, and drag the right edge to widen a cramped dialog. Both write the
+  // same transform offset so moving and resizing stay in sync.
+  const offset = { tx: 0, ty: 0 };
+  makeDraggable(panel, panel.querySelector('.mhead'), offset);
+  makeResizable(panel, offset);
   document.body.append(overlay);
   return { body, close };
 }
 
+const applyOffset = (panel, s) => { panel.style.transform = `translate(${s.tx}px, ${s.ty}px)`; };
+
 // Make `panel` draggable by `handle` (its title bar). Uses a CSS transform offset
 // relative to the panel's centered position, clamped so the title bar can never be
 // dragged fully off-screen (you can always grab it again or reach the close button).
-function makeDraggable(panel, handle) {
-  let tx = 0, ty = 0, lastX = 0, lastY = 0, baseTop = 0, baseLeft = 0, pw = 0, dragging = false;
+function makeDraggable(panel, handle, s) {
+  let lastX = 0, lastY = 0, baseTop = 0, baseLeft = 0, pw = 0, dragging = false;
   handle.addEventListener('pointerdown', (e) => {
     if (e.target.closest('.mclose')) return; // let the close button work
     dragging = true; lastX = e.clientX; lastY = e.clientY;
     const r = panel.getBoundingClientRect();
-    baseTop = r.top - ty; baseLeft = r.left - tx; pw = r.width;
+    baseTop = r.top - s.ty; baseLeft = r.left - s.tx; pw = r.width;
     try { handle.setPointerCapture(e.pointerId); } catch {}
     e.preventDefault();
   });
   handle.addEventListener('pointermove', (e) => {
     if (!dragging) return;
-    tx += e.clientX - lastX; ty += e.clientY - lastY;
+    s.tx += e.clientX - lastX; s.ty += e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
-    ty = Math.max(-baseTop, Math.min(window.innerHeight - 44 - baseTop, ty));
-    tx = Math.max(60 - baseLeft - pw, Math.min(window.innerWidth - 60 - baseLeft, tx));
-    panel.style.transform = `translate(${tx}px, ${ty}px)`;
+    s.ty = Math.max(-baseTop, Math.min(window.innerHeight - 44 - baseTop, s.ty));
+    s.tx = Math.max(60 - baseLeft - pw, Math.min(window.innerWidth - 60 - baseLeft, s.tx));
+    applyOffset(panel, s);
   });
   const end = (e) => { if (dragging) { dragging = false; try { handle.releasePointerCapture(e.pointerId); } catch {} } };
   handle.addEventListener('pointerup', end);
   handle.addEventListener('pointercancel', end);
+}
+
+// Drag the right edge to change the dialog's width. The panel is flex-centered, so
+// growing it by dW shifts its centered position by −dW/2 — compensate the transform by
+// +dW/2 to keep the LEFT edge planted under the cursor's edge. Width is border-box.
+function makeResizable(panel, s) {
+  const grip = el('div', { class: 'mrz-e', title: 'Drag to make this window wider or narrower' });
+  panel.append(grip);
+  let resizing = false, lastX = 0;
+  grip.addEventListener('pointerdown', (e) => {
+    resizing = true; lastX = e.clientX; panel.style.maxWidth = 'none';
+    try { grip.setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault(); e.stopPropagation();
+  });
+  grip.addEventListener('pointermove', (e) => {
+    if (!resizing) return;
+    const cur = panel.getBoundingClientRect().width;
+    const w = Math.max(360, Math.min(window.innerWidth - 24, cur + (e.clientX - lastX)));
+    lastX = e.clientX;
+    panel.style.width = w + 'px';
+    s.tx += (w - cur) / 2;
+    applyOffset(panel, s);
+  });
+  const end = (e) => { if (resizing) { resizing = false; try { grip.releasePointerCapture(e.pointerId); } catch {} } };
+  grip.addEventListener('pointerup', end);
+  grip.addEventListener('pointercancel', end);
 }
 
 // Money is integer cents everywhere in stored data; format only at the edge.

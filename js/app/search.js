@@ -4,6 +4,7 @@
 import { entities } from './store.js';
 import { getActiveBiz } from './session.js';
 import { setLedgerQuery } from './views/ledger.js';
+import { setReviewQuery } from './views/review.js';
 import { openView } from './windows.js';
 
 let _input, _panel, _wrap;
@@ -28,10 +29,25 @@ function txnType(t, acctById) {
   return net >= 0 ? 'Deposit' : 'Expense';
 }
 
+// Match a typed amount ("190.64", "$1,988.10", "190") against any of a row's line
+// amounts — so searching a dollar figure finds the transaction even when the amount
+// isn't in its description. Only fires when the query actually contains a digit.
+function amountMatch(centsList, ql) {
+  const qd = ql.replace(/[^0-9.]/g, '');
+  if (!qd || !/[0-9]/.test(qd)) return false;
+  return centsList.some(c => (Math.abs(c || 0) / 100).toFixed(2).includes(qd));
+}
+
 function searchAll(ql) {
   const cap = 8;
   return {
-    txns: entities('txn').filter(t => t.status !== 'void' && `${t.payee || ''} ${t.memo || ''} ${t.checkNo || ''}`.toLowerCase().includes(ql)).slice(0, cap),
+    txns: entities('txn').filter(t => t.status !== 'void' && (
+      `${t.payee || ''} ${t.memo || ''} ${t.checkNo || ''}`.toLowerCase().includes(ql) ||
+      amountMatch((t.lines || []).map(l => l.amountCents), ql))).slice(0, cap),
+    // Review (not-yet-posted) rows — pending + skipped, matched by description or amount.
+    staged: entities('staged').filter(s => (s.status === 'pending' || s.status === 'skipped') && (
+      `${s.desc || ''} ${s.memo || ''}`.toLowerCase().includes(ql) ||
+      amountMatch([s.amountCents], ql))).slice(0, cap),
     invoices: entities('invoice').filter(i => `${i.number || ''} ${i.clientName || ''}`.toLowerCase().includes(ql)).slice(0, cap),
     vendors: entities('vendor').filter(v => (v.name || '').toLowerCase().includes(ql)).slice(0, cap),
     accounts: entities('account').filter(a => a.active !== false && (a.name || '').toLowerCase().includes(ql)).slice(0, cap),
@@ -72,10 +88,12 @@ function render(q) {
   };
   addGroup('Transactions', r.txns, t => `${txnType(t, acctById)} · ${t.date} · ${t.payee || '—'} · ${money(t.lines?.reduce((s, l) => l.amountCents > 0 ? s + l.amountCents : s, 0) || 0)}`,
     t => { setLedgerQuery(t.payee || t.memo || t.checkNo || ''); goView('ledger'); });
+  addGroup('In Review', r.staged, s => `${s.status === 'skipped' ? 'Skipped · ' : ''}${s.date} · ${(s.desc || '—').slice(0, 42)} · ${money(s.amountCents)}`,
+    () => { setReviewQuery(q); goView('review'); });
   addGroup('Invoices', r.invoices, i => `#${i.number || i.id} · ${i.clientName || ''}`, i => goView('invoices', i.id));
   addGroup('Vendors', r.vendors, v => v.name, v => goView('vendors', v.id));
   addGroup('Accounts', r.accounts, a => a.name, a => goView('accounts', a.id));
-  if (!(r.txns.length || r.invoices.length || r.vendors.length || r.accounts.length)) {
+  if (!(r.txns.length || r.staged.length || r.invoices.length || r.vendors.length || r.accounts.length)) {
     const d = document.createElement('div');
     d.textContent = 'No matches';
     d.style.cssText = 'padding:9px 11px;color:var(--mut);font-size:13px';
