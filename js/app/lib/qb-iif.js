@@ -35,6 +35,21 @@ export function qbAccountName(acct, accountsById) {
   return name;
 }
 
+// Lists-only IIF for the one-way "match QuickBooks to the app" sync: the chart of
+// accounts (!ACCNT) + the vendor list (!VEND), no transactions. QB matches by NAME, so
+// importing this creates anything missing and updates fields on what already exists —
+// never a duplicate. Renames / merges / inactivations can't be expressed here (IIF
+// limitation); lib/qb-sync.js surfaces those as a manual checklist instead.
+export function buildListsIif({ accounts = [], vendors = [] }) {
+  const byId = new Map(accounts.map(a => [a.id, a]));
+  const lines = [];
+  lines.push('!ACCNT\tNAME\tACCNTTYPE');
+  for (const a of accounts) lines.push(`ACCNT\t${qbAccountName(a, byId)}\t${qbTypeFor(a)}`);
+  lines.push('!VEND\tNAME');
+  for (const v of vendors) { const n = clean(v.name); if (n) lines.push(`VEND\t${n}`); }
+  return { text: lines.join('\r\n') + '\r\n', accounts: accounts.length, vendors: vendors.filter(v => clean(v.name)).length };
+}
+
 const qbDate = (iso) => {
   const [y, m, d] = String(iso).split('-').map(Number);
   return `${m}/${d}/${y}`;

@@ -8,8 +8,9 @@ import { getState, entities, byId, subscribe, usesInvoices, usesMuseSync } from 
 import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 import { accountLabel } from '../lib/coa-templates.js';
-import { buildIif } from '../lib/qb-iif.js';
+import { buildIif, buildListsIif } from '../lib/qb-iif.js';
 import { parseIifAccounts } from '../lib/qb-iif-import.js';
+import { qbSyncSnapshot, qbSyncDiff, qbSyncCounts } from '../lib/qb-sync.js';
 import { buildQbImport } from '../lib/qb-history-import.js';
 import { ORIGIN, LS } from '../config.js';
 
@@ -31,12 +32,13 @@ export function render(root) {
   const aiCard = el('div', { class: 'card', style: 'max-width:560px' });
   const museCard = el('div', { class: 'card', style: 'max-width:640px' });
   const qbCard = el('div', { class: 'card', style: 'max-width:560px' });
+  const qbSyncCard = el('div', { class: 'card', style: 'max-width:640px' });
   const qbImportCard = el('div', { class: 'card', style: 'max-width:560px' });
   const qbHistoryCard = el('div', { class: 'card', style: 'max-width:560px' });
   const locksCard = el('div', { class: 'card', style: 'max-width:560px' });
   const auditCard = el('div', { class: 'card', style: 'max-width:680px' });
   const failedCard = el('div', { class: 'card', style: 'max-width:560px' });
-  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, modules, AI spending, closing the books, the audit log, and the QuickBooks export for this business only.'), usersCard, devicesCard, featuresCard, aiCard, museCard, qbCard, qbImportCard, qbHistoryCard, locksCard, auditCard, failedCard);
+  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, modules, AI spending, closing the books, the audit log, and the QuickBooks export for this business only.'), usersCard, devicesCard, featuresCard, aiCard, museCard, qbCard, qbSyncCard, qbImportCard, qbHistoryCard, locksCard, auditCard, failedCard);
   drawUsers(usersCard, biz);
   drawDevices(devicesCard, biz);
   drawAuditCard(auditCard, biz);       // async, fetched once (server-stored, not store-driven)
@@ -47,13 +49,15 @@ export function render(root) {
   // Muse sync is salon-only — hide its mapping card entirely for businesses that don't use it.
   const drawMuse = () => { if (usesMuseSync()) { museCard.style.display = ''; drawMuseCard(museCard, biz); } else { museCard.style.display = 'none'; clear(museCard); } };
   const drawQb = () => drawQbCard(qbCard, biz);
+  const drawQbSync = () => drawQbListSyncCard(qbSyncCard, biz);
   const drawLocks = () => drawLocksCard(locksCard);
   const drawFailed = () => drawFailedOps(failedCard, biz);
-  unsubAI = subscribe(() => { drawFeatures(); drawAI(); drawMuse(); drawQb(); drawLocks(); drawFailed(); });
+  unsubAI = subscribe(() => { drawFeatures(); drawAI(); drawMuse(); drawQb(); drawQbSync(); drawLocks(); drawFailed(); });
   drawFeatures();
   drawAI();
   drawMuse();
   drawQb();
+  drawQbSync();
   drawLocks();
   drawFailed();
 }
@@ -274,6 +278,67 @@ function drawQbCard(card, biz) {
       el('div', {}, el('label', { class: 'field-label' }, 'To'), to),
       el('button', { class: 'btn sm', onclick: doExport }, 'Export .iif')),
     result,
+  );
+}
+
+// ── Sync the chart of accounts + vendor list TO QuickBooks Desktop (one-way) ──
+// The app is the source of truth. The .iif holds every ACTIVE account + vendor; QB
+// matches by name, so importing it creates the new ones and updates fields on the rest
+// (never a duplicate). Renames / merges / archives can't ride in an IIF, so they're
+// shown as a manual checklist, computed by diffing the current state against the last
+// synced snapshot (meta.qbSync). "Mark as synced" rewrites that snapshot.
+function drawQbListSyncCard(card, biz) {
+  const accounts = entities('account');
+  const vendors = entities('vendor');
+  const baseline = getState().meta?.qbSync || null;
+  const diff = qbSyncDiff(baseline, accounts, vendors);
+  const counts = qbSyncCounts(diff);
+  const lastAt = getState().meta?.qbSync?.at;
+  const activeAccounts = accounts.filter(a => a.active !== false);
+  const activeVendors = vendors.filter(v => v.active !== false);
+
+  const download = () => {
+    const { text, accounts: na, vendors: nv } = buildListsIif({ accounts: activeAccounts, vendors: activeVendors });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    a.download = `backoffice-${biz}-lists.iif`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast(`Downloaded ${na} accounts + ${nv} vendors. In QuickBooks Desktop: File → Utilities → Import → IIF Files.`);
+  };
+
+  const markSynced = () => {
+    if (!confirm('Mark as synced? Do this only AFTER you’ve imported the file and applied the manual steps in QuickBooks. It records the current accounts & vendors as the new baseline, so next time only later changes show.')) return;
+    const snap = qbSyncSnapshot(accounts, vendors);
+    dispatch({ op: 'meta.set', value: { ...getState().meta, qbSync: { ...snap, at: Date.now() } } });
+    toast('Marked as synced — QuickBooks and the app are in step.');
+  };
+
+  const steps = [];
+  for (const r of diff.accounts.renames) steps.push(`Rename account “${r.from}” → “${r.to}”`);
+  for (const m of diff.accounts.merges) steps.push(`Merge account “${m.from}” into “${m.into}” (in QB, rename “${m.from}” to “${m.into}” — QB then merges them)`);
+  for (const a of diff.accounts.archives) steps.push(`Make account “${a}” inactive`);
+  for (const t of diff.accounts.typeChanges) steps.push(`Account “${t.name}” changed type (${t.from} → ${t.to}) — may need manual reassignment in QB`);
+  for (const r of diff.vendors.renames) steps.push(`Rename vendor “${r.from}” → “${r.to}”`);
+  for (const v of diff.vendors.removed) steps.push(`Vendor “${v}” was merged/removed in the app — make it inactive in QB (or merge it)`);
+
+  clear(card).append(
+    el('div', { class: 'cardtitle' }, 'Sync lists to QuickBooks'),
+    el('p', { class: 'sub' }, 'Push your chart of accounts and vendor list to QuickBooks Desktop so it matches the app (the app is the source of truth). The file creates anything new and updates existing names/types automatically. Renames, merges, and archives can’t go through a file — apply those by hand using the checklist.'),
+    diff.firstSync
+      ? el('p', {}, el('b', {}, 'First sync'), ` — the file will create all ${activeAccounts.length} accounts and ${activeVendors.length} vendors in QuickBooks. No manual steps.`)
+      : el('p', {}, counts.creates
+          ? `${counts.creates} new item${counts.creates === 1 ? '' : 's'} will be created by the file.`
+          : 'No new accounts or vendors since the last sync.',
+        lastAt ? el('span', { class: 'sub' }, ` · last synced ${new Date(lastAt).toLocaleDateString()}`) : ''),
+    steps.length
+      ? el('div', { style: 'margin:10px 0' },
+          el('div', { class: 'field-label', style: 'color:var(--red)' }, `Apply by hand in QuickBooks (${steps.length})`),
+          el('ul', { style: 'margin:4px 0 0;padding-left:20px;font-size:13px;line-height:1.7' }, ...steps.map(s => el('li', {}, s))))
+      : (diff.firstSync ? el('span') : el('p', { class: 'sub', style: 'color:var(--green)' }, 'Nothing to apply by hand — no renames, merges, or archives since the last sync.')),
+    el('div', { style: 'display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:8px' },
+      el('button', { class: 'btn sm', onclick: download }, 'Download list file (.iif)'),
+      el('button', { class: 'btn sm ghost', onclick: markSynced }, 'Mark as synced')),
   );
 }
 

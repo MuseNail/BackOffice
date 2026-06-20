@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.7', items: [
+    { icon: 'sync', t: 'Sync your accounts & vendors to QuickBooks', d: 'New in Settings → “Sync lists to QuickBooks”: download one .iif file that pushes your full chart of accounts AND vendor list into QuickBooks Desktop (File → Utilities → Import → IIF Files). It creates anything new and updates names/types on what’s already there — no duplicates. Because a file can’t rename, merge, or inactivate in QuickBooks, the screen shows a short checklist of exactly those changes since your last sync (e.g. “Rename account X → Y”, “Merge A into B”). Hit “Mark as synced” once you’ve done it, and next time you’ll only see what changed since. The app stays the source of truth; QuickBooks just follows.' },
+  ] },
   { v: '0.69.6', items: [
     { icon: 'edit', t: 'Edit a reconciled transaction’s account & vendor', d: 'Reconciled transactions used to lock the account. Now you can still change the account (and vendor) on them — the date and amount stay locked because those are what was matched to your bank statement, but the account/category never affects that, so it’s safe to fix. (A transfer between two of your own accounts stays fully locked while reconciled.)' },
     { icon: 'search', t: 'Search the Chart of accounts', d: 'A search box at the top of Chart of accounts filters the list by account name (or QuickBooks name) as you type.' },
