@@ -55,6 +55,9 @@ let selectedBank = null;
 // next render (survives unmount, which resets reviewFilter — same pattern as the Ledger).
 let pendingReviewQuery = null;
 export function setReviewQuery(q) { pendingReviewQuery = q || ''; }
+// Set to a row id right before a redraw to refocus that row's vendor field afterward
+// (so adding a vendor keeps the keyboard flow). Consumed once by the row that matches.
+let focusVendorRow = null;
 
 const TYPE_GROUPS = [
   ['income', 'Income'], ['asset', 'Assets'], ['liability', 'Liabilities'],
@@ -90,7 +93,7 @@ export function render(root) {
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); collapsedBanks = new Set(); bankPage = new Map(); selected = new Set(); selectedBank = null; reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; reviewSearchEl = null; reviewFiltersHost = null; reviewActionsHost = null; }
+export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); collapsedBanks = new Set(); bankPage = new Map(); selected = new Set(); selectedBank = null; reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; reviewSearchEl = null; reviewFiltersHost = null; reviewActionsHost = null; focusVendorRow = null; }
 
 // A row is "ready" if it has a resolved category — a valid rule/history suggestion,
 // an AI suggestion, or a manual pick (lastCategory). Drives the needs/ready filter.
@@ -244,7 +247,10 @@ function drawBody(body, editable) {
     const memoIn = el('input', { class: 'field-input', placeholder: 'Add a note…', style: 'margin:0;min-width:150px', value: row.memo || '' });
     bindSuggest(memoIn, 'memo');
     const vendSel = vendorSelect(vendorsList, vendPreselect,
-      (vendor) => { lastVendor.set(row.id, vendor.id); drawBody(body, editable); }, vendPrefillText);
+      (vendor) => { lastVendor.set(row.id, vendor.id); focusVendorRow = row.id; drawBody(body, editable); }, vendPrefillText);
+    // After adding a vendor the body re-renders; put focus back on THIS row's vendor field
+    // (without popping its panel) so the keyboard user can Tab straight to the next field.
+    if (focusVendorRow === row.id) { focusVendorRow = null; setTimeout(() => vendSel.focusNoOpen?.(), 0); }
     const invSel = showInvoices ? invoiceSelect(invoicesList, row.suggestedInvoiceId) : null; if (invSel) invSel.style.margin = '0';
     const chip = row.suggestedAt
       ? el('span', { class: 'pill blue', title: 'Filled in by your client — review and approve' }, '💬 Client suggested')

@@ -46,7 +46,7 @@ function accountGroups({ filter = () => true, includeNone = false, noneLabel = '
 export function accountCombo(opts = {}) {
   const { selected = '', defaultType = 'expense', placeholder = 'Search accounts…', minWidth = 200 } = opts;
   let cb;
-  const afterAdd = (account) => { cb.setGroups(accountGroups(opts)); cb.value = account.id; cb.dispatchEvent(new Event('change')); };
+  const afterAdd = (account) => { cb.setGroups(accountGroups(opts)); cb.value = account.id; cb.dispatchEvent(new Event('change')); cb.focusNoOpen(); };
   cb = combobox({
     groups: accountGroups(opts), value: selected, placeholder, minWidth, addLabel: 'Add account…',
     onAdd: () => quickAddAccountModal((a) => afterAdd(a), defaultType),
@@ -65,7 +65,7 @@ export function vendorCombo({ selected = '', includeNone = true, noneLabel = '�
     return [{ label: '', items }];
   };
   let cb;
-  const afterAdd = (vendor) => { cb.setGroups(groups()); cb.value = vendor.id; cb.dispatchEvent(new Event('change')); oncreated?.(vendor); };
+  const afterAdd = (vendor) => { cb.setGroups(groups()); cb.value = vendor.id; cb.dispatchEvent(new Event('change')); oncreated?.(vendor); cb.focusNoOpen(); };
   cb = combobox({
     groups: groups(), value: selected, placeholder, minWidth, addLabel: 'Add vendor…',
     onAdd: () => quickAddVendorModal((v) => afterAdd(v)),

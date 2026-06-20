@@ -26,6 +26,7 @@ export function combobox({ groups = [], value = '', text = '', placeholder = 'â€
   let current = value || '';
   let pendingText = (!current && text) ? text : '';   // shown until the user picks/types (e.g. an AI-suggested name)
   let open = false;
+  let suppressOpen = false;   // focusNoOpen(): focus the field once WITHOUT opening the panel
   let hl = -1;          // highlighted index into the currently-visible option list
   let visible = [];     // flat list of {value,label} currently shown (post-filter)
 
@@ -146,7 +147,7 @@ export function combobox({ groups = [], value = '', text = '', placeholder = 'â€
     if (changed) fireChange();
   }
 
-  input.addEventListener('focus', openPanel);
+  input.addEventListener('focus', () => { if (suppressOpen) { suppressOpen = false; return; } openPanel(); });
   input.addEventListener('click', openPanel);
   input.addEventListener('input', () => { pendingText = ''; if (!open) openPanel(); buildPanel(input.value); });
   // The typed text doesn't match any option AND isn't the current selection â†’ it's a
@@ -182,6 +183,13 @@ export function combobox({ groups = [], value = '', text = '', placeholder = 'â€
     setDisplay();
     if (open) buildPanel(input.value);
   };
+
+  // Focus the field WITHOUT opening the panel â€” used right after an inline "ï¼‹ Addâ€¦"
+  // so the freshly-picked value lands and the user can Tab straight to the next field
+  // (hands stay on the keyboard) instead of the panel popping open again. The timeout
+  // clears the one-shot flag so it can never leak into a later focus if (in a background
+  // tab) the focus event didn't fire synchronously to consume it.
+  wrap.focusNoOpen = () => { suppressOpen = true; input.focus(); setTimeout(() => { suppressOpen = false; }, 0); };
 
   return wrap;
 }

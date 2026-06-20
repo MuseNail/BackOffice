@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.4', items: [
+    { icon: 'keyboard_tab', t: 'Adding a vendor keeps you on the keyboard', d: 'After you type a new vendor name and press Enter to add it (in Review or when adding/editing a transaction), the focus now returns to the vendor box with the new vendor filled in — so you can press Tab to move to the next field without reaching for the mouse.' },
+  ] },
   { v: '0.69.3', items: [
     { icon: 'manage_search', t: 'Type to search every account / vendor / invoice picker', d: 'You can now just start typing to find an account, vendor, or invoice in the dropdowns throughout the app — in the Ledger filter, when adding or editing a transaction, in journal entries, and in the inline boxes on each ledger row. No more scrolling a long list: type a few letters and it narrows down. New accounts and vendors can still be added right from the same box.' },
   ] },
