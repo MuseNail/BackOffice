@@ -47,9 +47,11 @@ export function categoryName(t) {
 function commit(t, patch) {
   let updated = { ...t };
   if ('categoryId' in patch) {
-    if (t.reconciledIn) { toast('Reconciled — account is locked. Use a journal entry.', 'err'); return false; }
     const line = categoryLine(t);
     if (!line || !patch.categoryId) return false;
+    // Reconciled: the category (non-bank) line is still editable; only a transfer's
+    // bank-to-bank line is locked (changing it would move the other account's balance).
+    if (t.reconciledIn) { const acct = entities('account').find(a => a.id === line.accountId); if (acct && bankish(acct)) { toast('Reconciled transfer — account is locked.', 'err'); return false; } }
     updated.lines = t.lines.map(l => l === line ? { ...l, accountId: patch.categoryId } : l);
   }
   if ('vendorId' in patch) updated.vendorId = patch.vendorId || undefined;
@@ -93,10 +95,14 @@ function lazyCombo(t, { faceText, build, patch }) {
 }
 
 export function categoryField(t) {
-  if (!isSimpleTxn(t) || t.reconciledIn) {
+  const line = isSimpleTxn(t) ? categoryLine(t) : null;
+  const byId = new Map(entities('account').map(a => [a.id, a]));
+  const catIsBank = line && bankish(byId.get(line.accountId));
+  // Reconciled simple txns stay editable on the category (non-bank) line — reconciliation
+  // tracks the bank line only. Only a transfer's bank-to-bank line is locked when reconciled.
+  if (!line || (t.reconciledIn && catIsBank)) {
     return el('span', { class: 'txi-static', title: t.reconciledIn ? 'Reconciled — locked' : 'Journal / split — edit the lines' }, categoryName(t) || describeFallback(t));
   }
-  const line = categoryLine(t);
   return lazyCombo(t, {
     faceText: categoryName(t) || 'Account',
     build: () => accountCombo({ filter: (a) => !bankish(a), selected: line.accountId, minWidth: 0 }),

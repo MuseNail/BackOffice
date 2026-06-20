@@ -67,7 +67,8 @@ export function openMergeModal({ title, source, candidates, labelOf, run, note =
   const sel = combobox({ groups: [{ label: '', items: others.map(c => ({ value: c.id, label: labelOf(c) })) }], placeholder: 'Search…', minWidth: 300 });
   sel.style.cssText = 'display:block;width:100%;max-width:360px';
   m.body.append(
-    el('p', {}, `Move everything from “${labelOf(source)}” into another ${title}, then remove “${labelOf(source)}”. This cannot be undone.`),
+    el('p', {}, `Move everything from “${labelOf(source)}” onto another ${title}, then remove “${labelOf(source)}”. `,
+      el('b', {}, 'No transactions are deleted'), ` — they’re re-pointed to the ${title} you pick. This can’t be undone.`),
     note ? el('p', { class: 'sub' }, note) : null,
     el('label', { class: 'field-label' }, `Merge into which ${title}?`), sel,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },

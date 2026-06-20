@@ -6,6 +6,11 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.6', items: [
+    { icon: 'edit', t: 'Edit a reconciled transaction’s account & vendor', d: 'Reconciled transactions used to lock the account. Now you can still change the account (and vendor) on them — the date and amount stay locked because those are what was matched to your bank statement, but the account/category never affects that, so it’s safe to fix. (A transfer between two of your own accounts stays fully locked while reconciled.)' },
+    { icon: 'search', t: 'Search the Chart of accounts', d: 'A search box at the top of Chart of accounts filters the list by account name (or QuickBooks name) as you type.' },
+    { icon: 'call_merge', t: 'Clearer merge — see exactly what moves', d: 'When you merge a vendor, customer, or account, the confirmation now spells out how many transactions will move and states plainly that nothing is deleted — they’re just re-pointed to the one you keep. (Merge lives on each account’s row in Chart of accounts, and the “Merge…” button inside a vendor’s or customer’s pop-up.)' },
+  ] },
   { v: '0.69.5', items: [
     { icon: 'swap_vert', t: 'Sort the Vendors & Customers lists by any column', d: 'Vendors and Customers now start sorted alphabetically, and you can click any column heading — Vendor/Customer, Rule, Transactions, Total — to sort by it. Click again to flip between ascending and descending. The transaction lists inside a vendor’s or customer’s pop-up sort the same way (by date, description, account, or amount).' },
   ] },

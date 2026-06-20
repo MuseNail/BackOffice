@@ -122,7 +122,7 @@ function customerDrilldown(c, refresh) {
     listHost,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap' },
       el('button', { class: 'btn ghost', style: 'color:var(--red)', onclick: () => { m.close(); confirmDelete(c); } }, 'Delete'),
-      el('button', { class: 'btn ghost', onclick: () => { m.close(); openMergeModal({ title: 'customer', source: c, candidates: entities('customer'), labelOf: (x) => x.name, run: mergeCustomer, onDone: refresh }); } }, 'Merge…'),
+      el('button', { class: 'btn ghost', onclick: () => { m.close(); const moves = entities('txn').filter(t => t.customerId === c.id).length; openMergeModal({ title: 'customer', source: c, candidates: entities('customer'), labelOf: (x) => x.name, run: mergeCustomer, onDone: refresh, note: `${moves} transaction${moves === 1 ? '' : 's'} tagged to “${c.name}” will move to the customer you pick. None are deleted.` }); } }, 'Merge…'),
       el('button', { class: 'btn', onclick: () => { m.close(); customerModal(c); } }, 'Edit'),
       el('button', { class: 'btn ghost', onclick: m.close }, 'Close')));
   drawList();

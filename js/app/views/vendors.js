@@ -162,7 +162,7 @@ function vendorDrilldown(v, refresh) {
     listHost,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap' },
       el('button', { class: 'btn ghost', style: 'color:var(--red)', onclick: () => { m.close(); confirmDeleteRule(v); } }, 'Delete'),
-      el('button', { class: 'btn ghost', onclick: () => { m.close(); openMergeModal({ title: 'vendor', source: v, candidates: entities('vendor'), labelOf: (x) => x.name, run: mergeVendor, onDone: refresh }); } }, 'Merge…'),
+      el('button', { class: 'btn ghost', onclick: () => { m.close(); const moves = entities('txn').filter(t => t.vendorId === v.id).length; openMergeModal({ title: 'vendor', source: v, candidates: entities('vendor'), labelOf: (x) => x.name, run: mergeVendor, onDone: refresh, note: `${moves} transaction${moves === 1 ? '' : 's'} tagged to “${v.name}” will move to the vendor you pick. None are deleted.` }); } }, 'Merge…'),
       el('button', { class: 'btn', onclick: () => { m.close(); ruleModal(v); } }, 'Edit'),
       el('button', { class: 'btn ghost', onclick: m.close }, 'Close')));
   drawList();

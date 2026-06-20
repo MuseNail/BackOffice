@@ -17,6 +17,7 @@ const TYPE_ORDER = ['income', 'cogs', 'expense', 'other-expense', 'personal-expe
 const QB_BY_TYPE = { income: 'INC', cogs: 'COGS', expense: 'EXP', 'other-expense': 'EXP', 'personal-expense': 'EXP', asset: 'OCASSET', liability: 'OCLIAB', equity: 'EQUITY' };
 
 let unsub = null;
+let acctQuery = '';
 
 export function render(root, detail) {
   const openNew = detail === 'new';
@@ -24,20 +25,22 @@ export function render(root, detail) {
   if (detail) { renderAccountRegister(root, detail); return; }
   const editable = canEdit(getActiveBiz());
   const body = el('div');
+  const draw = () => drawTable(body, editable);
+  const search = el('input', { class: 'field-input', type: 'search', placeholder: 'Search accounts…', style: 'max-width:240px;margin:0', value: acctQuery, oninput: (e) => { acctQuery = e.target.value; draw(); } });
   root.append(
     el('h2', {}, 'Chart of accounts'),
     el('p', { class: 'sub' }, 'Every category your money moves through. Rename or archive anytime — archived accounts keep their history but stop appearing in pickers.'),
-    editable ? el('div', { style: 'margin-bottom:14px' },
-      el('button', { class: 'btn sm', onclick: () => editAccount(null) }, 'Add account')) : null,
+    el('div', { class: 'sticky-toolbar' },
+      editable ? el('button', { class: 'btn sm', onclick: () => editAccount(null) }, 'Add account') : el('span'),
+      search),
     body,
   );
-  const draw = () => drawTable(body, editable);
   unsub = subscribe(draw);
   draw();
   if (openNew && editable) editAccount(null);
 }
 
-export function unmount() { unsub?.(); unsub = null; }
+export function unmount() { unsub?.(); unsub = null; acctQuery = ''; }
 
 // Account register (drill-down): every posted transaction hitting this account,
 // with a running balance. Reached via #/b/<biz>/accounts/<accountId>.
@@ -88,9 +91,11 @@ function drawTable(body, editable) {
   const accounts = entities('account');
   if (!accounts.length) { clear(body).append(el('p', { class: 'sub' }, 'No accounts yet.')); return; }
   const showArchived = body.dataset.showArchived === '1';
+  const q = acctQuery.trim().toLowerCase();
+  const matchQ = (a) => !q || (a.name || '').toLowerCase().includes(q) || (a.qbName || '').toLowerCase().includes(q);
   const rows = [];
   for (const t of TYPE_ORDER) {
-    const inType = accounts.filter(a => a.type === t && (showArchived || a.active !== false));
+    const inType = accounts.filter(a => a.type === t && (showArchived || a.active !== false) && matchQ(a));
     if (!inType.length) continue;
     // parents first (alphabetical), each followed by its children
     const tops = inType.filter(a => !a.parentId).sort((a, b) => a.name.localeCompare(b.name));
@@ -119,10 +124,12 @@ function drawTable(body, editable) {
     }
   }
   clear(body).append(
-    el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:860px' },
-      el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'Account'), el('th', {}, 'Type'), el('th', {}, 'QuickBooks name'), el('th', {}, '')),
-        ...rows)),
+    rows.length
+      ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:860px' },
+          el('table', { class: 'data' },
+            el('tr', {}, el('th', {}, 'Account'), el('th', {}, 'Type'), el('th', {}, 'QuickBooks name'), el('th', {}, '')),
+            ...rows))
+      : el('p', { class: 'sub' }, q ? 'No accounts match your search.' : 'No accounts to show.'),
     el('button', { class: 'linklike', onclick: () => { body.dataset.showArchived = showArchived ? '' : '1'; drawTable(body, editable); } },
       showArchived ? 'Hide archived' : 'Show archived'),
   );

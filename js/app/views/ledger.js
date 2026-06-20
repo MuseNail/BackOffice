@@ -357,8 +357,13 @@ export function editTxnModal(t) {
   const memo = el('input', { class: 'field-input', value: t.memo || '', placeholder: 'Notes (optional)' });
   bindSuggest(payee, 'payee'); bindSuggest(memo, 'memo');
 
+  // The category (non-bank) line can be re-pointed even when reconciled: reconciliation
+  // tracks the BANK line only (see reconcile.js bankLineCents), so changing the
+  // expense/income account never moves a reconciled balance. A transfer's "other side"
+  // IS a bank account, so that one stays locked while reconciled.
+  const catIsBank = catLine && bankish(byId.get(catLine.accountId));
   let catSel = null;
-  if (!isRecon && catLine) {
+  if (catLine && (!isRecon || !catIsBank)) {
     catSel = accountCombo({ filter: (a) => !bankish(a), selected: catLine.accountId });
     catSel.style.cssText = 'display:block;width:100%';
   }
@@ -372,7 +377,9 @@ export function editTxnModal(t) {
   if (invSel) invSel.style.cssText = 'display:block;width:100%';
 
   m.body.append(
-    isRecon ? el('p', { class: 'sub' }, '⚠️ This transaction is reconciled — the date, accounts, and amounts are locked. You can still update the payee and memo.') : null,
+    isRecon ? el('p', { class: 'sub' }, catSel
+      ? '⚠️ Reconciled — the date and amount stay locked (changing them would move the reconciled balance), but you can still update the account, vendor, payee, and memo.'
+      : '⚠️ This transaction is reconciled — the date, accounts, and amounts are locked. You can still update the payee, vendor, and memo.') : null,
     el('label', { class: 'field-label' }, 'Date'), date,
     el('label', { class: 'field-label' }, 'Payee'), payee,
     el('label', { class: 'field-label' }, 'Memo / notes'), memo,
@@ -391,7 +398,7 @@ export function editTxnModal(t) {
         const newDate = isRecon ? t.date : date.value;
         if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) { toast('Bad date', 'err'); return; }
         if (catSel && catSel.value === '__new__') { toast('Pick an account', 'err'); return; }
-        const newLines = (!isRecon && catSel && catLine)
+        const newLines = (catSel && catLine)
           ? t.lines.map(l => l === catLine ? { ...l, accountId: catSel.value } : l)
           : t.lines;
         const updated = { ...t, date: newDate, payee: payee.value.trim(), memo: memo.value.trim(), lines: newLines, vendorId: vendSel.value || undefined, invoiceId: invSel ? (invSel.value || undefined) : t.invoiceId };
