@@ -9,12 +9,12 @@
 // thousands of <option> nodes; lazy keeps it instant while still "immediately
 // visible" (the field shows its value with a chevron, no extra click to see it).
 
-import { el, clear, toast } from './ui.js';
+import { el, toast } from './ui.js';
 import { entities, usesInvoices } from './store.js';
 import { dispatch } from './sync.js';
 import { validateTxn } from './lib/posting.js';
 import { accountLabel } from './lib/coa-templates.js';
-import { attachAddCategory, attachAddVendor, NEW_CATEGORY, NEW_VENDOR } from './pickers.js';
+import { accountCombo, vendorCombo, invoiceCombo } from './pickers.js';
 import { bindSuggest } from './suggest.js';
 
 const bankish = (a) => a.qbType === 'BANK' || a.qbType === 'CCARD';
@@ -61,74 +61,55 @@ function commit(t, patch) {
   return true;
 }
 
-// A <select> that shows only its current value until focused, then fills in the
-// full list once.
+// A light "face" showing the field's current value; clicking it upgrades the cell to
+// a real type-to-search combobox (and opens it). Lazy on purpose — a ledger renders up
+// to 200 rows × 3 of these, so only the cell you actually touch builds a combobox.
 //
-// Save model (item: avoid accidental edits): a user pick is NOT persisted on
-// `change` — it commits only when the field is left via Tab / click-away (blur)
-// or Enter, and Escape reverts it. A programmatic change from the "＋ Add…" picker
-// (a synthetic, untrusted event) commits immediately, so adding a new category /
-// vendor inline still saves. Wheel over a focused select can't silently change it.
-function lazySelect(t, { value, text, populate, addKind }) {
-  const sel = el('select', { class: 'txi' }, el('option', { value: value || '' }, text));
-  let loaded = false;
-  let last = value || '';   // last committed (persisted) value
-  const load = () => { if (loaded) return; loaded = true; clear(sel); populate(sel); sel.value = last; };
-  sel.addEventListener('focus', load);
-  sel.addEventListener('mousedown', load);
-  if (addKind === 'category') attachAddCategory(sel, value);
-  if (addKind === 'vendor') attachAddVendor(sel, value);
-
-  const commitField = () => {
-    if (sel.value === NEW_CATEGORY || sel.value === NEW_VENDOR) return;   // picker resets the value + opens its modal
-    if (sel.value === last) return;                                       // no real change
-    const ok = commit(t, addKind === 'category' ? { categoryId: sel.value }
-      : addKind === 'vendor' ? { vendorId: sel.value }
-      : { invoiceId: sel.value });
-    if (ok) { last = sel.value; toast('Saved'); }
-    else sel.value = last;                                                // validation failed — roll the field back
+// Save model: a combobox pick is deliberate, so it commits immediately on `change`
+// (including the inline "＋ Add…" flow, which sets the value then fires change). A
+// failed validation rolls the value back; the row re-renders to the face on save.
+function lazyCombo(t, { faceText, build, patch }) {
+  const wrap = el('span', { class: 'txi-lazy' });
+  const face = el('button', { type: 'button', class: 'txi txi-face', title: faceText }, faceText);
+  let upgraded = false;
+  const upgrade = () => {
+    if (upgraded) return;
+    upgraded = true;
+    const cb = build();
+    cb.classList.add('txi-cb');
+    let last = cb.value;
+    cb.addEventListener('change', () => {
+      if (cb.value === last) return;
+      const ok = commit(t, patch(cb.value));
+      if (ok) { last = cb.value; toast('Saved'); } else { cb.value = last; }
+    });
+    wrap.replaceChildren(cb);
+    cb.querySelector('input').focus();   // opens the search panel right away
   };
-  // Only the synthetic change fired by the Add-picker (isTrusted === false) saves
-  // right away; a real user selection waits for blur / Enter.
-  sel.addEventListener('change', (e) => { if (!e.isTrusted) commitField(); });
-  sel.addEventListener('blur', commitField);
-  sel.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); commitField(); sel.blur(); }
-    else if (e.key === 'Escape') { sel.value = last; sel.blur(); }
-  });
-  sel.addEventListener('wheel', (e) => { if (document.activeElement === sel) e.preventDefault(); }, { passive: false });
-  return sel;
+  face.addEventListener('focus', upgrade);
+  face.addEventListener('mousedown', (e) => { e.preventDefault(); upgrade(); });
+  wrap.append(face);
+  return wrap;
 }
-
-const sortAccts = (list, byId) => list.sort((a, b) => (a.type + accountLabel(a, byId)).localeCompare(b.type + accountLabel(b, byId)));
 
 export function categoryField(t) {
   if (!isSimpleTxn(t) || t.reconciledIn) {
     return el('span', { class: 'txi-static', title: t.reconciledIn ? 'Reconciled — locked' : 'Journal / split — edit the lines' }, categoryName(t) || describeFallback(t));
   }
   const line = categoryLine(t);
-  return lazySelect(t, {
-    value: line.accountId, text: categoryName(t) || 'Account', addKind: 'category',
-    populate: (sel) => {
-      const byId = new Map(entities('account').map(a => [a.id, a]));
-      const cats = sortAccts(entities('account').filter(a => a.active !== false && !bankish(a)), byId);
-      if (!cats.some(a => a.id === line.accountId) && byId.get(line.accountId)) cats.unshift(byId.get(line.accountId));
-      for (const a of cats) sel.append(el('option', { value: a.id, selected: a.id === line.accountId }, accountLabel(a, byId)));
-      sel.append(el('option', { value: NEW_CATEGORY }, '＋ Add account…'));
-    },
+  return lazyCombo(t, {
+    faceText: categoryName(t) || 'Account',
+    build: () => accountCombo({ filter: (a) => !bankish(a), selected: line.accountId, minWidth: 0 }),
+    patch: (v) => ({ categoryId: v }),
   });
 }
 
 export function vendorField(t) {
   const cur = t.vendorId ? entities('vendor').find(v => v.id === t.vendorId) : null;
-  return lazySelect(t, {
-    value: t.vendorId || '', text: cur ? cur.name : '— vendor —', addKind: 'vendor',
-    populate: (sel) => {
-      sel.append(el('option', { value: '' }, '— none —'));
-      for (const v of entities('vendor').slice().sort((a, b) => a.name.localeCompare(b.name)))
-        sel.append(el('option', { value: v.id, selected: v.id === t.vendorId }, v.name));
-      sel.append(el('option', { value: NEW_VENDOR }, '＋ Add vendor…'));
-    },
+  return lazyCombo(t, {
+    faceText: cur ? cur.name : '— vendor —',
+    build: () => vendorCombo({ selected: t.vendorId || '', minWidth: 0 }),
+    patch: (v) => ({ vendorId: v }),
   });
 }
 
@@ -136,13 +117,10 @@ export function invoiceField(t) {
   if (!usesInvoices()) return null;
   const cur = t.invoiceId ? entities('invoice').find(i => i.id === t.invoiceId) : null;
   const label = (i) => `#${i.number || i.id} · ${(i.clientName || '').slice(0, 24)}`;
-  return lazySelect(t, {
-    value: t.invoiceId || '', text: cur ? label(cur) : '— invoice —',
-    populate: (sel) => {
-      sel.append(el('option', { value: '' }, '— none —'));
-      for (const i of entities('invoice').slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')))
-        sel.append(el('option', { value: i.id, selected: i.id === t.invoiceId }, label(i)));
-    },
+  return lazyCombo(t, {
+    faceText: cur ? label(cur) : '— invoice —',
+    build: () => invoiceCombo({ selected: t.invoiceId || '', minWidth: 0 }),
+    patch: (v) => ({ invoiceId: v }),
   });
 }
 

@@ -211,6 +211,16 @@ select.txi { background-position: right 7px center; padding-right: 24px; }
 .txi{display:block;width:100%;min-width:130px;max-width:210px;padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;font:inherit;font-size:12px;background:#fff}
 .txi:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
 .txi-static{color:var(--mut);font-size:12px}
+/* Inline ledger field: a compact "face" button that upgrades to a type-to-search
+   combobox on click. The face mimics a small select (value + chevron); the upgraded
+   combobox's input is shrunk to the same compact size so the row height doesn't jump. */
+.txi-lazy{display:block;width:100%}
+.txi-face{display:block;width:100%;min-width:130px;max-width:210px;padding:6px 22px 6px 8px;border:1.5px solid var(--line);border-radius:8px;font:inherit;font-size:12px;background:#fff;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative;color:inherit}
+.txi-face:hover{border-color:var(--brand)}
+.txi-face::after{content:"";position:absolute;right:9px;top:45%;width:6px;height:6px;border-right:2px solid #6b6e78;border-bottom:2px solid #6b6e78;transform:translateY(-50%) rotate(45deg)}
+.txi-cb{display:block;width:100%;min-width:130px;max-width:210px}
+.txi-cb .cbx-input{font-size:12px;padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;margin:0}
+.txgrid .txi-lazy,.txgrid .txi-face,.txgrid .txi-cb{max-width:none;width:100%}
 /* Ledger inline fields packed 2×2 in one "Details" cell (no horizontal scroll). */
 .txdetails{min-width:280px}
 .txgrid{display:grid;grid-template-columns:1fr 1fr;gap:5px 12px}

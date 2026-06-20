@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.3', items: [
+    { icon: 'manage_search', t: 'Type to search every account / vendor / invoice picker', d: 'You can now just start typing to find an account, vendor, or invoice in the dropdowns throughout the app — in the Ledger filter, when adding or editing a transaction, in journal entries, and in the inline boxes on each ledger row. No more scrolling a long list: type a few letters and it narrows down. New accounts and vendors can still be added right from the same box.' },
+  ] },
   { v: '0.69.2', items: [
     { icon: 'open_in_full', t: 'Resize any pop-up window', d: 'Pop-up windows (like a vendor’s transaction list) were stuck at one width. Now you can drag the right edge to make any of them wider or narrower — handy when a transaction description or account name is getting cut off.' },
     { icon: 'search', t: 'Search by dollar amount', d: 'The top search bar now finds transactions by their amount, not just their description. Type “190.64” (or “$1,988.10”) and the matching transaction comes up even if the amount isn’t written in the description.' },

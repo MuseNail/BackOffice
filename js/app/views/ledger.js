@@ -7,7 +7,7 @@ import { parseMoney } from '../lib/money.js';
 import { validateTxn, simpleTxn, voidTxn, periodKey, accountBalance } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { vendorMatches } from './vendors.js';
-import { attachAddCategory, attachAddVendor } from '../pickers.js';
+import { accountCombo, vendorCombo, invoiceCombo } from '../pickers.js';
 import { categoryField, vendorField, memoField, invoiceField, categoryName, stackedEditor } from '../txn-inline.js';
 import { bindSuggest } from '../suggest.js';
 import { dateRangeControl } from '../daterange.js';
@@ -83,7 +83,6 @@ export function unmount() { unsub?.(); unsub = null; resetFilters(); }
 // The filter bar is rendered ONCE and persists; only the table re-renders on change.
 function filterBar(redraw) {
   // Account scope is the tab bar (in the table) — no redundant dropdown here.
-  const vendors = entities('vendor').slice().sort((a, b) => a.name.localeCompare(b.name));
   const search = el('input', { class: 'field-input', placeholder: 'Search payee / memo…', value: flt.q, style: 'max-width:190px', oninput: (e) => { flt.q = e.target.value; redraw(); } });
   const rangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { flt.from = r.from || ''; flt.to = r.to || ''; redraw(); } });
   // Seed the filter to the control's default (This year) — the control doesn't fire
@@ -91,8 +90,9 @@ function filterBar(redraw) {
   if (!flt.from && !flt.to) { const r0 = rangeCtl.getRange(); flt.from = r0.from || ''; flt.to = r0.to || ''; }
   const typeSel = el('select', { class: 'field-input', style: 'max-width:160px', onchange: (e) => { flt.type = e.target.value; redraw(); } },
     ...TYPE_FILTERS.map(([v, l]) => el('option', { value: v, selected: v === flt.type }, l)));
-  const vend = el('select', { class: 'field-input', style: 'max-width:160px', onchange: (e) => { flt.vendorId = e.target.value; redraw(); } },
-    el('option', { value: '' }, 'All vendors'), ...vendors.map(v => el('option', { value: v.id, selected: v.id === flt.vendorId }, v.name)));
+  const vend = vendorCombo({ selected: flt.vendorId, includeNone: true, noneLabel: 'All vendors', minWidth: 0 });
+  vend.style.cssText = 'max-width:170px';
+  vend.addEventListener('change', () => { flt.vendorId = vend.value; redraw(); });
   const src = el('select', { class: 'field-input', style: 'max-width:140px', onchange: (e) => { flt.source = e.target.value; redraw(); } },
     el('option', { value: '' }, 'All sources'), ...Object.keys(SOURCE_TAGS).map(k => el('option', { value: k, selected: k === flt.source }, SOURCE_TAGS[k].label)));
   const clear = el('button', { class: 'btn sm ghost', onclick: () => {
@@ -359,13 +359,8 @@ export function editTxnModal(t) {
 
   let catSel = null;
   if (!isRecon && catLine) {
-    catSel = el('select', { class: 'field-input' },
-      ...entities('account')
-        .filter(a => a.active !== false && !bankish(a))
-        .sort((a, b) => (a.type + accountLabel(a, byId)).localeCompare(b.type + accountLabel(b, byId)))
-        .map(a => el('option', { value: a.id, selected: a.id === catLine.accountId }, accountLabel(a, byId))),
-      el('option', { value: '__new__' }, '＋ Add account…'));
-    attachAddCategory(catSel, catLine.accountId);
+    catSel = accountCombo({ filter: (a) => !bankish(a), selected: catLine.accountId });
+    catSel.style.cssText = 'display:block;width:100%';
   }
 
   // Manual vendor assignment (Option B) — metadata only, so allowed even when reconciled.
@@ -373,10 +368,8 @@ export function editTxnModal(t) {
 
   // Invoice tag (per-invoice margin) — only when this business uses invoices. Metadata only.
   const useInv = usesInvoices();
-  const invoices = useInv ? entities('invoice').slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')) : [];
-  const invSel = useInv ? el('select', { class: 'field-input' },
-    el('option', { value: '' }, '— none —'),
-    ...invoices.map(i => el('option', { value: i.id, selected: i.id === t.invoiceId }, `#${i.number || i.id} · ${(i.clientName || '').slice(0, 24)}`))) : null;
+  const invSel = useInv ? invoiceCombo({ selected: t.invoiceId || '' }) : null;
+  if (invSel) invSel.style.cssText = 'display:block;width:100%';
 
   m.body.append(
     isRecon ? el('p', { class: 'sub' }, '⚠️ This transaction is reconciled — the date, accounts, and amounts are locked. You can still update the payee and memo.') : null,
@@ -417,23 +410,11 @@ const today = () => new Date().toISOString().slice(0, 10);
 const txnId = () => 't-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const ctx = () => ({ accountsById: new Map(entities('account').map(a => [a.id, a])), locks: new Set(entities('lock').map(l => l.id)) });
 
-// Vendor <select> with an inline "＋ Add vendor…" that auto-selects the new vendor.
+// Type-to-search vendor picker with an inline "＋ Add vendor…" that auto-selects the new one.
 function vendorSelectEl(selected = '') {
-  const vendors = entities('vendor').slice().sort((a, b) => a.name.localeCompare(b.name));
-  const sel = el('select', { class: 'field-input' },
-    el('option', { value: '', selected: !selected }, '— none —'),
-    ...vendors.map(v => el('option', { value: v.id, selected: v.id === selected }, v.name)),
-    el('option', { value: '__newvendor__' }, '＋ Add vendor…'));
-  attachAddVendor(sel, selected);
-  return sel;
-}
-
-function accountOptions(filter, selected) {
-  const byId = new Map(entities('account').map(a => [a.id, a]));
-  return entities('account')
-    .filter(a => a.active !== false && filter(a))
-    .sort((a, b) => a.type.localeCompare(b.type) || accountLabel(a, byId).localeCompare(accountLabel(b, byId)))
-    .map(a => el('option', { value: a.id, selected: a.id === selected }, accountLabel(a, byId)));
+  const cb = vendorCombo({ selected });
+  cb.style.cssText = 'display:block;width:100%';
+  return cb;
 }
 
 function addTxnModal() {
@@ -453,7 +434,9 @@ function addTxnModal() {
   const date = el('input', { class: 'field-input', type: 'date', value: today() });
   const amount = el('input', { class: 'field-input', placeholder: '$0.00', inputmode: 'decimal' });
   const payee = el('input', { class: 'field-input', placeholder: 'Who?' });
-  const bank = el('select', { class: 'field-input' }, ...accountOptions(bankish));
+  const banks = entities('account').filter(a => a.active !== false && bankish(a));
+  const bank = accountCombo({ filter: bankish, selected: banks[0]?.id || '' });
+  bank.style.cssText = 'display:block;width:100%';
   const checkNo = el('input', { class: 'field-input', placeholder: 'optional' });
   const vendor = vendorSelectEl();
   const memo = el('input', { class: 'field-input', placeholder: 'optional' });
@@ -481,21 +464,15 @@ function addTxnModal() {
       el('span', {}, ok ? fmtMoney(totalCents()) + ' ✓' : fmtMoney(left)));
   }
   const makeLine = (selVal, amtVal) => {
-    const sel = el('select', { class: 'field-input', style: 'flex:2;min-width:0;margin:0' });
-    sel.append(...accountOptions(catPred), el('option', { value: '__new__' }, '＋ Add account…'));
-    if (selVal) sel.value = selVal;
-    attachAddCategory(sel);
+    const sel = accountCombo({ filter: catPred, selected: selVal || '', minWidth: 0 });
+    sel.style.cssText = 'flex:2;min-width:0;margin:0';
     const amt = el('input', { class: 'field-input', placeholder: '$', inputmode: 'decimal', style: 'flex:1;min-width:0;margin:0', value: amtVal || '' });
     amt.addEventListener('input', recalcSplit);
     return { sel, amt };
   };
-  const rebuildCatOptions = () => {
-    for (const l of lines) {
-      const v = l.sel.value;
-      clear(l.sel).append(...accountOptions(catPred), el('option', { value: '__new__' }, '＋ Add account…'));
-      if (v && v !== '__new__') l.sel.value = v;
-    }
-  };
+  // Money-in/out flips which accounts are offered (catPred reads `direction` live);
+  // refresh() re-evaluates each line's option list while keeping its current pick.
+  const rebuildCatOptions = () => { for (const l of lines) l.sel.refresh(); };
   const renderSplit = () => {
     const multi = lines.length > 1;
     clear(splitBox);
@@ -578,7 +555,8 @@ function journalModal() {
   const lines = [];
 
   const addLine = () => {
-    const acct = el('select', { class: 'field-input', style: 'flex:2;margin:0;min-width:0' }, el('option', { value: '' }, '— account —'), ...accountOptions(() => true));
+    const acct = accountCombo({ filter: () => true, includeNone: true, noneLabel: '— account —', minWidth: 0 });
+    acct.style.cssText = 'flex:2;margin:0;min-width:0';
     const debit = el('input', { class: 'field-input', placeholder: 'Debit', inputmode: 'decimal', style: 'flex:1;margin:0;min-width:0' });
     const credit = el('input', { class: 'field-input', placeholder: 'Credit', inputmode: 'decimal', style: 'flex:1;margin:0;min-width:0' });
     for (const i of [debit, credit]) i.addEventListener('input', recalc);
