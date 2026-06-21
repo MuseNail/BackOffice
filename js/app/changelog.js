@@ -6,6 +6,11 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.8', items: [
+    { icon: 'flip_to_front', t: 'Clicking a tab brings its window to the front', d: 'If a window is already open, clicking its tab again now raises it (and un-minimizes it) instead of doing nothing — no more hunting for it in the “Open windows” bar.' },
+    { icon: 'table_rows', t: 'Reconcile: separate Payments and Deposits columns', d: 'The reconcile list now splits money out (Payments) and money in (Deposits) into their own columns, with a running subtotal of each at the bottom that adds up the items you’ve checked — so you can tie each side to your statement’s totals.' },
+    { icon: 'straighten', t: 'Reconcile: tidied the top row', d: 'The statement end-date field now lines up evenly with the account and ending-balance fields.' },
+  ] },
   { v: '0.69.7', items: [
     { icon: 'sync', t: 'Sync your accounts & vendors to QuickBooks', d: 'New in Settings → “Sync lists to QuickBooks”: download one .iif file that pushes your full chart of accounts AND vendor list into QuickBooks Desktop (File → Utilities → Import → IIF Files). It creates anything new and updates names/types on what’s already there — no duplicates. Because a file can’t rename, merge, or inactivate in QuickBooks, the screen shows a short checklist of exactly those changes since your last sync (e.g. “Rename account X → Y”, “Merge A into B”). Hit “Mark as synced” once you’ve done it, and next time you’ll only see what changed since. The app stays the source of truth; QuickBooks just follows.' },
   ] },

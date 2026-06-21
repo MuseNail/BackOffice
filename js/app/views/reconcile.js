@@ -43,7 +43,7 @@ function drawBody(body) {
   if (!bankaccts.find(b => b.id === s.bankacctId)) s.bankacctId = bankaccts[0].id;
   const bankacct = bankaccts.find(b => b.id === s.bankacctId);
 
-  const acctSel = el('select', { class: 'field-input', style: 'max-width:240px', onchange: (e) => { s.bankacctId = e.target.value; s.checked = new Set(); drawBody(body); } },
+  const acctSel = el('select', { class: 'field-input', style: 'max-width:240px;margin-bottom:0', onchange: (e) => { s.bankacctId = e.target.value; s.checked = new Set(); drawBody(body); } },
     ...bankaccts.map(b => el('option', { value: b.id, selected: b.id === s.bankacctId }, b.name)));
   // Statement end date — the Muse-style day picker, with month-end quick presets
   // (statements almost always close at a month end).
@@ -54,7 +54,7 @@ function drawBody(body) {
     { label: 'End of last month', date: isoD(new Date(now.getFullYear(), now.getMonth(), 0)) },
     { label: 'Today', date: isoD(now) },
   ] }).el;
-  const balIn = el('input', { class: 'field-input', placeholder: 'Statement ending balance', style: 'max-width:220px', inputmode: 'decimal',
+  const balIn = el('input', { class: 'field-input', placeholder: 'Statement ending balance', style: 'max-width:220px;margin-bottom:0', inputmode: 'decimal',
     value: s.stmtCents == null ? '' : (s.stmtCents / 100).toFixed(2),
     onchange: (e) => { s.stmtCents = parseMoney(e.target.value); drawBody(body); } });
 
@@ -67,6 +67,14 @@ function drawBody(body) {
   s.checked = new Set([...s.checked].filter(id => candidates.some(t => t.id === id)));
 
   const checkedCents = candidates.filter(t => s.checked.has(t.id)).reduce((sum, t) => sum + bankLineCents(t, bankacct.accountId), 0);
+  // Per-column running subtotals of the CHECKED items, so each side can be tied to the
+  // statement's payments / deposits totals. Payments are money out (negative bank line).
+  let checkedPayments = 0, checkedDeposits = 0;
+  for (const t of candidates) {
+    if (!s.checked.has(t.id)) continue;
+    const c = bankLineCents(t, bankacct.accountId);
+    if (c < 0) checkedPayments += -c; else checkedDeposits += c;
+  }
   const clearedCents = alreadyCents + checkedCents;
   const diff = s.stmtCents == null ? null : s.stmtCents - clearedCents;
   const balanced = diff === 0;
@@ -81,7 +89,8 @@ function drawBody(body) {
       el('td', {}, editable ? box : ''),
       el('td', {}, t.date),
       el('td', {}, t.payee || t.memo || '—'),
-      el('td', { class: 'num ' + (cents < 0 ? 'neg' : 'pos') }, fmtMoney(cents, { sign: cents > 0 })));
+      el('td', { class: 'num' }, cents < 0 ? fmtMoney(-cents) : ''),
+      el('td', { class: 'num' }, cents > 0 ? fmtMoney(cents) : ''));
   });
 
   const history = entities('recon')
@@ -99,10 +108,14 @@ function drawBody(body) {
         el('div', { class: 'kpi', style: balanced ? 'color:var(--green)' : diff != null ? 'color:var(--red)' : '' }, diff == null ? 'enter the balance' : fmtMoney(diff)),
         (editable && balanced && s.checked.size) ? el('button', { class: 'btn sm green', onclick: () => confirmClose(bankacct, body) }, 'Close & lock these in') : el('span'))),
     candidates.length
-      ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:760px' },
+      ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:800px' },
           el('table', { class: 'data' },
-            el('tr', {}, el('th', {}, ''), el('th', {}, 'Date'), el('th', {}, 'Payee'), el('th', { class: 'num' }, 'Amount')),
-            ...rows))
+            el('tr', {}, el('th', {}, ''), el('th', {}, 'Date'), el('th', {}, 'Payee'), el('th', { class: 'num' }, 'Payments'), el('th', { class: 'num' }, 'Deposits')),
+            ...rows,
+            el('tr', { style: 'background:var(--brand-soft)' },
+              el('td', { colspan: '3' }, el('b', {}, `${s.checked.size} checked`)),
+              el('td', { class: 'num' }, el('b', {}, checkedPayments ? fmtMoney(checkedPayments) : '—')),
+              el('td', { class: 'num' }, el('b', {}, checkedDeposits ? fmtMoney(checkedDeposits) : '—')))))
       : el('p', { class: 'sub' }, 'Nothing left to reconcile on or before that date — all caught up.'),
     history.length ? el('div', { class: 'card', style: 'max-width:760px' },
       el('div', { class: 'cardtitle' }, 'Past reconciliations'),

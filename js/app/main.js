@@ -230,7 +230,12 @@ function boot() {
   document.querySelectorAll('#sidebar .navitem').forEach(n =>
     n.addEventListener('click', () => {
       const biz = document.getElementById('sidebar').dataset.biz;
-      location.hash = n.dataset.v === 'businesses' ? '#/businesses' : `#/b/${biz}/${n.dataset.v}`;
+      const target = n.dataset.v === 'businesses' ? '#/businesses' : `#/b/${biz}/${n.dataset.v}`;
+      // Re-clicking the tab of the view that's already the current route doesn't change
+      // the hash, so no hashchange fires — raise/restore its window directly instead of
+      // doing nothing (the user expects the tab to bring its window to the front).
+      if (location.hash === target && n.dataset.v !== 'businesses') windows.openView(n.dataset.v);
+      else location.hash = target;
     }));
   // Account menu (top-right): guide, quick reference, what's new, hard reset, log out.
   const doLogout = async () => {
