@@ -54,13 +54,24 @@ function route() {
 // ── Suggest screen ────────────────────────────────────────────────────────────
 const suggestView = (() => {
   let unsub = null;
+  let cf = { q: '', status: 'all', dir: 'all' };
   function render(root) {
+    cf = { q: '', status: 'all', dir: 'all' };
     const body = el('div');
+    const draw = () => drawSuggest(body, cf);
+    // The search box + filters live ABOVE the body, built once, so typing/redraws never
+    // lose focus (the body is the only thing re-rendered on a store change).
+    const search = el('input', { class: 'field-input', type: 'search', placeholder: 'Search description, amount, or vendor…', style: 'max-width:300px;margin:0', value: cf.q, oninput: (e) => { cf.q = e.target.value; draw(); } });
+    const sel = (key, opts) => el('select', { class: 'field-input', style: 'margin:0;width:auto;min-width:130px', onchange: (e) => { cf[key] = e.target.value; draw(); } },
+      ...opts.map(([v, l]) => el('option', { value: v, selected: cf[key] === v }, l)));
     root.append(
       el('h2', {}, 'Suggest categories'),
       el('p', { class: 'sub' }, 'Pick a vendor and account for each waiting transaction and leave a note for the owner. These are suggestions — the owner reviews and approves; nothing here posts to the books. If a vendor isn’t listed, leave it blank and mention it in the note.'),
+      el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px' },
+        search,
+        sel('status', [['all', 'Any status'], ['needs', 'Needs suggestion'], ['suggested', 'Suggested']]),
+        sel('dir', [['all', 'Money in & out'], ['in', 'Money in'], ['out', 'Money out']])),
       body);
-    const draw = () => drawSuggest(body);
     unsub = subscribe(draw);
     draw();
   }
@@ -75,10 +86,31 @@ function acctGroups() {
   return [{ label: 'Accounts', items: cats.map(a => ({ value: a.id, label: accountLabel(a, byId) })) }];
 }
 
-function drawSuggest(body) {
+// Match a suggest row against the search box: its description, its amount (e.g. "190.64"),
+// or the name of the vendor it's currently suggested to.
+function suggestMatches(s, q, vendorsById) {
+  if (!q) return true;
+  if ((s.desc || '').toLowerCase().includes(q)) return true;
+  if ((Math.abs(s.amountCents || 0) / 100).toFixed(2).includes(q)) return true;
+  const v = s.suggestedVendorId && vendorsById.get(s.suggestedVendorId);
+  if (v && (v.name || '').toLowerCase().includes(q)) return true;
+  return false;
+}
+
+function drawSuggest(body, cf = { q: '', status: 'all', dir: 'all' }) {
   const biz = getActiveBiz();
-  const pending = entities('staged').filter(s => s.status === 'pending' && !s.syncApp).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  if (!pending.length) { clear(body).append(el('p', { class: 'sub' }, 'Nothing waiting right now — when the owner imports transactions they’ll appear here.')); return; }
+  const allPending = entities('staged').filter(s => s.status === 'pending' && !s.syncApp);
+  if (!allPending.length) { clear(body).append(el('p', { class: 'sub' }, 'Nothing waiting right now — when the owner imports transactions they’ll appear here.')); return; }
+  const vendorsById = new Map(entities('vendor').map(v => [v.id, v]));
+  const q = (cf.q || '').trim().toLowerCase();
+  const pending = allPending.filter(s => {
+    if (cf.dir === 'in' && !(s.amountCents > 0)) return false;
+    if (cf.dir === 'out' && !(s.amountCents < 0)) return false;
+    if (cf.status === 'suggested' && !s.suggestedAt) return false;
+    if (cf.status === 'needs' && s.suggestedAt) return false;
+    return suggestMatches(s, q, vendorsById);
+  }).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  if (!pending.length) { clear(body).append(el('p', { class: 'sub' }, 'No transactions match your search or filters.')); return; }
   const vendors = entities('vendor').slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   const invs = entities('invoice').slice().sort((a, b) => String(b.number || '').localeCompare(String(a.number || '')));
   const groups = acctGroups();

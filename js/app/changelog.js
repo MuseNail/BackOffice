@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.10', items: [
+    { icon: 'manage_accounts', t: 'Edit and remove users', d: 'In Settings → Team & access you can now Edit a user (rename, change their role, or reset their PIN) and Remove them. Removing a user takes away their access right away; if they don’t belong to any other business, their login is deleted entirely. You can’t remove the owner or yourself.' },
+    { icon: 'filter_alt', t: 'Client app: search & filters', d: 'The client “Suggest” screen now has a search box (by description, amount, or vendor) and filters for status (needs a suggestion vs. already suggested) and money in vs. out — so a bookkeeper can work through a long list quickly.' },
+  ] },
   { v: '0.69.9', items: [
     { icon: 'dashboard_customize', t: 'Settings is now a tidy menu', d: 'Instead of one long page, Settings is a short menu — Team & access, Modules, QuickBooks, Integrations, Close the books, and Data & maintenance. Click any one and it opens in its own window (like every other tab), so you can keep, say, QuickBooks and Users open side by side. The four QuickBooks tools now live together under “QuickBooks.”' },
   ] },

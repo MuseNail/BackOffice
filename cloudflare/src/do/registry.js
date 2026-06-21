@@ -65,6 +65,9 @@ export class RegistryDO {
       if (p === '/registry/businesses/delete' && req.method === 'POST') return this.deleteBusiness(sess, await req.json());
       if (p === '/registry/users' && req.method === 'GET') return this.listUsers(sess, url.searchParams.get('businessId'));
       if (p === '/registry/users' && req.method === 'POST') return this.createUser(sess, await req.json());
+      if (p === '/registry/users/update' && req.method === 'POST') return this.updateUser(sess, await req.json());
+      if (p === '/registry/users/resetpin' && req.method === 'POST') return this.resetPin(sess, await req.json());
+      if (p === '/registry/users/delete' && req.method === 'POST') return this.deleteUser(sess, await req.json());
       if (p === '/registry/devices' && req.method === 'GET') return this.listDevices(sess, url.searchParams.get('businessId'));
       if (p === '/registry/devices/approve' && req.method === 'POST') return this.setDevice(sess, await req.json(), 'approved');
       if (p === '/registry/devices/revoke' && req.method === 'POST') return this.setDevice(sess, await req.json(), 'revoked');
@@ -242,6 +245,68 @@ export class RegistryDO {
     const user = await this.makeUser({ name, identifier: ident, pin });
     await this.state.storage.put(`membership:${user.id}:${businessId}`, { userId: user.id, businessId, role });
     return json({ ok: true, user: { id: user.id, name: user.name, identifier: ident, role } });
+  }
+
+  // Gate every user-management action: caller can manage this business, the target is a
+  // MEMBER of it (so the implicit app-owner — who has no membership row — is never a
+  // target), and you can't act on yourself (no self-lockout / self-role-change).
+  async manageTarget(sess, businessId, userId) {
+    if (!businessId || !this.canManage(sess, businessId)) return { err: json({ error: 'forbidden' }, 403) };
+    const target = await this.state.storage.get(`user:${userId}`);
+    if (!target) return { err: json({ error: 'not found' }, 404) };
+    if (target.isOwner) return { err: json({ error: 'cannot manage the owner' }, 403) };
+    const memKey = `membership:${userId}:${businessId}`;
+    const membership = await this.state.storage.get(memKey);
+    if (!membership) return { err: json({ error: 'not a member' }, 404) };
+    return { target, memKey, membership };
+  }
+
+  // Change role (within this business) and/or rename. Role-change on yourself is blocked.
+  async updateUser(sess, body) {
+    const { businessId, userId, role, name } = body || {};
+    const t = await this.manageTarget(sess, businessId, userId);
+    if (t.err) return t.err;
+    if (role != null && role !== t.membership.role) {
+      if (!ROLES.includes(role)) return json({ error: 'bad role' }, 400);
+      if (userId === sess.userId) return json({ error: 'cannot change your own role' }, 400);
+      await this.state.storage.put(t.memKey, { ...t.membership, role });
+    }
+    if (name != null && String(name).trim()) {
+      await this.state.storage.put(`user:${userId}`, { ...t.target, name: String(name).trim() });
+    }
+    return json({ ok: true });
+  }
+
+  // Owner/manager resets a member's PIN (re-salts + re-hashes; existing sessions stay
+  // valid until they expire — the PIN only gates new logins).
+  async resetPin(sess, body) {
+    const { businessId, userId, pin } = body || {};
+    if (!valPin(pin)) return json({ error: 'bad pin' }, 400);
+    const t = await this.manageTarget(sess, businessId, userId);
+    if (t.err) return t.err;
+    const pinSalt = randHex(16);
+    await this.state.storage.put(`user:${userId}`, { ...t.target, pinSalt, pinHash: await hashPin(String(pin), pinSalt) });
+    return json({ ok: true });
+  }
+
+  // Remove a member from THIS business. If they then belong to no business at all, the
+  // login itself is purged (user record, identifier, devices, sessions) so it can't sign
+  // in anywhere — sessions die within the Worker's ~60s session-cache TTL.
+  async deleteUser(sess, body) {
+    const { businessId, userId } = body || {};
+    if (userId === sess.userId) return json({ error: 'cannot remove yourself' }, 400);
+    const t = await this.manageTarget(sess, businessId, userId);
+    if (t.err) return t.err;
+    await this.state.storage.delete(t.memKey);
+    const rest = await this.state.storage.list({ prefix: `membership:${userId}:` });
+    const purged = rest.size === 0;
+    if (purged) {
+      await this.state.storage.delete(`user:${userId}`);
+      await this.state.storage.delete(`ident:${t.target.identifier}`);
+      for (const k of (await this.state.storage.list({ prefix: `device:${userId}:` })).keys()) await this.state.storage.delete(k);
+      for (const [k, sObj] of await this.state.storage.list({ prefix: 'session:' })) { if (sObj.userId === userId) await this.state.storage.delete(k); }
+    }
+    return json({ ok: true, purged });
   }
 
   // ── devices ──

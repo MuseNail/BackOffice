@@ -1,7 +1,7 @@
 // ── view: settings — users, roles, device approvals ────────────────
 // Management UI renders only for owner/manager sessions; the server enforces
 // the same rule, this is just honest UI. Muse sync + IIF export land M11/M12.
-import { el, clear, toast, fmtMoney } from '../ui.js';
+import { el, clear, toast, fmtMoney, modal } from '../ui.js';
 import { api, dispatch } from '../sync.js';
 import { getActiveBiz, getBusinesses, roleFor, getUser } from '../session.js';
 import { getState, entities, byId, subscribe, usesInvoices, usesMuseSync } from '../store.js';
@@ -571,11 +571,21 @@ function drawLocksCard(card) {
 
 async function drawUsers(card, biz) {
   clear(card).append(el('div', { class: 'cardtitle' }, 'Users'));
+  const me = getUser()?.id;
+  const refresh = () => drawUsers(card, biz);
   try {
     const { users } = await (await api(`/registry/users?businessId=${biz}`)).json();
-    const rows = users.map(u => el('div', { class: 'rowline' },
-      el('b', {}, u.name), el('span', { class: 'sub', style: 'margin:0' }, ` ${u.identifier} · ${u.role}`)));
-    card.append(...(rows.length ? rows : [el('p', { class: 'sub' }, 'No client users yet — the owner account always has access.')]));
+    if (!users.length) card.append(el('p', { class: 'sub' }, 'No users yet — the owner account always has access.'));
+    for (const u of users) {
+      const actions = u.id === me
+        ? [el('span', { class: 'sub', style: 'margin:0' }, 'you')]
+        : [el('button', { class: 'btn sm ghost', onclick: () => editUserModal(u, biz, refresh) }, 'Edit'),
+           el('button', { class: 'btn sm ghost', style: 'color:var(--red)', onclick: () => removeUser(u, biz, refresh) }, 'Remove')];
+      card.append(el('div', { class: 'rowline', style: 'display:flex;align-items:center;gap:10px' },
+        el('b', {}, u.name),
+        el('span', { class: 'sub', style: 'margin:0;flex:1' }, `${u.identifier} · ${u.role}`),
+        ...actions));
+    }
   } catch { card.append(el('p', { class: 'sub' }, 'Could not load users.')); }
 
   const name = el('input', { class: 'field-input', placeholder: 'Name' });
@@ -595,6 +605,42 @@ async function drawUsers(card, biz) {
     name, ident, pin, role,
     el('button', { class: 'btn', type: 'submit' }, 'Add user'),
   ));
+}
+
+// Edit a member: rename, change role, and/or reset their PIN. Each is a separate Worker
+// call; a blank PIN leaves it unchanged. (The owner account can't be edited here — it
+// never appears in the members list.)
+function editUserModal(u, biz, refresh) {
+  const m = modal(`Edit ${u.name}`);
+  const name = el('input', { class: 'field-input', value: u.name || '' });
+  const role = el('select', { class: 'field-input' }, ...ROLES.map(r => el('option', { value: r, selected: r === u.role }, `${r} — ${ROLE_HELP[r]}`)));
+  const pin = el('input', { class: 'field-input', placeholder: 'New PIN (leave blank to keep)', inputmode: 'numeric' });
+  m.body.append(
+    el('label', { class: 'field-label' }, 'Name'), name,
+    el('label', { class: 'field-label' }, 'Role'), role,
+    el('label', { class: 'field-label' }, 'Reset PIN'), pin,
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
+      el('button', { class: 'btn', onclick: async () => {
+        try {
+          const r = await api('/registry/users/update', { method: 'POST', body: JSON.stringify({ businessId: biz, userId: u.id, name: name.value.trim(), role: role.value }) });
+          if (!r.ok) throw new Error('update');
+          if (pin.value.trim()) {
+            const rp = await api('/registry/users/resetpin', { method: 'POST', body: JSON.stringify({ businessId: biz, userId: u.id, pin: pin.value.trim() }) });
+            if (!rp.ok) { toast('Saved, but the PIN reset failed — use 4–8 digits', 'err'); m.close(); refresh(); return; }
+          }
+          toast('User updated'); m.close(); refresh();
+        } catch { toast('Could not update — check your role or reload', 'err'); }
+      } }, 'Save')));
+}
+
+async function removeUser(u, biz, refresh) {
+  if (!confirm(`Remove ${u.name} (${u.identifier}) from this business? They lose access right away. If they belong to no other business, their login is deleted.`)) return;
+  try {
+    const r = await api('/registry/users/delete', { method: 'POST', body: JSON.stringify({ businessId: biz, userId: u.id }) });
+    if (!r.ok) throw new Error('delete');
+    toast('User removed'); refresh();
+  } catch { toast('Could not remove — check your role or reload', 'err'); }
 }
 
 async function drawDevices(card, biz) {
