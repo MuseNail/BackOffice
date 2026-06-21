@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.11', items: [
+    { icon: 'format_align_right', t: 'Amounts line up in a fixed column', d: 'In Review (and the client Suggest screen), the dollar amount now always sits in the same spot on the far right, with the match chip just to its left — so your eye can scan straight down the amounts no matter how long the description or label is.' },
+  ] },
   { v: '0.69.10', items: [
     { icon: 'manage_accounts', t: 'Edit and remove users', d: 'In Settings → Team & access you can now Edit a user (rename, change their role, or reset their PIN) and Remove them. Removing a user takes away their access right away; if they don’t belong to any other business, their login is deleted entirely. You can’t remove the owner or yourself.' },
     { icon: 'filter_alt', t: 'Client app: search & filters', d: 'The client “Suggest” screen now has a search box (by description, amount, or vendor) and filters for status (needs a suggestion vs. already suggested) and money in vs. out — so a bookkeeper can work through a long list quickly.' },

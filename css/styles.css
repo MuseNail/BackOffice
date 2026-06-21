@@ -48,10 +48,14 @@ h2{font-size:19px;margin:0 0 2px}
 .sticky-toolbar{position:sticky;top:53px;z-index:4;background:var(--bg);padding:8px 0 10px;margin-bottom:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 /* ── Review row cards: all fields inline, 2-line, dashed column dividers ── */
 .revrow{border:1px solid #d7dce6;border-radius:10px;box-shadow:0 2px 8px rgba(20,30,55,.15);background:#fff;padding:10px 12px;margin-bottom:8px}
-.revtop{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+.revtop{display:flex;gap:12px;align-items:baseline;flex-wrap:nowrap}
 .revtop .revdate{color:#23252c;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
-.revtop .revdesc{flex:1;min-width:160px;font-weight:600;word-break:break-word;line-height:1.35}
-.revtop .revamt{white-space:nowrap;font-weight:800}
+.revtop .revdesc{flex:1 1 0;min-width:0;font-weight:600;word-break:break-word;line-height:1.35}
+/* The description grows to fill, pushing the match chip ("note") and the amount to the
+   right. The amount is forced LAST (order) in a fixed-min-width, right-aligned column so
+   its right edge is ALWAYS in the same place; the chip sits just to its left. */
+.revtop .pill{flex:none}
+.revtop .revamt{order:99;flex:none;min-width:108px;text-align:right;white-space:nowrap;font-weight:800;font-variant-numeric:tabular-nums}
 .revfields{display:flex;align-items:flex-end;flex-wrap:wrap;gap:9px 0;margin-top:9px;border-top:1px dashed var(--line);padding-top:9px}
 .revfields .rvf{padding:0 12px;border-right:1px dashed #c7cedb}
 .revfields .rvf:first-child{padding-left:0}
