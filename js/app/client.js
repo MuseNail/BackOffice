@@ -134,15 +134,18 @@ function drawSuggest(body, cf = { q: '', status: 'all', dir: 'all' }) {
       } catch { toast('Couldn’t save — try again', 'err'); btn.disabled = false; btn.textContent = 'Suggest'; }
     } }, 'Suggest');
 
+    const amtEl = el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 }));
     return el('div', { class: 'revrow' },
-      el('div', { class: 'revtop' },
-        el('span', { class: 'revdate' }, row.date),
-        el('span', { class: 'revdesc' }, row.desc || ''),
-        el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
-        chip),
-      el('div', { class: 'revfields' },
-        field('Vendor', venSel), field('Account', acctSel), field('Invoice', invSel), field('Note', note),
-        el('div', { class: 'rvf rvactions' }, btn)));
+      el('div', { class: 'revbody' },
+        el('div', { class: 'revmain' },
+          el('div', { class: 'revtop' },
+            el('span', { class: 'revdate' }, row.date),
+            el('span', { class: 'revdesc' }, row.desc || '')),
+          el('div', { class: 'revfields' },
+            field('Vendor', venSel), field('Account', acctSel), field('Invoice', invSel), field('Note', note))),
+        el('div', { class: 'revside' },
+          el('div', { class: 'revside-top' }, chip, amtEl),
+          el('div', { class: 'revside-actions' }, btn))));
   }));
 }
 

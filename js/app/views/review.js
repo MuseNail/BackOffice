@@ -288,22 +288,28 @@ function drawBody(body, editable) {
       actions.push(el('button', { class: 'btn sm ghost', title: 'Match this deposit to recorded sales/payments', onclick: () => matchDepositModal(row, accountsById) }, '⚡$ Match'));
     }
 
+    // Two-column row: a LEFT block (description + the field row) and a RIGHT rail
+    // (chip + amount on top, action buttons below). The fields fill the left block, so
+    // the wrapped description ends exactly where the Note column ends — clean alignment.
+    const amtEl = el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 }));
     return el('div', { class: 'revrow' },
-      el('div', { class: 'revtop' },
-        editable ? el('input', { type: 'checkbox', class: 'revchk', checked: selected.has(row.id), title: 'Select for bulk action',
-          onchange: (e) => { if (selectedBank !== row.bankacctId) { selected.clear(); selectedBank = row.bankacctId; } e.target.checked ? selected.add(row.id) : selected.delete(row.id); drawBody(body, editable); } }) : null,
-        el('span', { class: 'revdate' }, row.date),
-        el('span', { class: 'revdesc' }, row.desc || ''),
-        el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
-        chip),
-      // The client's note to you (message, not the memo) — surfaced so you don't miss it.
-      row.clientNote ? el('div', { class: 'client-note' }, el('span', { class: 'ms', style: 'font-size:15px' }, 'chat'), el('span', {}, row.clientNote)) : null,
-      editable ? el('div', { class: 'revfields' },
-        field('Vendor', vendSel),
-        field('Account', sel),
-        invSel ? field('Invoice', invSel) : null,
-        field('Note', memoIn),
-        el('div', { class: 'rvf rvactions' }, ...actions)) : null);
+      el('div', { class: 'revbody' },
+        el('div', { class: 'revmain' },
+          el('div', { class: 'revtop' },
+            editable ? el('input', { type: 'checkbox', class: 'revchk', checked: selected.has(row.id), title: 'Select for bulk action',
+              onchange: (e) => { if (selectedBank !== row.bankacctId) { selected.clear(); selectedBank = row.bankacctId; } e.target.checked ? selected.add(row.id) : selected.delete(row.id); drawBody(body, editable); } }) : null,
+            el('span', { class: 'revdate' }, row.date),
+            el('span', { class: 'revdesc' }, row.desc || '')),
+          // The client's note to you (message, not the memo) — surfaced so you don't miss it.
+          row.clientNote ? el('div', { class: 'client-note' }, el('span', { class: 'ms', style: 'font-size:15px' }, 'chat'), el('span', {}, row.clientNote)) : null,
+          editable ? el('div', { class: 'revfields' },
+            field('Vendor', vendSel),
+            field('Account', sel),
+            invSel ? field('Invoice', invSel) : null,
+            field('Note', memoIn)) : null),
+        el('div', { class: 'revside' },
+          el('div', { class: 'revside-top' }, chip, amtEl),
+          editable ? el('div', { class: 'revside-actions' }, ...actions) : null)));
   };
 
   // one collapsible, paginated section per bank account (5.4 / 5.5)

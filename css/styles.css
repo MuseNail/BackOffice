@@ -48,19 +48,24 @@ h2{font-size:19px;margin:0 0 2px}
 .sticky-toolbar{position:sticky;top:53px;z-index:4;background:var(--bg);padding:8px 0 10px;margin-bottom:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 /* ── Review row cards: all fields inline, 2-line, dashed column dividers ── */
 .revrow{border:1px solid #d7dce6;border-radius:10px;box-shadow:0 2px 8px rgba(20,30,55,.15);background:#fff;padding:10px 12px;margin-bottom:8px}
+/* Two-column row: LEFT block (description + fields) grows; RIGHT rail (chip+amount on
+   top, actions below) is content-width. The fields fill the left block, so the wrapped
+   description ends exactly where the Note column ends — and the amount stays far right. */
+.revbody{display:flex;gap:14px;align-items:flex-start}
+.revmain{flex:1 1 auto;min-width:0}
 .revtop{display:flex;gap:12px;align-items:baseline;flex-wrap:nowrap}
 .revtop .revdate{color:#23252c;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
 .revtop .revdesc{flex:1 1 0;min-width:0;font-weight:600;word-break:break-word;line-height:1.35}
-/* The description grows to fill, pushing the match chip ("note") and the amount to the
-   right. The amount is forced LAST (order) in a fixed-min-width, right-aligned column so
-   its right edge is ALWAYS in the same place; the chip sits just to its left. */
-.revtop .pill{flex:none}
-.revtop .revamt{order:99;flex:none;min-width:108px;text-align:right;white-space:nowrap;font-weight:800;font-variant-numeric:tabular-nums}
-.revfields{display:flex;align-items:flex-end;flex-wrap:wrap;gap:9px 0;margin-top:9px;border-top:1px dashed var(--line);padding-top:9px}
-.revfields .rvf{padding:0 12px;border-right:1px dashed #c7cedb}
+.revside{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.revside-top{display:flex;align-items:center;gap:10px;white-space:nowrap}
+.revside-top .revamt{min-width:90px;text-align:right;font-weight:800;font-variant-numeric:tabular-nums}
+.revside-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.revfields{display:flex;align-items:flex-end;gap:0;margin-top:9px;border-top:1px dashed var(--line);padding-top:9px}
+.revfields .rvf{flex:1 1 0;min-width:0;padding:0 12px;border-right:1px dashed #c7cedb}
 .revfields .rvf:first-child{padding-left:0}
-.revfields .rvf:last-child{border-right:0}
-.revfields .rvactions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.revfields .rvf:last-child{border-right:0;padding-right:0}
+.revfields .rvf .cbx{width:100%}
+.revfields .rvf .field-input{max-width:none}
 .kpi-card{transition:border-color .12s,box-shadow .12s,transform .12s}
 .kpi-card:hover{border-color:var(--brand);box-shadow:0 2px 10px rgba(36,86,166,.12);transform:translateY(-1px)}
 .kpi-more{font-size:11px;font-weight:700;color:var(--brand);margin-top:8px;opacity:0;transition:opacity .12s}
