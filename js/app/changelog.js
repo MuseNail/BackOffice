@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.17', items: [
+    { icon: 'format_align_left', t: 'Fixed overlapping text in search results', d: 'In the global search, a transaction’s date no longer runs into its description — the date column now sizes to fit, so the date, description, and amount stay in clean columns.' },
+  ] },
   { v: '0.69.16', items: [
     { icon: 'fact_check', t: '“Approve all” now asks you to confirm', d: 'Clicking “Approve all categorized” no longer posts everything instantly. It first shows a list of every transaction and the account it’ll be posted to, so you can look it over and confirm — or cancel — before anything hits the ledger.' },
   ] },

@@ -127,7 +127,7 @@ function render(q) {
   // One transaction = three aligned columns: date · payee · amount.
   const colRow = (date, payee, amt, onPick) => {
     const row = document.createElement('div');
-    row.style.cssText = 'display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:10px;padding:6px 11px;cursor:pointer;font-size:12.5px;align-items:baseline';
+    row.style.cssText = 'display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;padding:6px 11px;cursor:pointer;font-size:12.5px;align-items:baseline';
     row.onmouseenter = () => { row.style.background = '#eef0f4'; };
     row.onmouseleave = () => { row.style.background = ''; };
     row.onclick = onPick;
