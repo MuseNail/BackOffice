@@ -462,14 +462,7 @@ function drawBody(body, editable) {
   clear(reviewFiltersHost).append(filterBar);
   clear(reviewActionsHost).append(
     el('div', { style: 'display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:8px' },
-      (editable && categorized.length) ? el('button', { class: 'btn sm green', onclick: () => {
-        const items = categorized.slice();
-        toast('⏳ Approving…');
-        setTimeout(() => {
-          for (const { row, accountId, sug } of items) { lastCategory.delete(row.id); lastInvoice.delete(row.id); lastMemo.delete(row.id); approveRow(row, accountId, sug, { quiet: true }); }
-          toast(`${items.length} approved`);
-        }, 30);
-      } }, `Approve all categorized (${categorized.length})`) : el('span'),
+      (editable && categorized.length) ? el('button', { class: 'btn sm green', onclick: () => confirmApproveAll(categorized.slice(), accountsById, body, editable) }, `Approve all categorized (${categorized.length})`) : el('span'),
       (editable && unmatched.length && !aiBusy) ? el('button', { class: 'btn sm', onclick: () => askAI(unmatched, categories, body, editable) }, `✨ Get AI suggestions (${unmatched.length})`) : el('span'),
       aiBusy ? el('span', { class: 'pill gray' }, '✨ Asking Claude…') : el('span')),
     bulkBar || el('span'));
@@ -583,6 +576,36 @@ function matchCounterpart(row, transferAccountId, txnId) {
 function skipRow(row) {
   dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'skipped' } });
   toast('Skipped');
+}
+
+// Safety step for "Approve all categorized": list every transaction and the account it
+// will post to, and require a confirm — a bulk approve should never be a surprise.
+function confirmApproveAll(items, accountsById, body, editable) {
+  if (!items.length) return;
+  const m = modal(`Approve ${items.length} transaction${items.length === 1 ? '' : 's'}?`);
+  const nameOf = (id) => { const a = accountsById.get(id); return a ? accountLabel(a, accountsById) : id; };
+  const rows = items.map(({ row, accountId }) => el('tr', {},
+    el('td', { style: 'white-space:nowrap' }, row.date),
+    el('td', { title: row.desc || '' }, (row.desc || '—').slice(0, 48)),
+    el('td', { class: 'num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
+    el('td', {}, el('b', {}, nameOf(accountId))),
+  ));
+  m.body.append(
+    el('p', { class: 'sub' }, 'These will be posted to the ledger with the accounts shown. Check them, then confirm.'),
+    el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
+      el('table', { class: 'data' },
+        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Account')),
+        ...rows)),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
+      el('button', { class: 'btn green', onclick: () => {
+        m.close();
+        toast('⏳ Approving…');
+        setTimeout(() => {
+          for (const { row, accountId, sug } of items) { lastCategory.delete(row.id); lastInvoice.delete(row.id); lastMemo.delete(row.id); approveRow(row, accountId, sug, { quiet: true }); }
+          toast(`${items.length} approved`);
+        }, 30);
+      } }, `Approve all ${items.length}`)));
 }
 
 // ── Bulk actions on the current (per-account) selection ─────────────────────────

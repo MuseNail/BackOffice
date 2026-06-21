@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.16', items: [
+    { icon: 'fact_check', t: '“Approve all” now asks you to confirm', d: 'Clicking “Approve all categorized” no longer posts everything instantly. It first shows a list of every transaction and the account it’ll be posted to, so you can look it over and confirm — or cancel — before anything hits the ledger.' },
+  ] },
   { v: '0.69.15', items: [
     { icon: 'call_split', t: 'Split a transaction in Review', d: 'Each waiting transaction now has a “⊟ Split” button. It opens a window where you divide the amount across two or more accounts (e.g. one charge that’s part supplies, part office) — a running total shows what’s left to assign, and it posts as one balanced transaction once the pieces add up.' },
   ] },
