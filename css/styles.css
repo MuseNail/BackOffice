@@ -141,6 +141,13 @@ table.data th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color
 th.th-sort{cursor:pointer;user-select:none}
 th.th-sort:hover{color:var(--ink,#23252c)}
 th.th-sort.on{color:var(--brand)}
+/* Settings landing menu — each row opens its section as its own window. */
+.set-menu{display:flex;flex-direction:column;gap:8px;max-width:560px}
+.set-menu-row{display:flex;align-items:center;gap:12px;text-align:left;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer;font:inherit}
+.set-menu-row:hover{border-color:var(--brand);background:var(--brand-soft)}
+.set-menu-ic{font-size:24px;color:var(--brand)}
+.set-menu-t{font-weight:700;font-size:14px}
+.set-menu-go{color:var(--mut);margin-left:auto}
 table.data td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
 table.data tr:last-child td{border-bottom:none}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}

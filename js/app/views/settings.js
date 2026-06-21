@@ -17,6 +17,30 @@ import { ORIGIN, LS } from '../config.js';
 const ROLES = ['owner', 'manager', 'bookkeeper', 'client', 'viewer'];
 const ROLE_HELP = { owner: 'everything', manager: 'everything but deleting the business', bookkeeper: 'edit the books', client: 'suggest categories + notes, view reports/invoices (client app)', viewer: 'read-only' };
 
+// Settings is a MENU now — each row opens its section as its OWN window (one window
+// per view, like every other tab). SETTINGS_NAV is the single source of truth: the menu
+// renders from it, the section views read their title/icon from it, and main.js uses it
+// for each window's title bar + to register the views.
+export const SETTINGS_NAV = [
+  { key: 'set_team', title: 'Team & access', icon: 'group', desc: 'Users, roles, and device approvals.' },
+  { key: 'set_modules', title: 'Modules', icon: 'tune', desc: 'Optional features and AI spending.' },
+  { key: 'set_qb', title: 'QuickBooks', icon: 'sync_alt', desc: 'Export, sync lists, and import to/from QuickBooks Desktop.' },
+  { key: 'set_integrations', title: 'Integrations', icon: 'hub', desc: 'Connections to other apps (Muse salon sync).' },
+  { key: 'set_books', title: 'Close the books', icon: 'lock', desc: 'Lock finished months so they can’t be changed.' },
+  { key: 'set_data', title: 'Data & maintenance', icon: 'shield', desc: 'Activity log and recovery of rejected writes.' },
+];
+
+// Cards per section, and whether each is store-driven (re-run on every store change) or
+// one-shot (async / holds a file input → drawn once). All draw fns tolerate (card, biz).
+const SECTION_CARDS = {
+  set_team: [{ draw: drawUsers, live: false }, { draw: drawDevices, live: false }],
+  set_modules: [{ draw: drawFeaturesCard, live: true }, { draw: drawAICard, live: true }],
+  set_qb: [{ draw: drawQbCard, live: true }, { draw: drawQbListSyncCard, live: true }, { draw: drawQbImportCard, live: false }, { draw: drawQbHistoryCard, live: false }],
+  set_integrations: [{ draw: drawMuseCard, live: true, onlyIf: usesMuseSync }],
+  set_books: [{ draw: drawLocksCard, live: true }],
+  set_data: [{ draw: drawAuditCard, live: false }, { draw: drawFailedOps, live: true }],
+};
+
 export function render(root) {
   const biz = getActiveBiz();
   const myRole = roleFor(biz);
@@ -26,41 +50,53 @@ export function render(root) {
     root.append(el('p', { class: 'sub' }, 'Users and devices are managed by the owner.'));
     return;
   }
-  const usersCard = el('div', { class: 'card', style: 'max-width:560px' });
-  const devicesCard = el('div', { class: 'card', style: 'max-width:560px' });
-  const featuresCard = el('div', { class: 'card', style: 'max-width:560px' });
-  const aiCard = el('div', { class: 'card', style: 'max-width:560px' });
-  const museCard = el('div', { class: 'card', style: 'max-width:640px' });
-  const qbCard = el('div', { class: 'card', style: 'max-width:560px' });
-  const qbSyncCard = el('div', { class: 'card', style: 'max-width:640px' });
-  const qbImportCard = el('div', { class: 'card', style: 'max-width:560px' });
-  const qbHistoryCard = el('div', { class: 'card', style: 'max-width:560px' });
-  const locksCard = el('div', { class: 'card', style: 'max-width:560px' });
-  const auditCard = el('div', { class: 'card', style: 'max-width:680px' });
-  const failedCard = el('div', { class: 'card', style: 'max-width:560px' });
-  root.append(el('p', { class: 'sub' }, 'Users, roles, device approvals, modules, AI spending, closing the books, the audit log, and the QuickBooks export for this business only.'), usersCard, devicesCard, featuresCard, aiCard, museCard, qbCard, qbSyncCard, qbImportCard, qbHistoryCard, locksCard, auditCard, failedCard);
-  drawUsers(usersCard, biz);
-  drawDevices(devicesCard, biz);
-  drawAuditCard(auditCard, biz);       // async, fetched once (server-stored, not store-driven)
-  drawQbImportCard(qbImportCard, biz); // not in the subscribe loop — a redraw would clear the chosen file
-  drawQbHistoryCard(qbHistoryCard, biz); // ditto — holds a chosen file + preview between renders
-  const drawFeatures = () => drawFeaturesCard(featuresCard);
-  const drawAI = () => drawAICard(aiCard);
-  // Muse sync is salon-only — hide its mapping card entirely for businesses that don't use it.
-  const drawMuse = () => { if (usesMuseSync()) { museCard.style.display = ''; drawMuseCard(museCard, biz); } else { museCard.style.display = 'none'; clear(museCard); } };
-  const drawQb = () => drawQbCard(qbCard, biz);
-  const drawQbSync = () => drawQbListSyncCard(qbSyncCard, biz);
-  const drawLocks = () => drawLocksCard(locksCard);
-  const drawFailed = () => drawFailedOps(failedCard, biz);
-  unsubAI = subscribe(() => { drawFeatures(); drawAI(); drawMuse(); drawQb(); drawQbSync(); drawLocks(); drawFailed(); });
-  drawFeatures();
-  drawAI();
-  drawMuse();
-  drawQb();
-  drawQbSync();
-  drawLocks();
-  drawFailed();
+  root.append(el('p', { class: 'sub' }, 'Pick a section — each opens in its own window.'));
+  const menu = el('div', { class: 'set-menu' });
+  for (const sct of SETTINGS_NAV) {
+    if (sct.key === 'set_integrations' && !usesMuseSync()) continue;   // hide empty integrations
+    menu.append(el('button', { class: 'set-menu-row', type: 'button', onclick: () => { location.hash = `#/b/${biz}/${sct.key}`; } },
+      el('span', { class: 'ms set-menu-ic' }, sct.icon),
+      el('span', { style: 'flex:1' }, el('div', { class: 'set-menu-t' }, sct.title), el('div', { class: 'sub', style: 'margin:0' }, sct.desc)),
+      el('span', { class: 'ms set-menu-go' }, 'chevron_right')));
+  }
+  root.append(menu);
 }
+export function unmount() {}
+
+// One settings section = its own window. Reuses the draw*Card builders below; store-driven
+// cards re-run on a subscription, one-shot cards are drawn once (same split as the old page).
+function sectionView(key) {
+  let unsub = null;
+  const meta = SETTINGS_NAV.find(s => s.key === key);
+  return {
+    render(root) {
+      const biz = getActiveBiz();
+      root.append(el('div', { style: 'display:flex;align-items:center;gap:10px;margin-bottom:12px' },
+        el('a', { class: 'btn sm ghost', href: `#/b/${biz}/settings` }, '← All settings'),
+        el('h2', { style: 'margin:0' }, meta?.title || 'Settings')));
+      if (!['owner', 'manager'].includes(roleFor(biz))) { root.append(el('p', { class: 'sub' }, 'Managed by the owner.')); return; }
+      const live = [];
+      let shown = 0;
+      for (const c of (SECTION_CARDS[key] || [])) {
+        if (c.onlyIf && !c.onlyIf()) continue;
+        const card = el('div', { class: 'card', style: 'max-width:680px' });
+        root.append(card);
+        c.draw(card, biz);
+        if (c.live) live.push(() => c.draw(card, biz));
+        shown++;
+      }
+      if (!shown) root.append(el('p', { class: 'sub' }, 'Nothing to set up here for this business.'));
+      if (live.length) unsub = subscribe(() => live.forEach(fn => fn()));
+    },
+    unmount() { unsub?.(); unsub = null; },
+  };
+}
+export const setTeam = sectionView('set_team');
+export const setModules = sectionView('set_modules');
+export const setQb = sectionView('set_qb');
+export const setIntegrations = sectionView('set_integrations');
+export const setBooks = sectionView('set_books');
+export const setData = sectionView('set_data');
 
 // ── Rejected writes (dead-letter log) ──
 // sync.js records writes the server turned down (409 stale/blocked) to the
@@ -121,9 +157,6 @@ function drawFailedOps(card, biz) {
         drawFailedOps(card, biz);
       } }, 'Clear all')));
 }
-
-let unsubAI = null;
-export function unmount() { unsubAI?.(); unsubAI = null; }
 
 // ── Business features (per-business modules) ──
 // Stored on meta.features; absent flags derive from existing data (store.js), so

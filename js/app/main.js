@@ -49,7 +49,19 @@ const VIEWS = {
   reports,
   audit,
   settings,
+  // Settings sections — each opens as its own window (option a). Names use the route's
+  // \w+ charset (underscores), and map back to the "settings" sidebar item for highlight.
+  set_team: settings.setTeam,
+  set_modules: settings.setModules,
+  set_qb: settings.setQb,
+  set_integrations: settings.setIntegrations,
+  set_books: settings.setBooks,
+  set_data: settings.setData,
 };
+// Window title + icon for views that have no sidebar item (the settings sub-windows).
+const EXTRA_META = Object.fromEntries(settings.SETTINGS_NAV.map(s => [s.key, { title: s.title, icon: s.icon }]));
+// A focused settings sub-window should keep the "Settings" sidebar item highlighted.
+const navKeyFor = (name) => (name && name.startsWith('set_')) ? 'settings' : name;
 
 let current = null;
 let opened = ''; // in-memory — getActiveBiz() persists across reloads, but the
@@ -102,11 +114,14 @@ function viewMeta(name) {
   if (nav) {
     icon = nav.querySelector('.ms')?.textContent?.trim() || icon;
     nav.childNodes.forEach((n) => { if (n.nodeType === 3 && n.textContent.trim()) title = n.textContent.trim(); });
+  } else if (EXTRA_META[name]) {
+    title = EXTRA_META[name].title; icon = EXTRA_META[name].icon;
   }
   return { view: VIEWS[name] || VIEWS.dashboard, title, icon };
 }
 function setNavActive(name) {
-  document.querySelectorAll('#sidebar .navitem').forEach((n) => n.classList.toggle('on', n.dataset.v === name));
+  const active = navKeyFor(name);
+  document.querySelectorAll('#sidebar .navitem').forEach((n) => n.classList.toggle('on', n.dataset.v === active));
 }
 
 function mount(view, root, detail) {
@@ -131,8 +146,9 @@ function setNav(active, biz) {
   document.getElementById('sidebar').dataset.biz = biz;
   const gs = document.getElementById('gsearch'); if (gs) gs.style.display = biz ? '' : 'none';
   const cm = document.getElementById('createmenu'); if (cm) cm.style.display = biz ? '' : 'none';
+  const activeKey = navKeyFor(active);
   document.querySelectorAll('#sidebar .navitem').forEach(n => {
-    n.classList.toggle('on', n.dataset.v === active);
+    n.classList.toggle('on', n.dataset.v === activeKey);
     n.style.display = biz ? 'flex' : 'none';
   });
   // Switching businesses lives in the account menu (top-right) now, shown only for

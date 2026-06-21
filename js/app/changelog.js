@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.9', items: [
+    { icon: 'dashboard_customize', t: 'Settings is now a tidy menu', d: 'Instead of one long page, Settings is a short menu — Team & access, Modules, QuickBooks, Integrations, Close the books, and Data & maintenance. Click any one and it opens in its own window (like every other tab), so you can keep, say, QuickBooks and Users open side by side. The four QuickBooks tools now live together under “QuickBooks.”' },
+  ] },
   { v: '0.69.8', items: [
     { icon: 'flip_to_front', t: 'Clicking a tab brings its window to the front', d: 'If a window is already open, clicking its tab again now raises it (and un-minimizes it) instead of doing nothing — no more hunting for it in the “Open windows” bar.' },
     { icon: 'table_rows', t: 'Reconcile: separate Payments and Deposits columns', d: 'The reconcile list now splits money out (Payments) and money in (Deposits) into their own columns, with a running subtotal of each at the bottom that adds up the items you’ve checked — so you can tie each side to your statement’s totals.' },
