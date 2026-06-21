@@ -18,7 +18,7 @@ import { accountLabel } from '../lib/coa-templates.js';
 import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 import { helcimDayTotals, ledgerDayDebits, matchDeposit } from '../lib/processor-match.js';
-import { attachAddCategory, attachAddVendor } from '../pickers.js';
+import { attachAddCategory, attachAddVendor, accountCombo } from '../pickers.js';
 import { combobox } from '../combobox.js';
 import { dateRangeControl } from '../daterange.js';
 import { quickAddAccountModal } from './accounts.js';
@@ -287,7 +287,8 @@ function drawBody(body, editable) {
     });
     const actions = [approve,
       el('button', { class: 'btn sm ghost', onclick: () => skipRow(row) }, 'Skip'),
-      el('button', { class: 'btn sm ghost', title: 'Auto-categorize this vendor from now on', onclick: () => makeRuleModal(row, sel.value, vendSel.value, categories, accountsById) }, '⚡ Rule')];
+      el('button', { class: 'btn sm ghost', title: 'Auto-categorize this vendor from now on', onclick: () => makeRuleModal(row, sel.value, vendSel.value, categories, accountsById) }, '⚡ Rule'),
+      el('button', { class: 'btn sm ghost', title: 'Split this transaction across several accounts', onclick: () => splitModal(row, accountsById) }, '⊟ Split')];
     if (row.amountCents > 0) {
       actions.push(el('button', { class: 'btn sm ghost', title: 'Deposit with a processing fee taken out', onclick: () => feeSplitModal(row, accountsById) }, '% Fee'));
       actions.push(el('button', { class: 'btn sm ghost', title: 'Match this deposit to recorded sales/payments', onclick: () => matchDepositModal(row, accountsById) }, '⚡$ Match'));
@@ -701,6 +702,79 @@ function feeSplitModal(row, accountsById) {
       } }, 'Post split')),
   );
   setTimeout(() => gross.focus(), 0);
+}
+
+// Split a Review row across several category accounts: the bank side stays as imported,
+// and the amount is distributed over 2+ lines that must add up to it. Posts one balanced
+// txn (like the % Fee split) and marks the staged row approved.
+function splitModal(row, accountsById) {
+  const bankacct = entities('bankacct').find(b => b.id === row.bankacctId);
+  if (!bankacct) { toast('Bank account missing', 'err'); return; }
+  const m = modal('Split transaction');
+  const total = Math.abs(row.amountCents);
+  const isExpense = row.amountCents < 0;
+  const lines = [];
+  const linesBox = el('div');
+  const remind = el('div', { class: 'split-remind' });
+  const assigned = () => lines.reduce((s, l) => s + (parseMoney(l.amt.value) || 0), 0);
+  const recalc = () => {
+    const left = total - assigned();
+    const ok = left === 0;
+    remind.className = 'split-remind ' + (ok ? 'ok' : 'bad');
+    clear(remind).append(
+      el('span', {}, ok ? 'Balanced' : 'Remaining to assign'),
+      el('span', {}, ok ? fmtMoney(total) + ' ✓' : fmtMoney(left)));
+    post.disabled = !(ok && lines.every(l => l.sel.value));
+  };
+  const renderLines = () => clear(linesBox).append(...lines.map(l => l.el));
+  const makeLine = (amtVal) => {
+    const sel = accountCombo({ filter: (a) => !bankish(a), minWidth: 0 });
+    sel.style.cssText = 'flex:2;min-width:0;margin:0';
+    sel.addEventListener('change', recalc);
+    const amt = el('input', { class: 'field-input', inputmode: 'decimal', placeholder: '$', style: 'flex:1;min-width:0;margin:0', value: amtVal || '' });
+    amt.addEventListener('input', recalc);
+    const L = { sel, amt };
+    const rm = el('button', { class: 'iconbtn', type: 'button', title: 'Remove line', onclick: () => { const i = lines.indexOf(L); if (i >= 0) lines.splice(i, 1); renderLines(); recalc(); } }, '×');
+    L.el = el('div', { style: 'display:flex;gap:7px;align-items:center;margin-bottom:6px' }, sel, amt, rm);
+    return L;
+  };
+  const addLine = el('button', { class: 'btn sm ghost', type: 'button', onclick: () => {
+    const left = total - assigned();
+    lines.push(makeLine(left > 0 ? (left / 100).toFixed(2) : ''));
+    renderLines(); recalc();
+  } }, '＋ Add split line');
+  lines.push(makeLine((total / 100).toFixed(2)));
+  lines.push(makeLine(''));
+  renderLines();
+
+  const post = el('button', { class: 'btn green', onclick: () => {
+    if (lines.length < 2) { toast('A split needs at least two accounts', 'err'); return; }
+    if (lines.some(l => !l.sel.value)) { toast('Pick an account for every line', 'err'); return; }
+    const cents = lines.map(l => parseMoney(l.amt.value) || 0);
+    if (cents.some(c => c <= 0)) { toast('Each line needs an amount', 'err'); return; }
+    if (cents.reduce((s, c) => s + c, 0) !== total) { toast(`The lines must add up to ${fmtMoney(total)}`, 'err'); return; }
+    const txnLines = [{ accountId: bankacct.accountId, amountCents: row.amountCents }];
+    lines.forEach((l, i) => txnLines.push({ accountId: l.sel.value, amountCents: isExpense ? cents[i] : -cents[i] }));
+    const txn = {
+      id: 't-' + row.id, date: row.date, payee: row.desc, memo: lastMemo.get(row.id) || row.memo || '',
+      lines: txnLines, status: 'posted', source: { app: row.source?.app || 'csv', importId: row.importId, sourceId: row.id },
+    };
+    const v = validateTxn(txn, postCtx());
+    if (!v.ok) { toast(v.error, 'err'); return; }
+    dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
+    dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'approved', txnId: txn.id, categoryId: lines[0].sel.value } });
+    logAudit('post', { summary: `Split ${row.date} · ${row.desc || '—'} across ${lines.length} accounts`, kind: 'txn', entityId: txn.id, amountCents: row.amountCents });
+    lastCategory.delete(row.id); lastVendor.delete(row.id); lastInvoice.delete(row.id); lastMemo.delete(row.id);
+    toast(`Posted — split across ${lines.length} accounts`);
+    m.close();
+  } }, 'Post split');
+
+  m.body.append(
+    el('p', { class: 'sub' }, `${row.date} · ${row.desc || '—'} · ${fmtMoney(row.amountCents, { sign: row.amountCents > 0 })}. Split it across the accounts below — the amounts must add up to ${fmtMoney(total)}.`),
+    linesBox, addLine, remind,
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'), post));
+  recalc();
 }
 
 // ── Match a bank deposit to processor daily sales (M13) ──

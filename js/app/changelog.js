@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.15', items: [
+    { icon: 'call_split', t: 'Split a transaction in Review', d: 'Each waiting transaction now has a “⊟ Split” button. It opens a window where you divide the amount across two or more accounts (e.g. one charge that’s part supplies, part office) — a running total shows what’s left to assign, and it posts as one balanced transaction once the pieces add up.' },
+  ] },
   { v: '0.69.14', items: [
     { icon: 'rule', t: 'Choose “and” or “or” for each rule condition', d: 'When a vendor rule has more than one match condition, each extra one now has an “and / or” picker, so you can say “contains A and contains B” (both required) or “contains A or contains B” (either one). “and” groups tighter than “or” (A and B or C means “(A and B) or C”). This also clears up the old behavior, where plain multi-word rules quietly acted like “or.”' },
     { icon: 'restart_alt', t: 'Making a rule no longer wipes the invoice/note', d: 'In Review, if you’d filled in an invoice or a note and then made a rule, they used to disappear when the row refreshed. Now creating a rule only fills in the vendor and account it memorized — your invoice and note stay exactly as you left them.' },
