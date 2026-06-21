@@ -39,10 +39,13 @@ let reviewSearchEl = null;
 let reviewFiltersHost = null;   // sticky-header slots filled by drawBody (filters + action buttons)
 let reviewActionsHost = null;
 const REVIEW_FILTER_DEFAULT = () => ({ dir: 'all', status: 'all', bank: 'all', sort: 'date-desc', amountMin: '', amountMax: '', from: '', to: '', q: '' });
-// Preserve per-row category / vendor selection across drawBody re-renders (store
-// changes trigger a full redraw, so we save the user's pick here and restore it).
+// Preserve per-row category / vendor / invoice / note edits across drawBody re-renders
+// (store changes — e.g. creating a rule — trigger a full redraw, so we save the user's
+// in-progress picks here and restore them; otherwise the invoice + note would reset).
 let lastCategory = new Map();
 let lastVendor = new Map();
+let lastInvoice = new Map();
+let lastMemo = new Map();
 // Review (bank rows): which account groups are collapsed, and the current page per account.
 let collapsedBanks = new Set();
 let bankPage = new Map();
@@ -93,7 +96,7 @@ export function render(root) {
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); collapsedBanks = new Set(); bankPage = new Map(); selected = new Set(); selectedBank = null; reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; reviewSearchEl = null; reviewFiltersHost = null; reviewActionsHost = null; focusVendorRow = null; }
+export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); lastInvoice = new Map(); lastMemo = new Map(); collapsedBanks = new Set(); bankPage = new Map(); selected = new Set(); selectedBank = null; reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; reviewSearchEl = null; reviewFiltersHost = null; reviewActionsHost = null; focusVendorRow = null; }
 
 // A row is "ready" if it has a resolved category — a valid rule/history suggestion,
 // an AI suggestion, or a manual pick (lastCategory). Drives the needs/ready filter.
@@ -244,14 +247,16 @@ function drawBody(body, editable) {
     const vendPreselect = lastVendor.has(row.id) ? lastVendor.get(row.id) : (row.suggestedVendorId || vendorTag?.vendorId);
     const sel = categorySelect(row, categories, accountsById, preselect,
       (account) => { lastCategory.set(row.id, account.id); drawBody(body, editable); });
-    const memoIn = el('input', { class: 'field-input', placeholder: 'Add a note…', style: 'margin:0;min-width:150px', value: row.memo || '' });
+    const memoIn = el('input', { class: 'field-input', placeholder: 'Add a note…', style: 'margin:0;min-width:150px', value: lastMemo.has(row.id) ? lastMemo.get(row.id) : (row.memo || '') });
     bindSuggest(memoIn, 'memo');
+    memoIn.addEventListener('input', () => lastMemo.set(row.id, memoIn.value));
     const vendSel = vendorSelect(vendorsList, vendPreselect,
       (vendor) => { lastVendor.set(row.id, vendor.id); focusVendorRow = row.id; drawBody(body, editable); }, vendPrefillText);
     // After adding a vendor the body re-renders; put focus back on THIS row's vendor field
     // (without popping its panel) so the keyboard user can Tab straight to the next field.
     if (focusVendorRow === row.id) { focusVendorRow = null; setTimeout(() => vendSel.focusNoOpen?.(), 0); }
-    const invSel = showInvoices ? invoiceSelect(invoicesList, row.suggestedInvoiceId) : null; if (invSel) invSel.style.margin = '0';
+    const invSel = showInvoices ? invoiceSelect(invoicesList, lastInvoice.has(row.id) ? lastInvoice.get(row.id) : row.suggestedInvoiceId) : null;
+    if (invSel) { invSel.style.margin = '0'; invSel.addEventListener('change', () => lastInvoice.set(row.id, invSel.value)); }
     const chip = row.suggestedAt
       ? el('span', { class: 'pill blue', title: 'Filled in by your client — review and approve' }, '💬 Client suggested')
       : sug
@@ -265,7 +270,7 @@ function drawBody(body, editable) {
             : el('span', { class: 'pill gray' }, 'No match');
 
     const approve = el('button', { class: 'btn sm green', disabled: !preselect, onclick: () => {
-      lastCategory.delete(row.id); lastVendor.delete(row.id);
+      lastCategory.delete(row.id); lastVendor.delete(row.id); lastInvoice.delete(row.id); lastMemo.delete(row.id);
       // A typed/AI-prefilled vendor name with no saved id → find-or-create it on approve.
       approveRow(row, sel.value, sug, { memo: memoIn.value.trim(), vendorId: vendSel.value, vendorName: vendSel.value ? '' : vendSel.inputText, invoiceId: invSel?.value || '' });
     } }, 'Approve');
@@ -460,7 +465,7 @@ function drawBody(body, editable) {
         const items = categorized.slice();
         toast('⏳ Approving…');
         setTimeout(() => {
-          for (const { row, accountId, sug } of items) { lastCategory.delete(row.id); approveRow(row, accountId, sug, { quiet: true }); }
+          for (const { row, accountId, sug } of items) { lastCategory.delete(row.id); lastInvoice.delete(row.id); lastMemo.delete(row.id); approveRow(row, accountId, sug, { quiet: true }); }
           toast(`${items.length} approved`);
         }, 30);
       } }, `Approve all categorized (${categorized.length})`) : el('span'),
@@ -592,7 +597,7 @@ function bulkApprove(byCat, body, editable) {
     for (const id of ids) {
       const c = byCat.get(id);
       if (!c) continue;
-      lastCategory.delete(c.row.id);
+      lastCategory.delete(c.row.id); lastInvoice.delete(c.row.id); lastMemo.delete(c.row.id);
       approveRow(c.row, c.accountId, c.sug, { quiet: true, vendorId: lastVendor.get(c.row.id) || '' });
       selected.delete(id); done++;
     }

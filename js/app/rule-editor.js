@@ -10,15 +10,17 @@ import { parseMoney } from './lib/money.js';
 const TYPES = [['contains', 'contains'], ['not-contains', 'does not contain'], ['starts', 'starts with'], ['exact', 'is exactly'], ['regex', 'matches pattern']];
 
 // Normalize any matchers (new or legacy) into a conditions array for seeding the editor.
+// `conn` (the and/or joining a condition to the previous one) is preserved; legacy
+// exact[]/keywords[] were matched as OR, so they seed back as `or`-connected.
 export function matchersToConditions(matchers = {}) {
   if (Array.isArray(matchers.conditions) && matchers.conditions.length) {
-    return matchers.conditions.map(c => ({ type: c.type || 'contains', text: c.text || '' }));
+    return matchers.conditions.map((c, i) => ({ type: c.type || 'contains', text: c.text || '', ...(i ? { conn: c.conn === 'or' ? 'or' : 'and' } : {}) }));
   }
   const seeded = [
     ...(matchers.exact || []).map(t => ({ type: 'exact', text: t })),
     ...(matchers.keywords || []).map(t => ({ type: 'contains', text: t })),
   ];
-  return seeded.length ? seeded : [];
+  return seeded.map((c, i) => (i ? { ...c, conn: 'or' } : c));
 }
 
 // A live "matches N transactions" preview line. Pass a recompute() that returns
@@ -44,16 +46,22 @@ export function ruleConditionsEditor({ seed = {}, onChange } = {}) {
   const list = el('div');
   const draw = () => {
     list.replaceChildren(...conds.map((c, i) => {
+      // From the 2nd condition on, an and/or selector decides how it joins the one above.
+      const conn = i === 0 ? null : el('select', { class: 'field-input', style: 'flex:none;width:62px;margin:0;font-weight:700;color:var(--brand)',
+        onchange: (e) => { c.conn = e.target.value; fire(); } },
+        el('option', { value: 'and', selected: (c.conn || 'and') === 'and' }, 'and'),
+        el('option', { value: 'or', selected: c.conn === 'or' }, 'or'));
       const typeSel = el('select', { class: 'field-input', style: 'flex:none;width:132px;margin:0',
         onchange: (e) => { c.type = e.target.value; fire(); } }, ...TYPES.map(([v, l]) => el('option', { value: v, selected: v === c.type }, l)));
-      const txt = el('input', { class: 'field-input', style: 'flex:1;margin:0', value: c.text, placeholder: 'e.g. SALLY BEAUTY',
+      const txt = el('input', { class: 'field-input', style: 'flex:1;min-width:0;margin:0', value: c.text, placeholder: 'e.g. SALLY BEAUTY',
         oninput: (e) => { c.text = e.target.value; fire(); } });
       const x = conds.length > 1 ? el('button', { class: 'iconbtn', type: 'button', title: 'Remove', onclick: () => { conds.splice(i, 1); draw(); fire(); } }, '×') : null;
-      return el('div', { style: 'display:flex;gap:7px;align-items:center;margin-bottom:6px' }, typeSel, txt, x);
+      return el('div', { style: 'display:flex;gap:7px;align-items:center;margin-bottom:6px' }, conn, typeSel, txt, x);
     }));
   };
   draw();
-  const add = el('button', { class: 'addcond', type: 'button', onclick: () => { conds.push({ type: 'contains', text: '' }); draw(); } }, '＋ Add another condition');
+  // New conditions default to `or` — usually "match any of these spellings" for a vendor.
+  const add = el('button', { class: 'addcond', type: 'button', onclick: () => { conds.push({ type: 'contains', text: '', conn: 'or' }); draw(); fire(); } }, '＋ Add another condition');
 
   const seedDir = (seed.amountMin != null || seed.amountMax != null) ? 'range' : (seed.direction || 'any');
   const dirSel = el('select', { class: 'field-input', onchange: () => { syncRange(); fire(); } },
@@ -73,7 +81,7 @@ export function ruleConditionsEditor({ seed = {}, onChange } = {}) {
     el('label', { class: 'field-label' }, 'Only for'), dirSel, rangeRow);
 
   const get = () => {
-    const conditions = conds.map(c => ({ type: c.type, text: (c.text || '').trim() })).filter(c => c.text);
+    const conditions = conds.map((c, i) => ({ type: c.type, text: (c.text || '').trim(), ...(i ? { conn: c.conn === 'or' ? 'or' : 'and' } : {}) })).filter(c => c.text);
     const isRange = dirSel.value === 'range';
     const amountMin = isRange ? (parseMoney(minIn.value) ?? null) : null;
     const amountMax = isRange ? (parseMoney(maxIn.value) ?? null) : null;
@@ -91,8 +99,13 @@ export function buildMatchers(spec) {
   // match on the positive part alone and ignore the exclusion.
   const hasNegation = spec.conditions.some(c => c.type === 'not-contains');
   const unrestricted = !hasNegation && spec.direction === 'any' && spec.amountMin == null && spec.amountMax == null;
-  const keywords = unrestricted ? [...new Set(spec.conditions.filter(c => c.type === 'contains').map(c => c.text))] : [];
-  const exact = unrestricted ? [...new Set(spec.conditions.filter(c => c.type === 'exact').map(c => c.text))] : [];
+  // The legacy fallback matches with OR, so only write it for a PURE-OR rule (every
+  // connector is `or`; a single condition counts). A rule containing an `and` would be
+  // wrongly OR-matched by old code, so leave the arrays empty and rely on `conditions`.
+  const pureOr = spec.conditions.slice(1).every(c => (c.conn || 'and') === 'or');
+  const legacy = unrestricted && pureOr;
+  const keywords = legacy ? [...new Set(spec.conditions.filter(c => c.type === 'contains').map(c => c.text))] : [];
+  const exact = legacy ? [...new Set(spec.conditions.filter(c => c.type === 'exact').map(c => c.text))] : [];
   return { exact, keywords, conditions: spec.conditions, direction: spec.direction, amountMin: spec.amountMin, amountMax: spec.amountMax };
 }
 
@@ -101,7 +114,7 @@ export function ruleSummary(matchers = {}) {
   const conds = matchersToConditions(matchers);
   if (!conds.length) return 'no rule';
   const verb = { contains: 'contains', 'not-contains': 'does not contain', starts: 'starts with', exact: 'is', regex: 'matches' };
-  let s = conds.map(c => `${verb[c.type] || 'contains'} “${c.text}”`).join(' + ');
+  let s = conds.map((c, i) => `${i ? ((c.conn === 'or' ? 'or' : 'and') + ' ') : ''}${verb[c.type] || 'contains'} “${c.text}”`).join(' ');
   if (matchers.direction === 'in') s += ' · deposits';
   else if (matchers.direction === 'out') s += ' · withdrawals';
   if (matchers.amountMin != null || matchers.amountMax != null) s += ' · amount-limited';

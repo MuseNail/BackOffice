@@ -64,14 +64,23 @@ export function vendorForRow(row, vendors = []) {
   return null;
 }
 
-// True when a row satisfies a matchers object's advanced conditions (ALL of them)
-// AND its direction / amount-range gate. Pure — shared by suggestFor and the rule
-// builder's live preview. row: { desc, amountCents }.
+// True when a row satisfies a matchers object's conditions AND its direction /
+// amount-range gate. Conditions combine via per-condition and/or connectors with
+// "and binds tighter than or": consecutive `and` conditions form a group, and the rule
+// matches if ANY group matches. (A condition's `conn` is the operator joining it to the
+// previous one; the first condition's is ignored. Missing conn = 'and' — legacy rules
+// were ALL-of.) Pure — shared by suggestFor and the rule builder's live preview.
 export function matchesRule(matchers, row) {
   const conds = matchers?.conditions;
   if (!Array.isArray(conds) || !conds.length) return false;
-  const desc = normalizeDesc(row?.desc);
-  if (!conds.every(c => matchCond(c, desc, row?.desc || ''))) return false;
+  const desc = normalizeDesc(row?.desc), raw = row?.desc || '';
+  let result = false, group = true;
+  for (let i = 0; i < conds.length; i++) {
+    const m = matchCond(conds[i], desc, raw);
+    if (i > 0 && conds[i].conn === 'or') { result = result || group; group = m; }
+    else { group = i === 0 ? m : (group && m); }
+  }
+  if (!(result || group)) return false;
   return gateOk(matchers, row);
 }
 function matchCond(c, desc, rawDesc) {
