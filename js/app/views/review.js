@@ -920,13 +920,18 @@ function makeRuleModal(row, pickedCategoryId, pickedVendorId, categories, accoun
   };
   name.addEventListener('input', syncExisting);
   syncExisting();
+  // Grouped into spaced sections (Vendor name · Match · Account · Preview) with hairline
+  // dividers so the dense form has room to breathe.
+  const mrDiv = () => el('div', { style: 'border-top:1px solid var(--line);margin:16px 0' });
   m.body.append(
-    el('p', { class: 'sub' }, 'Bank descriptions matching the conditions below get this vendor (and, if you set one, this account) filled in automatically.'),
-    el('label', { class: 'field-label' }, 'Vendor name'), name, dl, hint,
-    editor.el,
-    el('label', { class: 'field-label' }, 'Account (optional — leave blank to just memorize the vendor)'), cat,
-    preview.el,
-    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+    el('p', { class: 'sub', style: 'margin:0 0 16px' }, 'Bank descriptions matching the conditions below get this vendor (and, if you set one, this account) filled in automatically.'),
+    el('div', {}, el('label', { class: 'field-label' }, 'Vendor name'), name, dl, hint),
+    mrDiv(),
+    el('div', {}, editor.el),
+    mrDiv(),
+    el('div', {}, el('label', { class: 'field-label' }, 'Account (optional — leave blank to just memorize the vendor)'), cat),
+    el('div', { style: 'margin-top:16px' }, preview.el),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:16px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', onclick: () => {
         const nm = name.value.trim(); const spec = editor.get();

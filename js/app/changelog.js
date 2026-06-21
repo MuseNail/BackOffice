@@ -6,6 +6,11 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.13', items: [
+    { icon: 'space_bar', t: 'Roomier “Auto-categorize vendor” box', d: 'The make-a-rule pop-up is now grouped into clear sections — Vendor name, Match conditions, Account, and the matches preview — with space and a thin line between each, so it’s much easier to read.' },
+    { icon: 'segment', t: 'Search results grouped by type, in columns', d: 'The top search now splits transactions into their own headings by type — Transfers, Deposits, Expenses, Card payments, Checks, and so on — and lines up date, payee, and amount in neat columns.' },
+    { icon: 'filter_list', t: 'Filter your search', d: 'A small filter bar at the top of the search results lets you narrow transactions by account, by category, or by date (this month / this year / last 90 days).' },
+  ] },
   { v: '0.69.12', items: [
     { icon: 'view_column', t: 'Tidier Review rows', d: 'In Review (and the client Suggest screen), each row is now two clean columns: the description and the Vendor/Account/Invoice/Note fields on the left, and the match chip, amount, and action buttons on the right. The description now wraps to end exactly where the Note column ends, and the amount stays pinned far right — so everything lines up straight down the page.' },
   ] },
