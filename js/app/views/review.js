@@ -987,7 +987,11 @@ function makeRuleModal(row, pickedCategoryId, pickedVendorId, categories, accoun
   const pickedVendor = pickedVendorId ? existingVendors.find(v => v.id === pickedVendorId) : null;
   const name = el('input', { class: 'field-input', list: 'mr-existing-vendors', value: pickedVendor ? pickedVendor.name : guessVendorName(row.desc) });
   const hint = el('p', { class: 'sub', style: 'margin:4px 0 0;color:var(--green)' }, '');
-  const editor = ruleConditionsEditor({ seed: { conditions: [{ type: 'contains', text: guessVendorName(row.desc).toUpperCase() }] }, onChange: () => updatePreview() });
+  // If this vendor already has a rule, LOAD it (its conditions + amount/direction) so the
+  // existing rule SHOWS and can be edited — instead of starting from a blank fresh guess.
+  const loadedVendor = pickedVendor || findVendor(name.value);
+  const hasRule = !!(loadedVendor && (loadedVendor.matchers?.conditions?.length || loadedVendor.matchers?.exact?.length || loadedVendor.matchers?.keywords?.length));
+  const editor = ruleConditionsEditor({ seed: hasRule ? loadedVendor.matchers : { conditions: [{ type: 'contains', text: guessVendorName(row.desc).toUpperCase() }] }, onChange: () => updatePreview() });
   const preview = rulePreview();
   const updatePreview = () => {
     const sp = editor.get();
@@ -1010,14 +1014,18 @@ function makeRuleModal(row, pickedCategoryId, pickedVendorId, categories, accoun
     catGroups.find(g => g.label === 'Accounts').items.push({ value: account.id, label: account.name });
     cat.setGroups(catGroups); cat.value = account.id;
   }, 'expense', typed);
-  const cat = combobox({ groups: catGroups, value: pickedCategoryId || '', placeholder: 'Search accounts…', minWidth: 240,
+  const cat = combobox({ groups: catGroups, value: pickedCategoryId || loadedVendor?.defaultAccountId || '', placeholder: 'Search accounts…', minWidth: 240,
     addLabel: 'Add account…', onAdd: () => addRuleAccount(''), onAddText: (typed) => addRuleAccount(typed) });
   cat.style.cssText = 'display:block;width:100%;max-width:340px';
   // When the typed name matches a vendor that already exists, say so and adopt its
   // category — so the user keeps building one vendor rather than making a duplicate.
   const syncExisting = () => {
     const v = findVendor(name.value);
-    hint.textContent = v ? `“${v.name}” already exists — this match text will be added to it.` : '';
+    hint.textContent = v
+      ? (loadedVendor && v.id === loadedVendor.id
+        ? `Showing the existing rule for “${v.name}” — edit and save to update it.`
+        : `“${v.name}” already exists — saving will add this to its rule.`)
+      : '';
     if (v?.defaultAccountId && !cat.value) cat.value = v.defaultAccountId;
   };
   name.addEventListener('input', syncExisting);
@@ -1042,8 +1050,11 @@ function makeRuleModal(row, pickedCategoryId, pickedVendorId, categories, accoun
         // an account (memorizes vendor→account for when you pick the vendor by hand).
         if (!spec.conditions.length && !cat.value) { toast('Add a match condition or an account', 'err'); return; }
         const existing = findVendor(nm);
-        // Extend an existing vendor's rule (don't clobber) — merge conditions by type+text.
-        const mergedConds = existing
+        // If we LOADED this vendor's rule into the editor, the editor is the full rule —
+        // save exactly what's shown (so editing/removing a condition sticks). A DIFFERENT
+        // existing vendor (not shown here) is extended, not clobbered — merge by type+text.
+        const editingLoaded = existing && loadedVendor && existing.id === loadedVendor.id;
+        const mergedConds = (existing && !editingLoaded)
           ? Array.from(new Map([...matchersToConditions(existing.matchers), ...spec.conditions].map(c => [c.type + '' + c.text, c])).values())
           : spec.conditions;
         const matchers = buildMatchers({ ...spec, conditions: mergedConds });

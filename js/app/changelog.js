@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.19', items: [
+    { icon: 'edit_note', t: 'Make-a-rule shows the vendor’s existing rule', d: 'When you open “⚡ Rule” for a vendor that already has a rule, the modal now loads that rule — its match conditions, and/or connectors, account, and amount limits — instead of starting blank, so you can see and edit it. Saving updates the existing rule (removing a condition now sticks).' },
+  ] },
   { v: '0.69.18', items: [
     { icon: 'backspace', t: 'Clear a vendor or account back to blank', d: 'In any of the type-to-search boxes (vendor, account, category, invoice), you can now erase your pick: clear the text and click away (or press Tab/Enter) and the field goes back to blank. It only clears when you’ve actually emptied the box, so it won’t happen by accident.' },
   ] },
