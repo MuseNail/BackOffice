@@ -156,23 +156,33 @@ export function combobox({ groups = [], value = '', text = '', placeholder = '�
     const t = input.value.trim();
     return (t && onAddText && !existsLabel(t) && t.toLowerCase() !== (labelFor(current) || '').toLowerCase()) ? t : '';
   };
+  // Emptying the box and committing (blur / Enter / Tab) clears the selection back to
+  // blank — the natural way to "erase" a pick. Only when the input is actually empty,
+  // so opening a field (which selects its text) can't clear it by accident.
+  const isEmpty = () => !input.value.trim();
   input.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) return openPanel(); setHl(Math.min(hl + 1, visible.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setHl(Math.max(hl - 1, 0)); }
     else if (e.key === 'Enter') {
       e.preventDefault();
-      if (open && hl >= 0 && visible[hl]) pick(visible[hl].value);
+      if (isEmpty() && current) pick('');
+      else if (open && hl >= 0 && visible[hl]) pick(visible[hl].value);
       else { const t = newTyped(); if (t) { closePanel(); onAddText(t); } else closePanel(); }
     }
     else if (e.key === 'Escape') { if (open) { e.stopPropagation(); closePanel(); input.blur(); } }
     else if (e.key === 'Tab') {
       // Tab on a highlighted option SELECTS it and moves to the next field (no
       // preventDefault). Tab on a typed-but-unknown name offers to add it.
-      if (open && hl >= 0 && visible[hl]) { pick(visible[hl].value); }
+      if (isEmpty() && current) pick('');
+      else if (open && hl >= 0 && visible[hl]) { pick(visible[hl].value); }
       else { const t = newTyped(); if (t) { e.preventDefault(); closePanel(); onAddText(t); } else closePanel(); }
     }
   });
-  input.addEventListener('blur', () => { setTimeout(() => { if (open) closePanel(); }, 120); });
+  input.addEventListener('blur', () => { setTimeout(() => {
+    if (!open) return;
+    if (isEmpty() && current) pick('');   // emptied the box and clicked away → clear the selection
+    else closePanel();
+  }, 120); });
 
   // Replace the option set in place (e.g. after a "＋ Add…" creates a new option,
   // when the host view isn't going to re-render the control for us).

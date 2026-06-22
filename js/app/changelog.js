@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.18', items: [
+    { icon: 'backspace', t: 'Clear a vendor or account back to blank', d: 'In any of the type-to-search boxes (vendor, account, category, invoice), you can now erase your pick: clear the text and click away (or press Tab/Enter) and the field goes back to blank. It only clears when you’ve actually emptied the box, so it won’t happen by accident.' },
+  ] },
   { v: '0.69.17', items: [
     { icon: 'format_align_left', t: 'Fixed overlapping text in search results', d: 'In the global search, a transaction’s date no longer runs into its description — the date column now sizes to fit, so the date, description, and amount stay in clean columns.' },
   ] },
