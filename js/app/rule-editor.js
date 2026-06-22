@@ -29,9 +29,11 @@ export function rulePreview() {
   const node = el('div', { class: 'rule-preview' });
   const set = ({ n, samples = [] }) => {
     node.className = 'rule-preview' + (n ? '' : ' zero');
-    node.replaceChildren(
+    // filter(Boolean): replaceChildren coerces a null arg to the text "null" — drop it.
+    node.replaceChildren(...[
       el('b', {}, n ? `Matches ${n} of your imported transactions` : 'No transactions match yet'),
-      samples.length ? el('div', { class: 'rule-samp' }, 'e.g. ' + samples.slice(0, 2).join(' · ') + (n > 2 ? ' …' : '')) : null);
+      samples.length ? el('div', { class: 'rule-samp' }, 'e.g. ' + samples.slice(0, 2).join(' · ') + (n > 2 ? ' …' : '')) : null,
+    ].filter(Boolean));
   };
   return { el: node, set };
 }
@@ -47,7 +49,7 @@ export function ruleConditionsEditor({ seed = {}, onChange } = {}) {
   const draw = () => {
     list.replaceChildren(...conds.map((c, i) => {
       // From the 2nd condition on, an and/or selector decides how it joins the one above.
-      const conn = i === 0 ? null : el('select', { class: 'field-input', style: 'flex:none;width:62px;margin:0;font-weight:700;color:var(--brand)',
+      const conn = i === 0 ? null : el('select', { class: 'field-input', style: 'flex:none;width:84px;margin:0;padding-right:22px;font-weight:700;color:var(--brand)',
         onchange: (e) => { c.conn = e.target.value; fire(); } },
         el('option', { value: 'and', selected: (c.conn || 'and') === 'and' }, 'and'),
         el('option', { value: 'or', selected: c.conn === 'or' }, 'or'));

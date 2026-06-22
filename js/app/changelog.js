@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.20', items: [
+    { icon: 'tune', t: 'Rule editor polish', d: 'In the make-a-rule box, the and/or selector is now wide enough to read fully (it was cut off to “a…”), and the “No transactions match yet” line no longer shows a stray “null” after it.' },
+  ] },
   { v: '0.69.19', items: [
     { icon: 'edit_note', t: 'Make-a-rule shows the vendor’s existing rule', d: 'When you open “⚡ Rule” for a vendor that already has a rule, the modal now loads that rule — its match conditions, and/or connectors, account, and amount limits — instead of starting blank, so you can see and edit it. Saving updates the existing rule (removing a condition now sticks).' },
   ] },
