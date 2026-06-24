@@ -13,6 +13,11 @@ body{margin:0;font-family:'Inter',Arial,sans-serif;background:var(--bg);color:va
 .topbar{display:flex;align-items:center;gap:14px;background:#fff;border-bottom:1px solid var(--line);padding:10px 18px;position:sticky;top:0;z-index:20;box-shadow:0 1px 3px rgba(0,0,0,.04)}
 .logo{display:flex;align-items:center;gap:8px;font-weight:800;font-size:16px;color:var(--brand)}
 .logo .ms{font-size:22px}
+.logobtn{display:flex;align-items:center;gap:8px;font:inherit;font-weight:800;font-size:16px;color:var(--brand);background:none;border:0;padding:0;cursor:default}
+.logobtn.switch{cursor:pointer;border-radius:8px}
+.logobtn.switch:hover{opacity:.78}
+.logo-caret{display:none;font-size:17px!important;color:var(--mut)}
+.logobtn.switch .logo-caret{display:inline-flex}
 .ver{font-size:11px;color:var(--mut);font-weight:600;align-self:flex-end;cursor:pointer;user-select:none}
 .ver.update{background:var(--amber-soft);color:var(--amber);padding:2px 8px;border-radius:999px;cursor:pointer;animation:verpulse 2s ease-in-out infinite}
 @keyframes verpulse{0%,100%{opacity:1}50%{opacity:.6}}

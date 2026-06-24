@@ -36,6 +36,7 @@ function openDoc(title, html) {
 
 export function openGuide() { openDoc('Back Office — App Guide', FULL); }
 export function openQuickRef() { openDoc('Back Office — Quick Reference', QUICK); }
+export function openProcedure() { openDoc('Back Office — Bank & Invoice2go Procedure', PROCEDURE); }
 
 // ── Full guide — the detailed manual: every tab, button, symbol, and color ─────
 const FULL = `
@@ -273,5 +274,81 @@ const QUICK = `
 <li>Re-imports are safe: bank rows, Invoice2go invoices/payments, and QB accounts all de-dupe.</li>
 <li>Reconciled and locked-period transactions are protected from edits.</li>
 <li>Roles limit edits; owners/managers manage users, settings, and integrations.</li>
+</ul>
+`;
+
+// ── Procedure — the everyday "how do I enter bank + Invoice2go" step-by-step ────
+const PROCEDURE = `
+<h1>Back Office — How to Enter Bank Transactions &amp; Invoice2go Invoices</h1>
+<p class="sub">Your keep-with-you, step-by-step procedure. The one rule that makes this safe: <strong>nothing posts to your books until you Approve it</strong> — you are always in control.</p>
+
+<h2>0 · Sign in</h2>
+<ul>
+<li>Sign in with your <strong>login name</strong> and <strong>PIN</strong> — this works on <strong>any device or browser</strong>, with no approval step.</li>
+<li>For safety the app asks for your PIN again <strong>every time it has been fully closed</strong>, or after <strong>30 minutes idle</strong>. A normal reload won't sign you out.</li>
+<li>A <span class="tag" style="background:#d6f0e0;color:#1f7a4d">Synced</span> pill means you're connected; <span class="tag" style="background:#eef0f4;color:#5b5e68">Offline</span> edits catch up automatically once you reconnect.</li>
+</ul>
+
+<h2>A · Bank transactions <span class="sub">(do this weekly)</span></h2>
+<p><strong>Goal:</strong> get the week's bank activity into the books and put each transaction in the right account.</p>
+<h3>Step 1 — Bring the transactions in (use whichever you have set up)</h3>
+<div class="step"><strong>Option A — Connected bank feed (automatic):</strong> open the <strong>Banking</strong> tab → click <strong>Sync now</strong>. New transactions flow straight into <strong>Review</strong>. <span class="sub">First-time setup only: <strong>Connect feed</strong> → pick your bank → log in through the secure Plaid screen.</span></div>
+<div class="step"><strong>Option B — Import a CSV statement:</strong> on your bank's website download the transactions as a <strong>CSV</strong> → in <strong>Banking</strong> click <strong>Import CSV</strong> → choose the file. It auto-detects the date / description / amount columns and <strong>skips anything already imported</strong>, so overlapping ranges are safe. The new rows land in <strong>Review</strong>.</div>
+
+<h3>Step 2 — Review and approve each transaction</h3>
+<p>Open the <strong>Review</strong> tab. Rows are grouped by bank account; each shows a suggested-account chip:</p>
+<table>
+<tr><th>Chip</th><th>Means</th></tr>
+<tr><td><span class="tag" style="background:#dbe7fb;color:#1c4e9c">⚡ Rule</span></td><td>Matched one of your saved vendor rules.</td></tr>
+<tr><td><span class="tag" style="background:#d6f0e0;color:#1f7a4d">🕘 You did this before</span></td><td>Matched your own past history.</td></tr>
+<tr><td><span class="tag" style="background:#fbeccb;color:#8a5a00">✨ AI</span></td><td>A computer suggestion — always double-check it.</td></tr>
+<tr><td><span class="tag" style="background:#eef0f4;color:#5b5e68">No match</span></td><td>You'll pick the account yourself.</td></tr>
+</table>
+<div class="step"><strong>For each row:</strong> (1) confirm or pick the <strong>Account</strong> the transaction belongs to — the dropdown is type-to-search, and <code>＋ Add account…</code> at the bottom creates a new one without losing your place. (2) Click <strong>Approve</strong>. That posts it to your books.</div>
+<p><strong>Speed-ups (toolbar):</strong> <strong>Approve all categorized</strong> posts every row that already has an account (it confirms first, showing the list). <strong>✨ Get AI suggestions</strong> fills in an account for the leftover unmatched rows — you still approve each one.</p>
+<p><strong>Per-row buttons worth knowing:</strong></p>
+<table>
+<tr><th>Button</th><th>Use it when…</th></tr>
+<tr><td><strong>⚡</strong> make a rule</td><td>You want this vendor to auto-categorize to the same account next time.</td></tr>
+<tr><td><strong>%</strong> deposit with a fee</td><td>A <strong>money-in</strong> deposit had a processing fee taken out — posts the gross income, the fee as an expense, and the net to the bank in one balanced entry.</td></tr>
+<tr><td><strong>⚡$</strong> match deposit</td><td>A <strong>money-in</strong> deposit pays off recorded sales/invoices (see Section B, Step 4).</td></tr>
+<tr><td><strong>Skip</strong></td><td>Not ready to decide — it moves under "Show skipped," where <strong>Restore</strong> brings it back. Nothing is deleted.</td></tr>
+</table>
+<p><strong>Transfers between your own accounts</strong> (checking → savings, or paying a credit card) are recognized automatically and never counted as income or expense — pick the "↔ Transfer to / from" account at the top of the dropdown.</p>
+<h3>Step 3 — Sanity-check</h3>
+<p>Open <strong>Reports → Profit &amp; Loss</strong> for the period to confirm the numbers look right.</p>
+
+<h2>B · Invoice2go invoices <span class="sub">(do this weekly)</span></h2>
+<p><strong>Goal:</strong> bring in this week's invoices and customer payments, post the income, and tie the deposit to the bank.</p>
+<div class="step"><strong>Step 1 — Export from Invoice2go:</strong> download the weekly invoice list as a <strong>CSV</strong>. You can always export the full list — Back Office de-dupes, so re-importing only adds what's new.</div>
+<div class="step"><strong>Step 2 — Import into Back Office:</strong> <strong>Invoices</strong> tab → <strong>Import from Invoice2go</strong> → choose the CSV → set the <strong>cutoff date</strong> (only invoices with a payment on/after that date are imported) → Import. New invoices and payments are added; anything already in is skipped.</div>
+<div class="step"><strong>Step 3 — Post the payments to the ledger:</strong> still on <strong>Invoices</strong> → <strong>Post payments to the ledger</strong> → pick an <strong>Income</strong> account, a <strong>Clearing</strong> account, and a <strong>Fee</strong> account (first time only: <strong>Create the standard clearing + fee accounts</strong> makes them in one click) → Post. Each paid payment posts as income through the clearing account, with the fee expensed. Safe to run every week — already-posted payments are skipped.</div>
+<div class="step"><strong>Step 4 — Match the bank deposit (ties it all together):</strong> when Invoice2go's money lands in your bank, bring the bank activity in (Section A, Step 1), open <strong>Review</strong>, find the Invoice2go deposit, and click <strong>⚡$ match deposit</strong>. It relieves the <strong>Invoice2go Clearing</strong> account so the income isn't counted twice.</div>
+<p><strong>How you know it worked:</strong> open <strong>Accounts</strong> → click <strong>Invoice2go Clearing</strong>. Its balance settles toward <strong>$0.00</strong> as deposits are matched. A leftover balance just means a deposit hasn't been matched yet.</p>
+
+<h2>C · Your weekly rhythm (the short version)</h2>
+<table>
+<tr><th>#</th><th>Do this</th><th>Where</th></tr>
+<tr><td>1</td><td>Import the Invoice2go CSV (set the cutoff date)</td><td>Invoices → Import from Invoice2go</td></tr>
+<tr><td>2</td><td>Post payments to the ledger</td><td>Invoices → Post payments to the ledger</td></tr>
+<tr><td>3</td><td>Bring in the bank activity</td><td>Banking → Sync now / Import CSV</td></tr>
+<tr><td>4</td><td>Approve every row; use <strong>⚡$</strong> to match the deposits</td><td>Review</td></tr>
+<tr><td>5</td><td>Check the numbers; confirm Invoice2go Clearing ≈ $0</td><td>Reports → P&amp;L · Accounts</td></tr>
+</table>
+
+<h2>D · Month-end (when the month is finished)</h2>
+<ol>
+<li>Finish <strong>Review</strong> — nothing left waiting.</li>
+<li><strong>Reconcile</strong> each bank/credit-card account against its statement: enter the ending balance and tick off the cleared transactions until the <strong>difference is exactly $0.00</strong> (it turns green), then <strong>Close &amp; lock</strong>.</li>
+<li><strong>Settings → Close the books</strong> → pick the month → <strong>Close month</strong> (locks it; you can reopen anytime).</li>
+<li><strong>Reports</strong> → Profit &amp; Loss and Balance Sheet → <strong>Print / PDF</strong> or <strong>Export CSV</strong>.</li>
+</ol>
+
+<h2>Good to know</h2>
+<ul>
+<li><strong>Nothing posts until you Approve</strong> — Review is always the gate.</li>
+<li><strong>Re-imports are safe</strong> — bank rows, Invoice2go invoices/payments, and QuickBooks accounts all de-duplicate.</li>
+<li><strong>Reconciled and closed-month transactions are locked</strong> — reopen the period first to change one.</li>
+<li>Stuck on a button or a symbol? Tap <strong>your name (top-right) → App guide</strong> for the full button-by-button manual.</li>
 </ul>
 `;

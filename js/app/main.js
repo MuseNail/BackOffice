@@ -28,7 +28,7 @@ import * as settings from './views/settings.js';
 import * as windows from './windows.js';
 import { subscribe } from './store.js';
 import { entities, usesInvoices, usesMuseSync } from './store.js';
-import { openGuide, openQuickRef } from './guide.js';
+import { openGuide, openQuickRef, openProcedure } from './guide.js';
 import { showWhatsNew, maybeShowWhatsNew } from './changelog.js';
 import { stub } from './views/stubs.js';
 import { mountGlobalSearch } from './search.js';
@@ -164,14 +164,13 @@ function setNav(active, biz) {
     n.classList.toggle('on', n.dataset.v === activeKey);
     n.style.display = biz ? 'flex' : 'none';
   });
-  // Switching businesses lives in the account menu (top-right) now, shown only for
-  // multi-business sessions (single-business users have nothing to switch to).
+  // Switching businesses lives on the Back Office logo (top-left) now — clickable
+  // only for multi-business sessions (a single-business user has nothing to switch to).
   const multi = getUser()?.isOwner || getBusinesses().length > 1;
-  const bizBtn = document.querySelector('#usermenu [data-act="businesses"]');
-  if (bizBtn) {
-    bizBtn.style.display = multi ? '' : 'none';
-    const div = bizBtn.nextElementSibling;
-    if (div && div.classList.contains('usermenu-div')) div.style.display = multi ? '' : 'none';
+  const logobtn = document.getElementById('logobtn');
+  if (logobtn) {
+    logobtn.classList.toggle('switch', !!(biz && multi));
+    logobtn.title = (biz && multi) ? 'Switch business' : '';
   }
   applyFeatureNav();
   const who = document.getElementById('userchip');
@@ -276,12 +275,16 @@ function boot() {
   const menu = document.getElementById('usermenu');
   document.getElementById('userchip-btn').addEventListener('click', (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; });
   document.addEventListener('click', (e) => { if (!document.getElementById('userchip').contains(e.target)) menu.hidden = true; });
+  // The Back Office logo doubles as the business switcher (multi-business sessions only).
+  document.getElementById('logobtn').addEventListener('click', () => {
+    if (getUser()?.isOwner || getBusinesses().length > 1) location.hash = '#/businesses';
+  });
   menu.addEventListener('click', (e) => {
     const b = e.target.closest('button[data-act]'); if (!b) return;
     menu.hidden = true;
     const act = b.dataset.act;
-    if (act === 'businesses') location.hash = '#/businesses';
-    else if (act === 'guide') openGuide();
+    if (act === 'guide') openGuide();
+    else if (act === 'procedure') openProcedure();
     else if (act === 'quickref') openQuickRef();
     else if (act === 'whatsnew') showWhatsNew();
     else if (act === 'reset') promptHardReload();

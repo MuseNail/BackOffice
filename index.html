@@ -12,7 +12,7 @@
 <body>
 <div class="topbar">
   <button id="navtoggle" class="navtoggle" type="button" title="Collapse / expand menu" aria-label="Toggle menu"><span class="ms">menu_open</span></button>
-  <div class="logo"><span class="ms">account_balance</span> Back Office <span id="ver" class="ver"></span></div>
+  <div class="logo"><button id="logobtn" type="button" class="logobtn" title="Switch business"><span class="ms">account_balance</span> Back Office <span class="ms logo-caret" aria-hidden="true">unfold_more</span></button><span id="ver" class="ver"></span></div>
   <div class="spacer"></div>
   <div id="createmenu" class="createmenu" style="position:relative;display:none;margin-right:10px">
     <button id="createbtn" class="btn sm" type="button" aria-haspopup="true" aria-expanded="false" title="Create something new (N)"><span class="ms" style="font-size:17px;vertical-align:-4px">add</span> New <span class="ms" style="font-size:16px;vertical-align:-3px">expand_more</span></button>
@@ -39,9 +39,8 @@
   <div id="userchip" class="userchip" style="display:none">
     <button id="userchip-btn" type="button" title="Account"><span id="userchip-name"></span><span class="ms" style="font-size:18px">expand_more</span></button>
     <div id="usermenu" class="usermenu" hidden>
-      <button data-act="businesses"><span class="ms">apps</span> Businesses</button>
-      <div class="usermenu-div"></div>
       <button data-act="guide"><span class="ms">menu_book</span> App guide</button>
+      <button data-act="procedure"><span class="ms">checklist</span> Bookkeeping procedure</button>
       <button data-act="quickref"><span class="ms">bolt</span> Quick reference</button>
       <button data-act="whatsnew"><span class="ms">new_releases</span> What’s new</button>
       <div class="usermenu-div"></div>
