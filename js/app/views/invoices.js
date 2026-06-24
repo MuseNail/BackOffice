@@ -14,6 +14,7 @@ import { validateTxn, invoiceExpensesTotal, simpleTxn } from '../lib/posting.js'
 import { accountLabel } from '../lib/coa-templates.js';
 import { blankInvoice, recompute, nextInvoiceNumber, addManualPayment } from '../lib/invoice-edit.js';
 import { parseMoney } from '../lib/money.js';
+import { presetRange, inRange } from '../daterange.js';
 
 let unsub = null;
 
@@ -76,6 +77,27 @@ function bucketOf(inv, today) {
 
 // Active aging-chip filter (bucket index, or null for "all"). Reset each mount.
 let agingFilter = null;
+// Period for the "Collected" KPI (a daterange preset key). Persists across redraws.
+let collectedKey = 'all';
+const COLLECTED_PRESETS = [
+  ['all', 'All time'], ['thisweek', 'This week'], ['month', 'This month'],
+  ['quarter', 'This quarter'], ['ytd', 'Year to date'], ['year', 'This year'],
+  ['lastmonth', 'Last month'], ['lastquarter', 'Last quarter'], ['lastyear', 'Last year'],
+];
+
+// Cash collected in a period, on a payment-date basis: the gross of each Invoice2go
+// payment posted to the ledger, dated by the payment. Gross = the debit side of the
+// payment entry (net to clearing + any fees) = what the customer paid. Excludes the
+// payout-fee entries (source 'i2g-cashflow-payout'). null range = all time.
+function collectedCents(range) {
+  let total = 0;
+  for (const t of entities('txn')) {
+    if (t.source?.app !== 'i2g-cashflow') continue;
+    if (range && !inRange(t.date, range)) continue;
+    for (const l of (t.lines || [])) if (l.amountCents > 0) total += l.amountCents;
+  }
+  return total;
+}
 
 export function render(root, detail) {
   const openNew = detail === 'new';
@@ -83,6 +105,7 @@ export function render(root, detail) {
   if (detail === 'reconcile') { renderReconcile(root); return; }
   if (detail) { renderInvoiceDetail(root, detail); return; }
   agingFilter = null;
+  collectedKey = 'all';
   if (!usesInvoices()) {
     root.append(
       el('h2', {}, 'Invoices'),
@@ -534,7 +557,6 @@ function drawList(body) {
     return;
   }
   const totalOpen = invoices.reduce((s, i) => s + i.balanceCents, 0);
-  const totalPaid = invoices.reduce((s, i) => s + i.paidCents, 0);
   const openCount = invoices.filter(i => i.balanceCents > 0).length;
 
   // AR aging on open balances, by days since invoice date.
@@ -545,6 +567,16 @@ function drawList(body) {
   const kpi = (label, val, cls) => el('div', { class: 'card', style: 'flex:1;min-width:150px;padding:12px 16px' },
     el('div', { class: 'sub', style: 'margin:0' }, label),
     el('div', { style: `font-size:1.4em;font-weight:800;${cls || ''}` }, val));
+
+  // "Collected" KPI with its own period picker (payments received in the period).
+  const collected = collectedCents(presetRange(collectedKey));
+  const collectedCard = el('div', { class: 'card', style: 'flex:1;min-width:175px;padding:12px 16px' },
+    el('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:8px' },
+      el('div', { class: 'sub', style: 'margin:0' }, 'Collected'),
+      el('select', { class: 'field-input', style: 'margin:0;width:auto;min-width:118px;padding:3px 8px;font-size:.78em',
+        onchange: (e) => { collectedKey = e.target.value; drawList(body); } },
+        ...COLLECTED_PRESETS.map(([k, l]) => el('option', { value: k, selected: k === collectedKey }, l)))),
+    el('div', { style: 'font-size:1.4em;font-weight:800;color:var(--green,#2a8)' }, fmtMoney(collected)));
 
   // Aging chips: tap one to filter the list to that bucket's open invoices.
   const chip = (label, cls, idx, amount) => {
@@ -583,7 +615,7 @@ function drawList(body) {
     el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px' },
       kpi('Open balance', fmtMoney(totalOpen), 'color:var(--red)'),
       kpi('Open invoices', String(openCount)),
-      kpi('Collected', fmtMoney(totalPaid), 'color:var(--green,#2a8)'),
+      collectedCard,
       kpi('Invoices', String(invoices.length)),
     ),
     agingChips,
