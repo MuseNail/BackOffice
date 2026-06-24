@@ -115,17 +115,15 @@ export class RegistryDO {
     }
     await this.state.storage.delete(`rl:${ident}`);
 
-    // Device enrollment: a user's first device self-enrolls; later devices wait
-    // for an owner/manager to approve them (kickoff 3b client-login hardening).
+    // The username + PIN are the gate: any device with a valid PIN signs straight
+    // in (no per-device approval). We still record the device so the owner can
+    // explicitly REVOKE a lost/stolen one from Settings → Devices — a revoked
+    // device stays blocked until it signs in again under a fresh deviceId.
     const devKey = `device:${user.id}:${deviceId}`;
     const dev = await this.state.storage.get(devKey);
+    if (dev?.status === 'revoked') return json({ error: 'device_revoked' }, 403);
     if (!dev) {
-      const existing = await this.state.storage.list({ prefix: `device:${user.id}:` });
-      const hasApproved = [...existing.values()].some(d => d.status === 'approved');
-      await this.state.storage.put(devKey, { status: hasApproved ? 'pending' : 'approved', name: deviceName || '', createdAt: Date.now() });
-      if (hasApproved) return json({ error: 'device_pending' }, 403);
-    } else if (dev.status !== 'approved') {
-      return json({ error: 'device_pending' }, 403);
+      await this.state.storage.put(devKey, { status: 'approved', name: deviceName || '', createdAt: Date.now() });
     }
 
     return this.issueSession(user, deviceId);

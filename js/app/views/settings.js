@@ -651,11 +651,11 @@ async function drawDevices(card, biz) {
     for (const d of devices) {
       const line = el('div', { class: 'rowline' },
         el('b', {}, d.userName), el('span', { class: 'sub', style: 'margin:0' }, ` ${d.name || d.deviceId} · ${d.status}`));
-      if (d.status === 'pending') line.append(el('button', { class: 'btn sm', style: 'margin-left:10px', onclick: async () => {
+      if (d.status !== 'approved') line.append(el('button', { class: 'btn sm', style: 'margin-left:10px', onclick: async () => {
         const res = await api('/registry/devices/approve', { method: 'POST', body: JSON.stringify({ businessId: biz, userId: d.userId, deviceId: d.deviceId }) });
-        if (res.ok) { toast('Device approved'); drawDevices(card, biz); }
-        else toast('Could not approve device — check your role or reload', 'err');
-      } }, 'Approve'));
+        if (res.ok) { toast('Device allowed'); drawDevices(card, biz); }
+        else toast('Could not allow device — check your role or reload', 'err');
+      } }, 'Allow'));
       line.append(el('button', { class: 'btn sm ghost', style: 'margin-left:6px', onclick: async () => {
         const res = await api('/registry/devices/revoke', { method: 'POST', body: JSON.stringify({ businessId: biz, userId: d.userId, deviceId: d.deviceId }) });
         if (res.ok) { toast('Device removed'); drawDevices(card, biz); }
