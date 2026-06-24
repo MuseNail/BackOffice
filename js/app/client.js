@@ -6,6 +6,7 @@
 import { ORIGIN } from './config.js';
 import { getToken, getActiveBiz, setActiveBiz, getUser, getBusinesses, clearSession } from './session.js';
 import { openBusiness, setStatusListener, api } from './sync.js';
+import { initLock, sessionResumable } from './lock.js';
 import { entities, subscribe } from './store.js';
 import { el, clear, toast, fmtMoney } from './ui.js';
 import { combobox } from './combobox.js';
@@ -23,6 +24,7 @@ function route() {
   const tabs = document.getElementById('clienttabs');
   const chip = document.getElementById('clientchip');
 
+  if (getToken() && !sessionResumable()) clearSession();   // closed / 30-min idle → re-login
   if (!getToken()) {
     current?.unmount?.(); current = null;
     tabs.style.display = 'none'; chip.style.display = 'none';
@@ -156,6 +158,7 @@ function boot() {
     clearSession(); location.hash = ''; location.reload();
   });
   window.addEventListener('hashchange', route);
+  initLock(route);   // auto sign-out on app close / 30-min idle
   route();
 }
 boot();

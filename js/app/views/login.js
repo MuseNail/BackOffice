@@ -4,6 +4,7 @@
 import { el, clear } from '../ui.js';
 import { ORIGIN } from '../config.js';
 import { setToken, setUser, setBusinesses, deviceId } from '../session.js';
+import { markSignedIn } from '../lock.js';
 
 export function render(root) {
   const wrap = el('div', { class: 'login-wrap' }, el('div', { class: 'login-card' }, el('p', { class: 'login-sub' }, 'Checking…')));
@@ -71,6 +72,7 @@ async function submit(path, body, err, btn) {
     setToken(data.token);
     setUser(data.user);
     setBusinesses(data.businesses);
+    markSignedIn();   // start a fresh live session for the close/idle auto-lock
     // 3b UI shaping: one business → straight in, no selector.
     location.hash = data.businesses.length === 1 ? `#/b/${data.businesses[0].id}/dashboard` : '#/businesses';
   } catch {

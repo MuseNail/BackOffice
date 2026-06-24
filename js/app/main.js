@@ -6,6 +6,7 @@
 import { APP_VERSION, ORIGIN } from './config.js';
 import { getToken, getActiveBiz, setActiveBiz, getUser, getBusinesses, clearSession } from './session.js';
 import { openBusiness, setStatusListener } from './sync.js';
+import { initLock, sessionResumable } from './lock.js';
 import { resumePlaidOAuth } from './plaid-connect.js';
 import * as login from './views/login.js';
 import * as businesses from './views/businesses.js';
@@ -71,6 +72,9 @@ let workspaceMode = false; // true while the MDI windowed workspace is mounted
 function route() {
   const hash = location.hash || '#/';
   const root = document.getElementById('view');
+
+  // Safety: a session that was closed or sat idle >30 min must re-enter the PIN.
+  if (getToken() && !sessionResumable()) clearSession();
 
   if (!getToken()) { leaveWorkspace(); current = mount(login, root); return; }
 
@@ -292,6 +296,7 @@ function boot() {
   initAmountCalc();
   mountGlobalSearch();
   window.addEventListener('hashchange', route);
+  initLock(route);   // auto sign-out on app close / 30-min idle
   // Graduated Escape: close the most specific open thing first. Open dropdowns
   // (combobox) stop the event themselves; modals close via their own handler (this
   // runs first and defers while an .overlay exists). Esc inside a field cancels the
