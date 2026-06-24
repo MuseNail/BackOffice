@@ -198,6 +198,7 @@ select.txi { background-position: right 7px center; padding-right: 24px; }
 .dpk{position:relative;display:inline-flex;align-items:center;gap:4px;vertical-align:middle}
 .dpk-anchor{position:relative;display:inline-flex;align-items:center}
 .dpk-btn{display:inline-flex;align-items:center;gap:8px;background:#fff;border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;font:inherit;font-weight:700;font-size:13px;color:var(--ink);cursor:pointer;white-space:nowrap;width:250px}
+.collected-range .dpk-btn{width:auto;min-width:130px;padding:5px 10px;font-size:12px}
 .dpk-btn .ms,.dpk-caret{flex-shrink:0}
 .dpk-lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
 .dpk-btn:hover{border-color:var(--brand)}

@@ -14,7 +14,7 @@ import { validateTxn, invoiceExpensesTotal, simpleTxn } from '../lib/posting.js'
 import { accountLabel } from '../lib/coa-templates.js';
 import { blankInvoice, recompute, nextInvoiceNumber, addManualPayment } from '../lib/invoice-edit.js';
 import { parseMoney } from '../lib/money.js';
-import { presetRange, inRange } from '../daterange.js';
+import { dateRangeControl, inRange } from '../daterange.js';
 
 let unsub = null;
 
@@ -77,13 +77,10 @@ function bucketOf(inv, today) {
 
 // Active aging-chip filter (bucket index, or null for "all"). Reset each mount.
 let agingFilter = null;
-// Period for the "Collected" KPI (a daterange preset key). Persists across redraws.
-let collectedKey = 'all';
-const COLLECTED_PRESETS = [
-  ['all', 'All time'], ['thisweek', 'This week'], ['month', 'This month'],
-  ['quarter', 'This quarter'], ['ytd', 'Year to date'], ['year', 'This year'],
-  ['lastmonth', 'Last month'], ['lastquarter', 'Last quarter'], ['lastyear', 'Last year'],
-];
+// Period for the "Collected" KPI. The picker instance + its range persist across the
+// list redraws (which fire on every sync) so it keeps its state and selection.
+let collectedRange = null;   // {from,to} — null = all time
+let collectedCtl = null;     // the shared dateRangeControl element (presets + calendar)
 
 // Income collected in a period — ALL of it, from EVERY source (the Invoice2go
 // cashflow AND the QuickBooks history import that owns Oct 2025–Feb 2026), so the
@@ -106,7 +103,7 @@ export function render(root, detail) {
   if (detail === 'reconcile') { renderReconcile(root); return; }
   if (detail) { renderInvoiceDetail(root, detail); return; }
   agingFilter = null;
-  collectedKey = 'all';
+  collectedRange = null; collectedCtl = null;
   if (!usesInvoices()) {
     root.append(
       el('h2', {}, 'Invoices'),
@@ -569,15 +566,14 @@ function drawList(body) {
     el('div', { class: 'sub', style: 'margin:0' }, label),
     el('div', { style: `font-size:1.4em;font-weight:800;${cls || ''}` }, val));
 
-  // "Collected" KPI with its own period picker (payments received in the period).
-  const collected = collectedCents(presetRange(collectedKey));
-  const collectedCard = el('div', { class: 'card', style: 'flex:1;min-width:175px;padding:12px 16px' },
-    el('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:8px' },
+  // "Collected" KPI with its own date-range picker (presets + custom calendar).
+  if (!collectedCtl) collectedCtl = dateRangeControl({ initial: 'all', onChange: (r) => { collectedRange = r; drawList(body); } });
+  const collected = collectedCents(collectedRange);
+  const collectedCard = el('div', { class: 'card', style: 'flex:1;min-width:210px;padding:12px 16px' },
+    el('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap' },
       el('div', { class: 'sub', style: 'margin:0' }, 'Collected'),
-      el('select', { class: 'field-input', style: 'margin:0;width:auto;min-width:118px;padding:3px 8px;font-size:.78em',
-        onchange: (e) => { collectedKey = e.target.value; drawList(body); } },
-        ...COLLECTED_PRESETS.map(([k, l]) => el('option', { value: k, selected: k === collectedKey }, l)))),
-    el('div', { style: 'font-size:1.4em;font-weight:800;color:var(--green,#2a8)' }, fmtMoney(collected)));
+      el('div', { class: 'collected-range' }, collectedCtl.el)),
+    el('div', { style: 'font-size:1.4em;font-weight:800;color:var(--green,#2a8);margin-top:4px' }, fmtMoney(collected)));
 
   // Aging chips: tap one to filter the list to that bucket's open invoices.
   const chip = (label, cls, idx, amount) => {
