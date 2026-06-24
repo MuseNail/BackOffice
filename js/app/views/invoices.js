@@ -85,16 +85,17 @@ const COLLECTED_PRESETS = [
   ['lastmonth', 'Last month'], ['lastquarter', 'Last quarter'], ['lastyear', 'Last year'],
 ];
 
-// Cash collected in a period, on a payment-date basis: the gross of each Invoice2go
-// payment posted to the ledger, dated by the payment. Gross = the debit side of the
-// payment entry (net to clearing + any fees) = what the customer paid. Excludes the
-// payout-fee entries (source 'i2g-cashflow-payout'). null range = all time.
+// Income collected in a period — ALL of it, from EVERY source (the Invoice2go
+// cashflow AND the QuickBooks history import that owns Oct 2025–Feb 2026), so the
+// total reflects everything in Back Office, not just one importer. On a cash basis,
+// income recognized = cash collected; we sum the credits to income accounts (income
+// posts as a credit = negative), dated by each transaction. null range = all time.
 function collectedCents(range) {
+  const incomeIds = new Set(entities('account').filter(a => a.type === 'income').map(a => a.id));
   let total = 0;
   for (const t of entities('txn')) {
-    if (t.source?.app !== 'i2g-cashflow') continue;
     if (range && !inRange(t.date, range)) continue;
-    for (const l of (t.lines || [])) if (l.amountCents > 0) total += l.amountCents;
+    for (const l of (t.lines || [])) if (incomeIds.has(l.accountId)) total -= l.amountCents;
   }
   return total;
 }
