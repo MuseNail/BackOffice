@@ -129,9 +129,11 @@ export function combobox({ groups = [], value = '', text = '', placeholder = '�
   // iOS Safari — there the page would scroll together with the floating panel — so we
   // also block touch-scroll outside the panel directly.
   function blockBgScroll(e) {
-    // Let a scrollable list scroll itself; freeze everything else (incl. touches inside a
-    // SHORT panel that can't absorb the scroll, which would otherwise drag the page).
-    if (panel.contains(e.target) && panel.scrollHeight > panel.clientHeight) return;
+    // A drag OUTSIDE the menu scrolls the sheet normally (the panel just follows its field).
+    if (!panel.contains(e.target)) return;
+    // Inside a scrollable list, let it scroll itself; inside a SHORT list there's nothing to
+    // scroll, so swallow it rather than letting the gesture drag the page out from under it.
+    if (panel.scrollHeight > panel.clientHeight) return;
     e.preventDefault();
   }
 
