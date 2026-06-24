@@ -319,21 +319,47 @@ const PROCEDURE = `
 <p>Open <strong>Reports → Profit &amp; Loss</strong> for the period to confirm the numbers look right.</p>
 
 <h2>B · Invoice2go invoices <span class="sub">(do this weekly)</span></h2>
-<p><strong>Goal:</strong> bring in this week's invoices and customer payments, post the income, and tie the deposit to the bank.</p>
-<div class="step"><strong>Step 1 — Export from Invoice2go:</strong> download the weekly invoice list as a <strong>CSV</strong>. You can always export the full list — Back Office de-dupes, so re-importing only adds what's new.</div>
-<div class="step"><strong>Step 2 — Import into Back Office:</strong> <strong>Invoices</strong> tab → <strong>Import from Invoice2go</strong> → choose the CSV → set the <strong>cutoff date</strong> (only invoices with a payment on/after that date are imported) → Import. New invoices and payments are added; anything already in is skipped.</div>
-<div class="step"><strong>Step 3 — Post the payments to the ledger:</strong> still on <strong>Invoices</strong> → <strong>Post payments to the ledger</strong> → pick an <strong>Income</strong> account, a <strong>Clearing</strong> account, and a <strong>Fee</strong> account (first time only: <strong>Create the standard clearing + fee accounts</strong> makes them in one click) → Post. Each paid payment posts as income through the clearing account, with the fee expensed. Safe to run every week — already-posted payments are skipped.</div>
-<div class="step"><strong>Step 4 — Match the bank deposit (ties it all together):</strong> when Invoice2go's money lands in your bank, bring the bank activity in (Section A, Step 1), open <strong>Review</strong>, find the Invoice2go deposit, and click <strong>⚡$ match deposit</strong>. It relieves the <strong>Invoice2go Clearing</strong> account so the income isn't counted twice.</div>
+<p><strong>Goal:</strong> bring in this week's invoices and customer payments, post the income, and tie the deposit to the bank. There are <strong>two files</strong>, and they go in <strong>two different fields</strong> on the Invoices tab: the <strong>JSON</strong> is the real import (every invoice + all the money), and a <strong>CSV</strong> is optional (it only fills in itemized line items). The JSON does NOT come from a CSV — they're captured two different ways.</p>
+
+<h3>Step 1 — Capture the JSON from Invoice2go</h3>
+<p>Invoice2go has no export button for this, so you capture it with a console snippet (the saved one you paste each week).</p>
+<div class="step"><ol>
+<li>In a <strong>desktop browser</strong>, sign in to Invoice2go at <strong>web.2go.com</strong>.</li>
+<li>Open the <strong>Cashflow / transactions</strong> screen (I2G Money → card payments → transactions).</li>
+<li>Open the browser <strong>Console</strong> (press F12, click the <em>Console</em> tab), <strong>paste your capture snippet</strong>, and press Enter.</li>
+<li><strong>Scroll down</strong> the cashflow list — scrolling makes Invoice2go load the data the snippet needs. After a few seconds it <strong>auto-downloads</strong> <code>invoice2go-export.json</code>.</li>
+</ol></div>
+<p class="sub"><strong>Gut-check:</strong> a good capture is a few thousand invoices. If it downloads tiny or empty (0 invoices), the scroll didn't trigger it — re-run the snippet and scroll again.</p>
+
+<h3>Step 2 — Import the JSON (this is what posts the income)</h3>
+<div class="step"><ol>
+<li><strong>Invoices</strong> tab → the <strong>top "Import" card</strong> → choose <code>invoice2go-export.json</code>.</li>
+<li><strong>First time only:</strong> click <strong>Create / link the standard clearing + fee accounts</strong>, then confirm the account pickers (Income, Clearing, the two Fee accounts, Payout fee).</li>
+<li>Set the <strong>cutoff date</strong> — only payments on/after it import, which stops double-counting anything QuickBooks already owns. <strong>For TIE Corp the cutoff is 2026-03-01.</strong> (It's remembered between imports.)</li>
+<li>Check the preview shows a real count of invoices and payments (not zero), then click <strong>Import</strong>. Income, fees, and the clearing entries post to the ledger. Safe to re-run — already-posted payments are skipped.</li>
+</ol></div>
+
+<h3>Step 3 — (Optional) Add itemized line items from the CSV</h3>
+<div class="step"><ol>
+<li>In Invoice2go, use <strong>Reports / Export → Invoices</strong> — it downloads a <strong>ZIP</strong> (there are separate exports for invoice / estimate / client / item; you want <strong>invoice</strong>).</li>
+<li><strong>Unzip it</strong> — inside is a <code>..._invoice_....csv</code>.</li>
+<li><strong>Invoices</strong> tab → the <strong>lower "Add line-item detail" card</strong> → upload that <strong>.csv</strong> (the field wants the CSV, not the zip).</li>
+</ol></div>
+<p class="sub">Optional — it only fills in line items (matched by invoice number) and never changes totals or payments. Monthly or quarterly is plenty.</p>
+
+<h3>Step 4 — Match the bank deposit (ties it all together)</h3>
+<div class="step">When Invoice2go's money lands in your bank, bring the bank activity in (Section A, Step 1), open <strong>Review</strong>, find the Invoice2go deposit, and click <strong>⚡$ match deposit</strong>. It relieves the <strong>Invoice2go Clearing</strong> account so the income isn't counted twice.</div>
 <p><strong>How you know it worked:</strong> open <strong>Accounts</strong> → click <strong>Invoice2go Clearing</strong>. Its balance settles toward <strong>$0.00</strong> as deposits are matched. A leftover balance just means a deposit hasn't been matched yet.</p>
 
 <h2>C · Your weekly rhythm (the short version)</h2>
 <table>
 <tr><th>#</th><th>Do this</th><th>Where</th></tr>
-<tr><td>1</td><td>Import the Invoice2go CSV (set the cutoff date)</td><td>Invoices → Import from Invoice2go</td></tr>
-<tr><td>2</td><td>Post payments to the ledger</td><td>Invoices → Post payments to the ledger</td></tr>
-<tr><td>3</td><td>Bring in the bank activity</td><td>Banking → Sync now / Import CSV</td></tr>
-<tr><td>4</td><td>Approve every row; use <strong>⚡$</strong> to match the deposits</td><td>Review</td></tr>
-<tr><td>5</td><td>Check the numbers; confirm Invoice2go Clearing ≈ $0</td><td>Reports → P&amp;L · Accounts</td></tr>
+<tr><td>1</td><td>Capture the JSON: cashflow → paste snippet → scroll → it downloads</td><td>web.2go.com → browser Console</td></tr>
+<tr><td>2</td><td>Import the JSON (set the cutoff; this posts the income)</td><td>Invoices → top "Import" card</td></tr>
+<tr><td>3</td><td><em>Optional:</em> add line items from the Invoice2go invoice CSV (unzip first)</td><td>Invoices → "Add line-item detail"</td></tr>
+<tr><td>4</td><td>Bring in the bank activity</td><td>Banking → Sync now / Import</td></tr>
+<tr><td>5</td><td>Approve every row; use <strong>⚡$</strong> to match the deposits</td><td>Review</td></tr>
+<tr><td>6</td><td>Check the numbers; confirm Invoice2go Clearing ≈ $0</td><td>Reports → P&amp;L · Accounts</td></tr>
 </table>
 
 <h2>D · Month-end (when the month is finished)</h2>
