@@ -1,6 +1,6 @@
 // ── Back Office service worker — precache + offline fallback ──
 // CACHE_NAME must always match APP_VERSION (js/app/config.js) and version.json.
-const CACHE_NAME = 'backoffice-v0.69.25';
+const CACHE_NAME = 'backoffice-v0.69.26';
 const PRECACHE = [
   './js/app/pickers.js',
   './js/app/rule-editor.js',
@@ -20,6 +20,7 @@ const PRECACHE = [
   './js/app/lib/money.js',
   './js/app/lib/posting.js',
   './js/app/lib/csv.js',
+  './js/app/lib/ofx.js',
   './js/app/lib/match.js',
   './js/app/lib/musesync.js',
   './js/app/lib/processor-match.js',

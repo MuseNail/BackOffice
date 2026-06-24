@@ -8,6 +8,7 @@ import { getActiveBiz, canEdit } from '../session.js';
 import { startPlaidConnect, syncPlaid, disconnectPlaid } from '../plaid-connect.js';
 import { accountBalance } from '../lib/posting.js';
 import { parseCsv, detectColumns, normalizeRows, dedupHash } from '../lib/csv.js';
+import { looksLikeOfx, parseOfx } from '../lib/ofx.js';
 import { parseMoney } from '../lib/money.js';
 
 const KINDS = { checking: 'Checking', savings: 'Savings', card: 'Credit card', cash: 'Cash' };
@@ -188,18 +189,27 @@ function openingBalanceModal(bankacct) {
 // ── import wizard: upload → map → preview & stage ──
 function importWizard(bankacct) {
   const m = modal(`Import — ${bankacct.name}`);
-  let parsed = null;   // {headers, rows}
+  let parsed = null;   // {headers, rows} — CSV path only
   let filename = '';
 
   const step1 = () => {
-    const file = el('input', { class: 'field-input', type: 'file', accept: '.csv,text/csv' });
+    const file = el('input', { class: 'field-input', type: 'file', accept: '.csv,.qfx,.qbo,.ofx,text/csv' });
     file.addEventListener('change', () => {
       const f = file.files[0];
       if (!f) return;
       filename = f.name;
       const reader = new FileReader();
       reader.onload = () => {
-        parsed = parseCsv(reader.result);
+        const text = reader.result;
+        // QFX/QBO/OFX carry structured transactions (with a unique FITID) — no column
+        // mapping needed, so go straight to the preview. Otherwise treat it as CSV.
+        if (looksLikeOfx(text)) {
+          const { rows } = parseOfx(text);
+          if (!rows.length) { toast('No transactions found in that QFX/QBO/OFX file', 'err'); return; }
+          stagePreview(rows, 0, { back: step1 });
+          return;
+        }
+        parsed = parseCsv(text);
         if (!parsed.rows.length) { toast('That file has no data rows', 'err'); return; }
         step2();
       };
@@ -207,7 +217,7 @@ function importWizard(bankacct) {
       reader.readAsText(f);
     });
     clear(m.body).append(
-      el('p', { class: 'sub' }, 'Pick the CSV you downloaded from your bank — any bank’s format works.'),
+      el('p', { class: 'sub' }, 'Pick the file you downloaded from your bank — a CSV (any bank’s format) or a QFX / QBO / OFX file. QFX & QBO carry a unique id per transaction, so duplicates can never slip in.'),
       file,
     );
   };
@@ -264,41 +274,44 @@ function importWizard(bankacct) {
     );
   };
 
-  const step3 = (map, invert) => {
-    const { good, bad } = normalizeRows(parsed.rows, map, { invert });
-    if (!good.length) { toast('No usable rows with that mapping — check the columns', 'err'); return; }
-    const known = new Set(entities('staged').filter(s => s.bankacctId === bankacct.id).map(s => s.dedupHash));
+  // A row's stored identity. OFX/QFX/QBO rows key on the bank's unique FITID
+  // (bulletproof); CSV rows fall back to date+amount+description.
+  const dedupHashFor = (r) => (r.fitid ? `ofx:${r.fitid}` : dedupHash(r));
+
+  // Shared preview + stage step for both the CSV and the OFX/QFX/QBO paths.
+  // good = normalized rows [{date, desc, amountCents, fitid?}]; onStage runs just
+  // before staging (the CSV path uses it to remember its column mapping).
+  const stagePreview = (good, bad, { back, onStage } = {}) => {
+    if (!good.length) { toast('No usable rows in that file', 'err'); return; }
+    const stored = entities('staged').filter(s => s.bankacctId === bankacct.id);
+    // Match on either the stored identity (FITID for OFX, plain for CSV) or a
+    // recomputed plain hash — so a re-import dedupes even across the two formats.
+    const knownPrimary = new Set(stored.map(s => s.dedupHash));
+    const knownPlain = new Set(stored.map(s => dedupHash(s)));
     const fresh = [], dups = [];
-    for (const r of good) (known.has(dedupHash(r)) ? dups : fresh).push(r);
+    for (const r of good) ((knownPrimary.has(dedupHashFor(r)) || knownPlain.has(dedupHash(r))) ? dups : fresh).push(r);
     const preview = fresh.slice(0, 8).map(r => el('tr', {},
       el('td', {}, r.date), el('td', {}, r.desc.slice(0, 60)),
       el('td', { class: 'num ' + (r.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(r.amountCents, { sign: r.amountCents > 0 }))));
     clear(m.body).append(
-      el('p', {}, el('b', {}, `${fresh.length} new rows`), ` will go to Review. ${dups.length ? `${dups.length} duplicates skipped (already imported). ` : ''}${bad.length ? `${bad.length} unreadable rows ignored.` : ''}`),
+      el('p', {}, el('b', {}, `${fresh.length} new rows`), ` will go to Review. ${dups.length ? `${dups.length} duplicates skipped (already imported). ` : ''}${bad ? `${bad} unreadable rows ignored.` : ''}`),
       el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
         el('table', { class: 'data' }, el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', { class: 'num' }, 'Amount')), ...preview)),
       fresh.length > 8 ? el('p', { class: 'sub' }, `…and ${fresh.length - 8} more`) : el('span'),
       el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
-        el('button', { class: 'btn ghost', onclick: step2 }, 'Back'),
+        el('button', { class: 'btn ghost', onclick: back || step1 }, 'Back'),
         el('button', { class: 'btn green', disabled: !fresh.length, onclick: async () => {
           const importId = 'imp-' + Date.now().toString(36);
           dispatch({ op: 'entity.upsert', kind: 'import', value: {
             id: importId, bankacctId: bankacct.id, filename, importedAt: Date.now(),
-            rows: good.length, dups: dups.length, bad: bad.length,
+            rows: good.length, dups: dups.length, bad,
           } });
-          // remember this file's mapping (by header name) for next time
-          dispatch({ op: 'entity.upsert', kind: 'bankacct', value: { ...bankacct, mapping: {
-            dateHeader: parsed.headers[map.date], descHeader: parsed.headers[map.desc],
-            amountHeader: map.amount != null ? parsed.headers[map.amount] : null,
-            debitHeader: map.debit != null ? parsed.headers[map.debit] : null,
-            creditHeader: map.credit != null ? parsed.headers[map.credit] : null,
-            invert,
-          } } });
+          onStage?.();
           const values = fresh.map((r, i) => ({
             id: `${importId}-r${i}`, importId, bankacctId: bankacct.id,
             date: r.date, desc: r.desc, amountCents: r.amountCents,
-            dedupHash: dedupHash(r), status: 'pending',
-            source: { app: 'csv', importId },
+            dedupHash: dedupHashFor(r), status: 'pending',
+            source: { app: r.fitid ? 'ofx' : 'csv', importId },
           }));
           for (let i = 0; i < values.length; i += 400) {
             dispatch({ op: 'entity.bulkUpsert', kind: 'staged', values: values.slice(i, i + 400) });
@@ -308,6 +321,21 @@ function importWizard(bankacct) {
           location.hash = `#/b/${getActiveBiz()}/review`;
         } }, `Stage ${fresh.length} rows for review`)),
     );
+  };
+
+  const step3 = (map, invert) => {
+    const { good, bad } = normalizeRows(parsed.rows, map, { invert });
+    if (!good.length) { toast('No usable rows with that mapping — check the columns', 'err'); return; }
+    stagePreview(good, bad.length, { back: step2, onStage: () => {
+      // remember this file's mapping (by header name) for next time
+      dispatch({ op: 'entity.upsert', kind: 'bankacct', value: { ...bankacct, mapping: {
+        dateHeader: parsed.headers[map.date], descHeader: parsed.headers[map.desc],
+        amountHeader: map.amount != null ? parsed.headers[map.amount] : null,
+        debitHeader: map.debit != null ? parsed.headers[map.debit] : null,
+        creditHeader: map.credit != null ? parsed.headers[map.credit] : null,
+        invert,
+      } } });
+    } });
   };
 
   step1();
