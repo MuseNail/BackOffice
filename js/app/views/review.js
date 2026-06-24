@@ -163,8 +163,8 @@ function categoryGroups(row, categories, accountsById) {
   return groups;
 }
 
-function categorySelect(row, categories, accountsById, preselect, afterAdd) {
-  return combobox({ groups: categoryGroups(row, categories, accountsById), value: preselect || '',
+function categorySelect(row, categories, accountsById, preselect, afterAdd, prefillText) {
+  return combobox({ groups: categoryGroups(row, categories, accountsById), value: preselect || '', text: prefillText || '',
     placeholder: 'Search accounts…', minWidth: 230, addLabel: 'Add account…',
     onAdd: () => quickAddAccountModal((account) => afterAdd?.(account)),
     // Typed a name that isn't an account yet → confirm-add popup, prefilled with it.
@@ -245,8 +245,12 @@ function drawBody(body, editable) {
     // A client's suggestion (from the client app) pre-fills the fields too.
     const preselect = lastCategory.get(row.id) || row.suggestedAccountId || sug?.accountId;
     const vendPreselect = lastVendor.has(row.id) ? lastVendor.get(row.id) : (row.suggestedVendorId || vendorTag?.vendorId);
+    // The client typed a brand-new vendor/account name to add: prefill the field with it.
+    // The vendor is created on Approve (find-or-create); the account is one tap to add.
+    if (!vendPreselect && row.suggestedVendorName) vendPrefillText = row.suggestedVendorName;
+    const acctPrefill = !preselect ? (row.suggestedAccountName || '') : '';
     const sel = categorySelect(row, categories, accountsById, preselect,
-      (account) => { lastCategory.set(row.id, account.id); drawBody(body, editable); });
+      (account) => { lastCategory.set(row.id, account.id); drawBody(body, editable); }, acctPrefill);
     const memoIn = el('input', { class: 'field-input', placeholder: 'Add a note…', style: 'margin:0;min-width:150px', value: lastMemo.has(row.id) ? lastMemo.get(row.id) : (row.memo || '') });
     bindSuggest(memoIn, 'memo');
     memoIn.addEventListener('input', () => lastMemo.set(row.id, memoIn.value));
@@ -308,6 +312,13 @@ function drawBody(body, editable) {
             el('span', { class: 'revdesc' }, row.desc || '')),
           // The client's note to you (message, not the memo) — surfaced so you don't miss it.
           row.clientNote ? el('div', { class: 'client-note' }, el('span', { class: 'ms', style: 'font-size:15px' }, 'chat'), el('span', {}, row.clientNote)) : null,
+          // The client proposed a new ACCOUNT that doesn't exist — one-click add (vendors
+          // are created automatically on Approve, so they need no button).
+          editable && acctPrefill ? el('div', { class: 'client-note', style: 'background:#eef7ee;border-color:#cbe6cb;color:#1f7a4d' },
+            el('span', { class: 'ms', style: 'font-size:15px' }, 'add_circle'),
+            el('span', {}, 'Client suggests a new account: '), el('b', {}, acctPrefill),
+            el('button', { class: 'btn sm', style: 'margin-left:8px', onclick: () =>
+              quickAddAccountModal((account) => { lastCategory.set(row.id, account.id); drawBody(body, editable); }, 'expense', acctPrefill) }, 'Add')) : null,
           editable ? el('div', { class: 'revfields' },
             field('Vendor', vendSel),
             field('Account', sel),

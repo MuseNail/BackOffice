@@ -40,6 +40,12 @@ function route() {
 
   chip.style.display = 'flex';
   document.getElementById('clientname').textContent = getUser()?.name || '';
+  // Brand the app for THIS client's business (e.g. "TIE Books"), not a fixed name.
+  const bizObj = getBusinesses().find(b => b.id === biz);
+  const brand = bizObj?.name ? `${bizObj.name.trim().split(/\s+/)[0]} Books` : 'Books';
+  const brandEl = document.getElementById('clientbrand');
+  if (brandEl) brandEl.textContent = brand;
+  document.title = `${brand} — Client`;
 
   tabs.style.display = 'flex';
   clear(tabs).append(...TABS.map(([id, label, icon]) => el('button', {
@@ -119,8 +125,8 @@ function drawSuggest(body, cf = { q: '', status: 'all', dir: 'all' }) {
   const field = (label, node) => el('div', { class: 'rvf' }, el('label', { class: 'field-label', style: 'margin:0 0 2px' }, label), node);
 
   clear(body).append(...pending.map(row => {
-    const venSel = combobox({ groups: [{ label: '', items: vendors.map(v => ({ value: v.id, label: v.name })) }], value: row.suggestedVendorId || '', placeholder: 'Pick a vendor…', minWidth: 180 });
-    const acctSel = combobox({ groups, value: row.suggestedAccountId || '', placeholder: 'Search accounts…', minWidth: 220 });
+    const venSel = combobox({ groups: [{ label: '', items: vendors.map(v => ({ value: v.id, label: v.name })) }], value: row.suggestedVendorId || '', text: row.suggestedVendorName || '', placeholder: 'Pick or type a new vendor…', minWidth: 180, freeText: true, emptyText: 'No match — your text is suggested as a NEW vendor' });
+    const acctSel = combobox({ groups, value: row.suggestedAccountId || '', text: row.suggestedAccountName || '', placeholder: 'Search or type a new account…', minWidth: 220, freeText: true, emptyText: 'No match — your text is suggested as a NEW account' });
     const invSel = combobox({ groups: [{ label: '', items: [{ value: '', label: '— none —' }, ...invs.map(i => ({ value: i.id, label: `#${i.number || i.id} · ${(i.clientName || '').slice(0, 28)}` }))] }], value: row.suggestedInvoiceId || '', placeholder: 'Find invoice…', minWidth: 190 });
     const note = el('textarea', { class: 'field-input', rows: '2', placeholder: 'Note for the owner…', style: 'margin:0;min-width:200px;resize:vertical' });
     note.value = row.clientNote || '';
@@ -128,8 +134,12 @@ function drawSuggest(body, cf = { q: '', status: 'all', dir: 'all' }) {
     const btn = el('button', { class: 'btn sm', onclick: async () => {
       btn.disabled = true; btn.textContent = 'Saving…';
       try {
+        // No selected id but text in the box → a proposed NEW vendor/account for the owner to add.
+        const suggestedVendorName = venSel.value ? '' : venSel.inputText;
+        const suggestedAccountName = acctSel.value ? '' : acctSel.inputText;
         const res = await api(`/b/${biz}/suggest`, { method: 'POST', body: JSON.stringify({
-          stagedId: row.id, suggestedAccountId: acctSel.value, suggestedVendorId: venSel.value, suggestedInvoiceId: invSel.value, clientNote: note.value.trim(),
+          stagedId: row.id, suggestedAccountId: acctSel.value, suggestedVendorId: venSel.value, suggestedInvoiceId: invSel.value,
+          suggestedVendorName, suggestedAccountName, clientNote: note.value.trim(),
         }) });
         if (!res.ok) throw new Error('failed');
         toast('Suggestion sent to the owner');

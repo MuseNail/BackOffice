@@ -122,7 +122,7 @@ export class BusinessDO {
     // Writes ONLY the suggestion fields onto the staged entity — never amounts, status,
     // dates, etc. — so a low-privilege client can propose without altering the books.
     if (path === '/_suggest' && req.method === 'POST') {
-      const { stagedId, suggestedAccountId, suggestedVendorId, suggestedInvoiceId, clientNote, userId } = await req.json();
+      const { stagedId, suggestedAccountId, suggestedVendorId, suggestedInvoiceId, suggestedVendorName, suggestedAccountName, clientNote, userId } = await req.json();
       if (!stagedId) return json({ error: 'bad' }, 400);
       const existing = await this.state.storage.get(`staged:${stagedId}`);
       if (!existing) return json({ error: 'not found' }, 404);
@@ -133,6 +133,10 @@ export class BusinessDO {
         suggestedAccountId: suggestedAccountId || '',
         suggestedVendorId: suggestedVendorId || '',
         suggestedInvoiceId: suggestedInvoiceId || '',
+        // A free-typed proposal for a vendor/account that doesn't exist yet — the owner
+        // one-click adds it when accepting. Cleared (id wins) when a real one is picked.
+        suggestedVendorName: suggestedVendorId ? '' : String(suggestedVendorName || '').slice(0, 120),
+        suggestedAccountName: suggestedAccountId ? '' : String(suggestedAccountName || '').slice(0, 120),
         clientNote: String(clientNote || '').slice(0, 1000),
         suggestedBy: userId || '',
         suggestedAt: now,

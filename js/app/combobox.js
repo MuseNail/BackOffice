@@ -15,9 +15,12 @@
 //                creating it) instead of silently reverting.
 //   addLabel:    text for that action (default 'Add…')
 //   minWidth:    px for the control
+//   freeText:    keep whatever the user typed even when it matches no option (so a
+//                caller can read `.inputText` as a proposed new name); never reverts.
+//   emptyText:   the "no matches" line (default 'No matches')
 import { el } from './ui.js';
 
-export function combobox({ groups = [], value = '', text = '', placeholder = '— pick —', onAdd = null, onAddText = null, addLabel = 'Add…', minWidth = 190 } = {}) {
+export function combobox({ groups = [], value = '', text = '', placeholder = '— pick —', onAdd = null, onAddText = null, addLabel = 'Add…', minWidth = 190, freeText = false, emptyText = 'No matches' } = {}) {
   const flat = [];
   for (const g of groups) for (const it of g.items) flat.push(it);
   const labelFor = (v) => flat.find(x => x.value === v)?.label || '';
@@ -78,7 +81,7 @@ export function combobox({ groups = [], value = '', text = '', placeholder = '�
         panel.append(opt);
       }
     }
-    if (!visible.length && !onAdd) panel.append(el('div', { class: 'cbx-empty' }, 'No matches'));
+    if (!visible.length && !onAdd) panel.append(el('div', { class: 'cbx-empty' }, emptyText));
     if (onAdd) {
       const add = el('div', { class: 'cbx-add' }, '＋ ' + addLabel);
       add.addEventListener('mousedown', (e) => { e.preventDefault(); closePanel(); onAdd(); });
@@ -137,7 +140,10 @@ export function combobox({ groups = [], value = '', text = '', placeholder = '�
     if (raf) { cancelAnimationFrame(raf); raf = 0; }
     panel.hidden = true;
     panel.remove();   // un-portal from <body>
-    setDisplay();     // revert any half-typed filter text to the real selection
+    // freeText: a typed name with no selection IS the value (a proposed new entry) —
+    // keep it on screen. Otherwise revert any half-typed filter to the real selection.
+    if (freeText && !current && input.value.trim()) { input.title = input.value; }
+    else setDisplay();
   }
   function pick(v) {
     const changed = v !== current;
