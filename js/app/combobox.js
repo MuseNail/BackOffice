@@ -155,10 +155,21 @@ export function combobox({ groups = [], value = '', text = '', placeholder = '�
     document.removeEventListener('touchmove', blockBgScroll, { passive: false });
     panel.hidden = true;
     panel.remove();   // un-portal from <body>
-    // freeText: a typed name with no selection IS the value (a proposed new entry) —
-    // keep it on screen. Otherwise revert any half-typed filter to the real selection.
-    if (freeText && !current && input.value.trim()) { input.title = input.value; }
-    else setDisplay();
+    // freeText: whatever is typed at close time IS the value. If it differs from the
+    // current selection it's a CHANGE — to an existing option if it matches one exactly,
+    // otherwise a proposed NEW entry (drop the old pick so it isn't snapped back, and keep
+    // the typed text — read via .inputText). Empty / unchanged falls through to setDisplay.
+    if (freeText) {
+      const t = input.value.trim();
+      if (t && t.toLowerCase() !== (labelFor(current) || '').toLowerCase()) {
+        const exact = flat.find(x => (x.label || '').toLowerCase() === t.toLowerCase());
+        if (exact) { current = exact.value; fireChange(); setDisplay(); return; }
+        if (current) { current = ''; fireChange(); }
+        input.title = input.value;   // proposed new — leave the typed text in place
+        return;
+      }
+    }
+    setDisplay();
   }
   function pick(v) {
     const changed = v !== current;
