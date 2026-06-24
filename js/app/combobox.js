@@ -124,6 +124,17 @@ export function combobox({ groups = [], value = '', text = '', placeholder = 'â€
     raf = requestAnimationFrame(track);
   }
 
+  // While the panel is open, stop the PAGE from scrolling under it (touches inside the
+  // panel still scroll its own list). `overscroll-behavior` alone isn't honored on older
+  // iOS Safari â€” there the page would scroll together with the floating panel â€” so we
+  // also block touch-scroll outside the panel directly.
+  function blockBgScroll(e) {
+    // Let a scrollable list scroll itself; freeze everything else (incl. touches inside a
+    // SHORT panel that can't absorb the scroll, which would otherwise drag the page).
+    if (panel.contains(e.target) && panel.scrollHeight > panel.clientHeight) return;
+    e.preventDefault();
+  }
+
   function openPanel() {
     if (open) return;
     open = true;
@@ -133,11 +144,13 @@ export function combobox({ groups = [], value = '', text = '', placeholder = 'â€
     buildPanel('');
     position();
     input.select();
+    document.addEventListener('touchmove', blockBgScroll, { passive: false });
     raf = requestAnimationFrame(track);
   }
   function closePanel() {
     open = false;
     if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    document.removeEventListener('touchmove', blockBgScroll, { passive: false });
     panel.hidden = true;
     panel.remove();   // un-portal from <body>
     // freeText: a typed name with no selection IS the value (a proposed new entry) â€”
