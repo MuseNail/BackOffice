@@ -143,21 +143,23 @@ function mergeBundleInvoice(p, resolve, now) {
   };
 }
 
+// LINE ITEMS ONLY. This card decorates invoices the JSON import already brought in
+// — it must never create an invoice (the JSON owns the invoice set + the cutoff) and
+// never touch money/status/ownership (the card's promise). So: no match → skip; manual
+// → skip; otherwise return the existing invoice byte-for-byte except its line items.
 function mergeCsvInvoice(c, resolve, now) {
   const ex = resolve(c.sourceId, c.number);
-  const hasLines = Array.isArray(c.lineItems) && c.lineItems.length > 0;
-  if (!ex) return { ...c, id: c.sourceId, importedAt: now, updatedAt: now }; // CSV-first: full create
-  if (ex.source?.app === 'manual') return null;
-  const bundleOwnsMoney = ex.source?.app === 'invoice2go-api';
+  if (!ex) return null;                            // not in Back Office → never create from the CSV
+  if (ex.source?.app === 'manual') return null;    // never touch a hand-made invoice
+  if (!Array.isArray(c.lineItems) || !c.lineItems.length) return null;   // nothing to add
   return {
-    ...ex, id: ex.id,
-    lineItems: hasLines ? c.lineItems : ex.lineItems,
-    subtotalCents: hasLines ? c.subtotalCents : ex.subtotalCents,
-    taxCents: hasLines ? c.taxCents : ex.taxCents,
-    clientName: ex.clientName || c.clientName, clientEmail: ex.clientEmail || c.clientEmail,
-    date: ex.date || c.date, number: ex.number || c.number,
-    ...(bundleOwnsMoney ? {} : { totalCents: c.totalCents, paidCents: c.paidCents, balanceCents: c.balanceCents, docStatus: c.docStatus }),
-    source: ex.source, updatedAt: now, // keep the ownership marker
+    ...ex,                                          // every money/status/source/id field preserved
+    lineItems: c.lineItems,
+    subtotalCents: c.subtotalCents,                 // the breakdown that backs the lines
+    taxCents: c.taxCents,
+    clientName: ex.clientName || c.clientName,      // only fill blanks
+    clientEmail: ex.clientEmail || c.clientEmail,
+    updatedAt: now,
   };
 }
 
@@ -180,18 +182,21 @@ function importCard() {
     catch { preview.append(el('p', { class: 'sub' }, 'Could not read that file.')); return; }
     if (!all.length) { preview.append(el('p', { class: 'sub' }, 'No invoices found in that file.')); return; }
     const resolve = invoiceResolver();
-    let matched = 0, created = 0, withLines = 0;
+    let willUpdate = 0, notInBo = 0, manualSkip = 0;
     for (const inv of all) {
-      if (resolve(inv.sourceId, inv.number)) matched++; else created++;
-      if (inv.lineItems?.length) withLines++;
+      const ex = resolve(inv.sourceId, inv.number);
+      if (!ex) { notInBo++; continue; }
+      if (ex.source?.app === 'manual') { manualSkip++; continue; }
+      if (inv.lineItems?.length) willUpdate++;
     }
     pending = { invoices: all };
     preview.append(
-      el('p', {}, el('b', {}, `${all.length} invoices in the file`), ' — ',
-        el('b', {}, `${matched} matched`), ` (line items added), ${created} not yet in Back Office`),
-      el('p', { class: 'sub', style: 'margin:2px 0 0' }, `${withLines} have line-item detail · money is never changed here`),
+      el('p', {}, el('b', {}, `${willUpdate} invoices will get line items`), '. ',
+        `${notInBo} aren’t in Back Office, so they’re skipped — nothing is created.`,
+        manualSkip ? ` ${manualSkip} manual invoices left untouched.` : ''),
+      el('p', { class: 'sub', style: 'margin:2px 0 0' }, 'Totals, payments, and status are never changed here — only line items are added.'),
     );
-    importBtn.disabled = false;
+    importBtn.disabled = willUpdate === 0;
   };
   file.addEventListener('change', scan);
 
