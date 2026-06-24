@@ -74,6 +74,15 @@ function route() {
 
   if (!getToken()) { leaveWorkspace(); current = mount(login, root); return; }
 
+  // A `client` belongs in the slim Suggest workspace, not the full books app.
+  // (Clients are single-business by construction and never owners, so if every
+  // membership is `client` this account has no business in the full app at all.)
+  const u = getUser(), mineForRole = getBusinesses();
+  if (u && !u.isOwner && mineForRole.length && mineForRole.every(b => b.role === 'client')) {
+    location.replace('client.html');
+    return;
+  }
+
   if (hash.startsWith('#/setup')) { leaveWorkspace(); setNav('businesses', ''); current = mount(setup, root); return; }
 
   const m = hash.match(/^#\/b\/([a-z0-9-]+)\/(\w+)(?:\/(.+))?$/);
