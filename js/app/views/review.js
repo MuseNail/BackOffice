@@ -371,10 +371,12 @@ function drawBody(body, editable) {
         el('td', {}, row.desc?.slice(0, 55) || ''),
         el('td', { class: 'num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
         el('td', {}, el('span', { class: 'pill gray' }, 'Skipped')),
-        el('td', {}, editable ? el('button', { class: 'btn sm ghost', onclick: () => {
-          dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'pending' } });
-          toast('Restored to pending');
-        } }, 'Restore') : ''),
+        el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px' },
+          el('button', { class: 'btn sm ghost', onclick: () => {
+            dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'pending' } });
+            toast('Restored to pending');
+          } }, 'Restore'),
+          el('button', { class: 'btn sm ghost', onclick: () => deleteSkipped(row) }, 'Delete')) : ''),
       ));
       skippedSection.append(
         el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
@@ -587,6 +589,24 @@ function matchCounterpart(row, transferAccountId, txnId) {
 function skipRow(row) {
   dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'skipped' } });
   toast('Skipped');
+}
+
+// Permanently remove a skipped Review row. Safe because a staged row never posted —
+// the ledger and reports are untouched — so this is the one place a duplicate/unwanted
+// bank row can be cleared for good (Skip alone only hides it in the Skipped section).
+function deleteSkipped(row) {
+  const m = modal('Delete skipped row?');
+  m.body.append(
+    el('p', {}, `${row.date} · ${row.desc?.slice(0, 60) || '—'} — ${fmtMoney(row.amountCents, { sign: row.amountCents > 0 })}`),
+    el('p', { class: 'sub' }, 'This permanently removes the row from Review. It was never posted, so your ledger and reports are unaffected. This cannot be undone.'),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'),
+      el('button', { class: 'btn', style: 'background:var(--red)', onclick: () => {
+        dispatch({ op: 'entity.delete', kind: 'staged', id: row.id });
+        logAudit('delete', { summary: `Deleted skipped row ${row.date} · ${row.desc || '—'}`, kind: 'staged', entityId: row.id, amountCents: row.amountCents });
+        toast('Deleted');
+        m.close();
+      } }, 'Delete')));
 }
 
 // Safety step for "Approve all categorized": list every transaction and the account it

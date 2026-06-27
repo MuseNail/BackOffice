@@ -5,6 +5,10 @@ import { setSnapshot, applyChange } from './store.js';
 
 let ws = null;
 let wsBiz = '';
+let hb = null;              // heartbeat interval — keeps the socket from being reaped while idle
+let reconnectTimer = null;  // backstop reconnect timer (also kicked on wake)
+let wakeWired = false;      // one-time visibility/online listeners
+let flushing = false;       // single-flusher guard for the outbox
 let onStatus = () => {};
 export function setStatusListener(fn) { onStatus = fn; }
 
@@ -33,14 +37,28 @@ export async function openBusiness(bizId) {
       if (!parsed._biz || parsed._biz === bizId) setSnapshot(parsed);
     } catch { /* bad cache */ }
   }
-  const res = await api(`/b/${bizId}/state`);
-  if (res.ok) {
-    const snap = await res.json();
-    setSnapshot(snap);
-    localStorage.setItem(LS.cache(bizId), JSON.stringify({ ...snap, _biz: bizId }));
-  }
+  try {
+    const res = await api(`/b/${bizId}/state`);
+    if (res.ok) {
+      const snap = await res.json();
+      setSnapshot(snap);
+      localStorage.setItem(LS.cache(bizId), JSON.stringify({ ...snap, _biz: bizId }));
+    }
+  } catch { /* offline — the cached snapshot (if any) stands */ }
+  // Re-apply queued-but-unsynced writes on top of the snapshot so a reload never makes a
+  // pending change look lost (that "looks unsaved" gap is what prompted re-entry → a duplicate).
+  replayOutboxLocal(bizId);
   connectWS(bizId);
   await flushOutbox(bizId);
+}
+
+// Replay queued (not-yet-acked) ops for this business onto local state — keeps optimistic
+// changes visible after a reload/reconnect without re-queuing them. upsert is by-id and
+// stamp-guarded, so replaying an op the server already has is a harmless no-op.
+function replayOutboxLocal(biz) {
+  for (const item of readOutbox()) {
+    if (item.biz === biz) { try { applyChange(item.op); } catch { /* skip a bad op */ } }
+  }
 }
 
 // The single write path: optimistic local apply → outbox → WS (HTTP fallback).
@@ -59,38 +77,50 @@ function readOutbox() {
   try { return JSON.parse(localStorage.getItem(LS.outbox) || '[]'); } catch { return []; }
 }
 
-async function flushOutbox(biz) {
-  let outbox = readOutbox();
-  while (outbox.length) {
-    const item = outbox[0];
-    try {
-      const res = await api(`/b/${item.biz}/state`, { method: 'POST', body: JSON.stringify(item.op) });
-      if (!res.ok) {
-        if (res.status === 409) {
-          // Server rejected as stale/reconciled — save to dead-letter log so the user can inspect.
-          try {
-            const reason = (await res.json()).reason || 'rejected';
-            const log = JSON.parse(localStorage.getItem(LS.failed) || '[]');
-            log.unshift({ biz: item.biz, op: item.op, reason, rejectedAt: Date.now() });
-            localStorage.setItem(LS.failed, JSON.stringify(log.slice(0, 100)));
-          } catch { /* best-effort */ }
-        } else {
-          throw new Error('send failed');
+async function flushOutbox() {
+  if (flushing) return;   // one flusher at a time so the FIFO head stays stable across concurrent triggers
+  flushing = true;
+  try {
+    while (true) {
+      const outbox = readOutbox();
+      if (!outbox.length) break;
+      const item = outbox[0];
+      try {
+        const res = await api(`/b/${item.biz}/state`, { method: 'POST', body: JSON.stringify(item.op) });
+        if (!res.ok) {
+          if (res.status === 409) {
+            // Server rejected as stale/reconciled — save to dead-letter log so the user can inspect.
+            try {
+              const reason = (await res.json()).reason || 'rejected';
+              const log = JSON.parse(localStorage.getItem(LS.failed) || '[]');
+              log.unshift({ biz: item.biz, op: item.op, reason, rejectedAt: Date.now() });
+              localStorage.setItem(LS.failed, JSON.stringify(log.slice(0, 100)));
+            } catch { /* best-effort */ }
+          } else {
+            throw new Error('send failed');
+          }
         }
+      } catch {
+        onStatus('offline');
+        return; // keep the outbox; retry on next dispatch/reconnect
       }
-    } catch {
-      onStatus('offline');
-      return; // keep the outbox; retry on next dispatch/reconnect
+      // Re-read before dropping the head: a concurrent dispatch may have appended to the tail
+      // while this POST was in flight, and we must not clobber it by writing back a stale array.
+      const cur = readOutbox();
+      cur.shift();
+      localStorage.setItem(LS.outbox, JSON.stringify(cur));
     }
-    outbox.shift();
-    localStorage.setItem(LS.outbox, JSON.stringify(outbox));
+    onStatus('synced');
+  } finally {
+    flushing = false;
   }
-  onStatus('synced');
 }
 
-function connectWS(bizId) {
+function connectWS(bizId, isReconnect = false) {
+  wireWakeReconnect();
   if (ws && wsBiz === bizId && ws.readyState === WebSocket.OPEN) return;
   try { ws?.close(); } catch { /* already closed */ }
+  stopHeartbeat();
   wsBiz = bizId;
   const url = ORIGIN.replace(/^http/, 'ws') + `/b/${bizId}/ws?device=${deviceId()}`;
   // NOTE: browser WebSocket can't set an Authorization header — the WS route is
@@ -103,6 +133,59 @@ function connectWS(bizId) {
       if (msg.type === 'op' && msg.op?.device !== deviceId()) applyChange(msg.op);
     } catch { /* ignore */ }
   };
-  ws.onopen = () => onStatus('synced');
-  ws.onclose = () => { onStatus('offline'); setTimeout(() => { if (wsBiz === bizId) connectWS(bizId); }, 4000); };
+  ws.onopen = () => {
+    onStatus('synced');
+    startHeartbeat();
+    // After a reconnect we may have missed live broadcasts while disconnected — re-pull the
+    // snapshot and flush anything queued offline so both sides converge.
+    if (isReconnect) resync(bizId);
+  };
+  ws.onclose = () => {
+    stopHeartbeat();
+    onStatus('offline');
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => { if (wsBiz === bizId) connectWS(bizId, true); }, 4000);
+  };
+}
+
+// Keep the socket warm: an idle WebSocket gets reaped by Cloudflare/proxies/NAT, which is
+// what made the app "randomly go offline". The DO answers {type:'ping'} with a pong.
+function startHeartbeat() {
+  stopHeartbeat();
+  hb = setInterval(() => {
+    try { if (ws?.readyState === WebSocket.OPEN) ws.send('{"type":"ping"}'); } catch { /* will close → reconnect */ }
+  }, 25000);
+}
+function stopHeartbeat() { if (hb) { clearInterval(hb); hb = null; } }
+
+// Re-pull the snapshot and replay the outbox after a reconnect.
+async function resync(bizId) {
+  try {
+    const res = await api(`/b/${bizId}/state`);
+    if (res.ok) {
+      const snap = await res.json();
+      setSnapshot(snap);
+      localStorage.setItem(LS.cache(bizId), JSON.stringify({ ...snap, _biz: bizId }));
+      replayOutboxLocal(bizId);
+    }
+  } catch { /* still offline; onclose will retry */ }
+  flushOutbox();
+}
+
+// A backgrounded tab throttles the 4s reconnect timer and a sleeping device pauses it, so a
+// socket that died while hidden would leave the app stuck "offline" until that timer fires.
+// Reconnect immediately on wake / network-restore instead.
+function wireWakeReconnect() {
+  if (wakeWired) return;
+  wakeWired = true;
+  const kick = () => {
+    if (!wsBiz) return;
+    const dead = !ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING;
+    if (dead) {
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      connectWS(wsBiz, true);
+    }
+  };
+  window.addEventListener('online', kick);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
 }

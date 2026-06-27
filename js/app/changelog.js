@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.37', items: [
+    { icon: 'wifi', t: 'Fewer “Offline” drops', d: 'The app now quietly keeps its live connection awake and reconnects the moment you come back to the tab or your internet returns, instead of flashing “Offline” when the connection has just been sitting idle. And if a change was still saving when you reloaded the page, it now stays on screen instead of looking like it didn’t save — which is what could lead to entering the same transaction twice.' },
+    { icon: 'delete', t: 'Delete a skipped review row', d: 'Skipped rows in Review now have a Delete button next to Restore, so you can permanently remove an unwanted or duplicate bank row. A skipped row was never posted, so deleting it leaves your ledger and reports untouched.' },
+  ] },
   { v: '0.69.20', items: [
     { icon: 'tune', t: 'Rule editor polish', d: 'In the make-a-rule box, the and/or selector is now wide enough to read fully (it was cut off to “a…”), and the “No transactions match yet” line no longer shows a stray “null” after it.' },
   ] },
