@@ -1,7 +1,7 @@
 // ── view: audit — the Activity trail (read-only) ───────────────────────────────
 // Lists the synced `audit` entities newest-first, filterable by date range, action,
 // and free text. Append-only — nothing here is editable.
-import { el, clear, fmtMoney } from '../ui.js';
+import { el, clear, fmtMoney, acctAmount } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { dateRangeControl, inRange } from '../daterange.js';
 
@@ -61,13 +61,13 @@ function drawBody(body) {
     el('td', { style: 'white-space:nowrap' }, new Date(r.ts || 0).toLocaleString()),
     el('td', {}, el('span', { class: 'pill ' + (ACTION_PILL[r.action] || 'gray') }, actionLabel(r.action))),
     el('td', {}, r.summary || '—'),
-    el('td', { class: 'num' }, typeof r.amountCents === 'number' ? fmtMoney(r.amountCents, { sign: r.amountCents > 0 }) : ''),
+    el('td', { class: 'num' }, typeof r.amountCents === 'number' ? acctAmount(r.amountCents, { colored: true, sign: r.amountCents > 0 }) : ''),
     el('td', {}, r.user || '—')));
   clear(body).append(
     el('p', { class: 'sub', style: 'margin:0 0 8px' }, `${rows.length} of ${total} entr${total === 1 ? 'y' : 'ies'}${rows.length > 500 ? ' · showing the most recent 500' : ''}`),
     el('div', { class: 'card', style: 'padding:0;overflow-x:auto' },
-      el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Action'), el('th', {}, 'Details'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Who')),
-        ...trs)),
+      el('table', { class: 'data xl' },
+        el('thead', {}, el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Action'), el('th', {}, 'Details'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Who'))),
+        el('tbody', {}, ...trs))),
   );
 }

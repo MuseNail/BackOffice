@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.48', items: [
+    { icon: 'history', t: 'Excel-style table — Activity log', d: 'The activity / audit log now uses the blue-header, gridlined look with accounting-aligned amounts (money in green, out red).' },
+  ] },
   { v: '0.69.47', items: [
     { icon: 'inventory_2', t: 'Excel-style tables — Inventory', d: 'The items list and Recent restocks now use the blue-header, gridlined look with accounting-aligned costs and values. Low-stock items still highlight in peach.' },
   ] },
