@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.51', items: [
+    { icon: 'dashboard', t: 'Excel-style tables — Dashboard', d: 'The Bank accounts widget now uses the blue-header look, the Net and category drill-downs are accounting-aligned, and the KPI card figures line up cleanly.' },
+  ] },
   { v: '0.69.50', items: [
     { icon: 'rule', t: 'Excel-style tables — Review & Deposits', d: 'Review’s tables (skipped rows, the Muse salon-synced section, and the “approve all” confirm list) and the Deposits reconciliation table now use the blue-header, gridlined look, with accounting-aligned amounts. The main list of waiting transactions keeps its card layout.' },
   ] },

@@ -1,5 +1,5 @@
 // ── view: dashboard ────────────────
-import { el, fmtMoney, modal } from '../ui.js';
+import { el, fmtMoney, acctAmount, modal } from '../ui.js';
 import { getState, subscribe, entities } from '../store.js';
 import { getActiveBiz } from '../session.js';
 import { industryLabel, accountLabel } from '../lib/coa-templates.js';
@@ -78,7 +78,7 @@ export function render(root) {
           miniRow('Expenses', -pl.expenseTotal, 'neg'),
           el('tr', { style: 'border-top:2px solid var(--line)' },
             el('td', { style: 'font-weight:800' }, 'Net profit'),
-            el('td', { class: 'num ' + (pl.netCents < 0 ? 'neg' : 'pos'), style: 'text-align:right;font-weight:800' }, fmtMoney(pl.netCents, { sign: true })))),
+            el('td', { class: 'num ' + (pl.netCents < 0 ? 'neg' : 'pos'), style: 'font-weight:800' }, acctAmount(pl.netCents, { colored: false, sign: true })))),
         el('p', { class: 'sub', style: 'margin:12px 0 0' },
           `vs ${fmtMoney(plPrev.netCents, { sign: true })} in ${monthName(prev)}.`),
       );
@@ -143,13 +143,13 @@ function drillModal(title, rows, { total, empty } = {}) {
     ...rows.map(r => {
       const tr = el('tr', {},
         el('td', {}, r.label),
-        el('td', { class: 'num ' + (r.cents < 0 ? 'neg' : ''), style: 'text-align:right;font-variant-numeric:tabular-nums' }, fmtMoney(r.cents)));
+        el('td', { class: 'num ' + (r.cents < 0 ? 'neg' : '') }, acctAmount(r.cents, { colored: false })));
       if (r.onclick) { tr.style.cursor = 'pointer'; tr.addEventListener('click', () => { close(); r.onclick(); }); }
       return tr;
     }),
     total != null ? el('tr', { style: 'border-top:2px solid var(--line)' },
       el('td', { style: 'font-weight:800' }, 'Total'),
-      el('td', { class: 'num', style: 'text-align:right;font-weight:800;font-variant-numeric:tabular-nums' }, fmtMoney(total))) : null,
+      el('td', { class: 'num', style: 'font-weight:800' }, acctAmount(total, { colored: false }))) : null,
   );
   mb.append(table);
   if (rows.some(r => r.onclick)) mb.append(el('p', { class: 'sub', style: 'margin:12px 0 0' }, 'Click a row to open its register.'));
@@ -158,7 +158,7 @@ function drillModal(title, rows, { total, empty } = {}) {
 function miniRow(label, cents, cls) {
   return el('tr', {},
     el('td', {}, label),
-    el('td', { class: 'num ' + cls, style: 'text-align:right;font-variant-numeric:tabular-nums' }, fmtMoney(cents, { sign: true })));
+    el('td', { class: 'num ' + cls }, acctAmount(cents, { colored: false, sign: true })));
 }
 
 // QuickBooks-style bank-accounts widget: one clickable row per registered
@@ -172,7 +172,7 @@ function bankWidget(banks, txns, accountsById, staged, biz, goRegister, asOf) {
         el('span', { class: 'ms', style: 'color:var(--brand);vertical-align:middle;margin-right:8px;font-size:18px' },
           a.qbType === 'CCARD' ? 'credit_card' : 'account_balance'),
         accountLabel(a, accountsById)),
-      el('td', { class: 'num ' + (bal < 0 ? 'neg' : ''), style: 'text-align:right;font-weight:700;font-variant-numeric:tabular-nums' }, fmtMoney(bal)));
+      el('td', { class: 'num ' + (bal < 0 ? 'neg' : ''), style: 'font-weight:700' }, acctAmount(bal, { colored: false })));
     tr.addEventListener('click', () => goRegister(a.id));
     return tr;
   });
@@ -180,7 +180,9 @@ function bankWidget(banks, txns, accountsById, staged, biz, goRegister, asOf) {
     el('div', { class: 'cardtitle' },
       el('span', { class: 'ms', style: 'color:var(--brand);vertical-align:middle;margin-right:6px' }, 'account_balance_wallet'),
       'Bank accounts'),
-    el('table', { class: 'data' }, ...rows),
+    el('table', { class: 'data xl' },
+      el('thead', {}, el('tr', {}, el('th', {}, 'Account'), el('th', { class: 'num' }, 'Balance'))),
+      el('tbody', {}, ...rows)),
     staged ? el('p', { class: 'sub', style: 'margin:12px 0 0' },
       el('a', { class: 'linklike', href: `#/b/${biz}/review` }, `${staged} row${staged === 1 ? '' : 's'} waiting in Review ›`)) : null);
 }

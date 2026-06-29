@@ -194,6 +194,8 @@ table.data.xl th.th-sort.on{color:#fff}
 /* Accounting amount: $ pinned left, figures right, monospaced so columns line up. */
 .acctamt{display:flex;justify-content:space-between;gap:10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;font-size:12.5px}
 .acctcur{opacity:.7}
+/* KPI metric cards: align the figures (tabular) so big numbers read cleanly. */
+.kpi{font-variant-numeric:tabular-nums}
 
 /* Financial-statement treatment (Reports P&L / Balance Sheet): blue header, light
    gridlines, section bands, accounting amounts, a navy bottom-line (Net / balanced) bar —
