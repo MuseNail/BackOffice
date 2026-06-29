@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.52', items: [
+    { icon: 'settings', t: 'Excel-style tables — Settings (refresh complete)', d: 'The Settings tables (change history, rejected-writes log, Muse sync mapping, the QuickBooks balance compare, and closed months) now use the blue-header, gridlined look. That completes the spreadsheet-style table refresh across the whole app.' },
+  ] },
   { v: '0.69.51', items: [
     { icon: 'dashboard', t: 'Excel-style tables — Dashboard', d: 'The Bank accounts widget now uses the blue-header look, the Net and category drill-downs are accounting-aligned, and the KPI card figures line up cleanly.' },
   ] },

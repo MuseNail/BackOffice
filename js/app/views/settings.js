@@ -1,7 +1,7 @@
 // ── view: settings — users, roles, signed-in devices ────────────────
 // Management UI renders only for owner/manager sessions; the server enforces
 // the same rule, this is just honest UI. Muse sync + IIF export land M11/M12.
-import { el, clear, toast, fmtMoney, modal } from '../ui.js';
+import { el, clear, toast, fmtMoney, acctAmount, modal } from '../ui.js';
 import { api, dispatch } from '../sync.js';
 import { getActiveBiz, getBusinesses, roleFor, getUser } from '../session.js';
 import { getState, entities, byId, subscribe, usesInvoices, usesMuseSync } from '../store.js';
@@ -122,9 +122,9 @@ async function drawAuditCard(card, biz) {
     el('td', {}, fmtWhen(e.at)),
     el('td', {}, nameById.get(e.by) || e.by || '—'),
     el('td', {}, desc(e))));
-  card.append(el('div', { style: 'overflow:auto;max-height:360px' }, el('table', { class: 'data' },
-    el('tr', {}, el('th', {}, 'When'), el('th', {}, 'User'), el('th', {}, 'Change')),
-    ...rows)));
+  card.append(el('div', { style: 'overflow:auto;max-height:360px' }, el('table', { class: 'data xl' },
+    el('thead', {}, el('tr', {}, el('th', {}, 'When'), el('th', {}, 'User'), el('th', {}, 'Change'))),
+    el('tbody', {}, ...rows))));
 }
 
 function drawFailedOps(card, biz) {
@@ -145,9 +145,9 @@ function drawFailedOps(card, biz) {
   clear(card).append(
     header,
     el('p', { class: 'sub' }, 'Writes the server turned down — kept so nothing is silently lost. There’s no retry: a rejection means the server considered the write stale or not allowed.'),
-    el('div', { style: 'overflow-x:auto' }, el('table', { class: 'data' },
-      el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Write'), el('th', {}, 'Reason')),
-      ...rows)),
+    el('div', { style: 'overflow-x:auto' }, el('table', { class: 'data xl' },
+      el('thead', {}, el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Write'), el('th', {}, 'Reason'))),
+      el('tbody', {}, ...rows))),
     el('div', { style: 'margin-top:12px' },
       el('button', { class: 'btn sm ghost', onclick: () => {
         if (!confirm(`Clear ${mine.length} rejected-write log entr${mine.length === 1 ? 'y' : 'ies'} from this device? This only removes the diagnostic log — it doesn’t change any books data.`)) return;
@@ -252,9 +252,9 @@ function drawMuseCard(card, biz) {
       'The salon app pushes its finalized daily numbers here; they wait on the Review screen and post only when you approve them. ',
       'Set where each row type lands: the balancing account is the other side of the entry, the category is what Review pre-picks. ',
       `Muse pushes to ${ORIGIN}/sync/inbound for business “${biz}” using the SYNC_TOKEN secret (set on this Worker and in Muse's Back Office sync card).`),
-    el('table', { class: 'data' },
-      el('tr', {}, el('th', {}, 'Salon row'), el('th', {}, 'Balancing account'), el('th', {}, 'Suggested category')),
-      ...rows),
+    el('table', { class: 'data xl' },
+      el('thead', {}, el('tr', {}, el('th', {}, 'Salon row'), el('th', {}, 'Balancing account'), el('th', {}, 'Suggested category'))),
+      el('tbody', {}, ...rows)),
     el('div', { style: 'margin-top:10px' },
       el('button', { class: 'btn sm', onclick: () => {
         const balancing = {}, category = {};
@@ -494,8 +494,8 @@ function drawQbHistoryCard(card, biz) {
         ` · ${p.newAccounts} new accounts (${p.existingAccounts} exist)`, ` · ${p.newBankaccts} bank accounts`),
       el('p', { class: 'sub', style: 'margin:2px 0' }, `${p.reconciledTxns} will be marked reconciled · ${p.taggedInvoices} expenses tagged to invoices${unmatched.length ? ` · ${unmatched.length} invoice #s not found` : ''}`),
       el('div', { style: 'margin:8px 0' }, el('div', { class: 'cardtitle', style: 'font-size:12px' }, 'Bank/credit-card balances (compare to QuickBooks)'),
-        el('table', { class: 'data' }, el('tr', {}, el('th', {}, 'Account'), el('th', { class: 'num' }, 'Computed balance')),
-          ...p.moneyBalances.map(m => el('tr', {}, el('td', {}, m.name), el('td', { class: 'num' }, money(m.cents)))))),
+        el('table', { class: 'data xl' }, el('thead', {}, el('tr', {}, el('th', {}, 'Account'), el('th', { class: 'num' }, 'Computed balance'))),
+          el('tbody', {}, ...p.moneyBalances.map(m => el('tr', {}, el('td', {}, m.name), el('td', { class: 'num' }, acctAmount(m.cents, { colored: false })))))) ),
       unmatched.length ? el('details', { style: 'margin-top:6px' },
         el('summary', { class: 'sub', style: 'cursor:pointer' }, `${unmatched.length} referenced invoice #s aren’t imported yet (memo kept; tag later)`),
         el('div', { class: 'sub', style: 'max-height:120px;overflow:auto' }, unmatched.map(u => `#${u.number}×${u.count}`).join(', '))) : el('span'),
@@ -538,16 +538,16 @@ function drawLocksCard(card) {
   const month = el('input', { class: 'field-input', type: 'month', style: 'margin:0;max-width:170px' });
 
   const list = locks.length
-    ? el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'Closed month'), el('th', {}, 'Locked on'), el('th', {}, '')),
-        ...locks.map(l => el('tr', {},
+    ? el('table', { class: 'data xl' },
+        el('thead', {}, el('tr', {}, el('th', {}, 'Closed month'), el('th', {}, 'Locked on'), el('th', {}, ''))),
+        el('tbody', {}, ...locks.map(l => el('tr', {},
           el('td', {}, l.id),
           el('td', { style: 'color:var(--mut)' }, l.closedAt ? new Date(l.closedAt).toLocaleDateString() : '—'),
           el('td', {}, el('button', { class: 'btn sm ghost', onclick: () => {
             if (!confirm(`Reopen ${l.id}? Postings and edits in that month will be allowed again until you close it.`)) return;
             dispatch({ op: 'entity.delete', kind: 'lock', id: l.id });
             toast(`${l.id} reopened`);
-          } }, 'Reopen'))))
+          } }, 'Reopen')))))
       )
     : el('p', { class: 'sub' }, 'No months are closed.');
 
