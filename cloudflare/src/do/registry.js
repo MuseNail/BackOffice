@@ -347,8 +347,15 @@ export class RegistryDO {
     const key = `device:${userId}:${deviceId}`;
     const dev = await this.state.storage.get(key);
     if (!dev) return json({ error: 'not found' }, 404);
-    if (status === 'revoked') await this.state.storage.delete(key);
-    else await this.state.storage.put(key, { ...dev, status });
+    if (status === 'revoked') {
+      await this.state.storage.delete(key);
+      // Sign-out must actually end the live session on that device (its next request →
+      // 401 → back to the sign-in screen), not just drop the row. The user can sign back
+      // in with their PIN; to cut someone off for good, remove them under Users.
+      for (const [k, s] of await this.state.storage.list({ prefix: 'session:' })) {
+        if (s.userId === userId && s.deviceId === deviceId) await this.state.storage.delete(k);
+      }
+    } else await this.state.storage.put(key, { ...dev, status });
     return json({ ok: true });
   }
 }

@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.39', items: [
+    { icon: 'devices', t: 'Simpler “Signed-in devices” list', d: 'Settings → Team & access no longer mentions approving devices — any valid PIN signs straight in, so there was nothing to approve. The list is now just “Signed-in devices” with a single Sign out button, and Sign out now genuinely ends that device’s session (its next action drops it back to the sign-in screen). They can sign back in with their PIN; to remove someone for good, remove them under Users.' },
+  ] },
   { v: '0.69.38', items: [
     { icon: 'view_list', t: 'Easier-to-read Ledger', d: 'The Ledger’s column headers (Date, Payee, Details…) and the little field labels (Vendor, Account, Invoice, Memo) are now solid black instead of faint gray. The account tabs and the column header stay pinned at the top while you scroll the list, the four detail fields line up in one row when there’s room (like the Review screen), and there’s a bit more space between transactions.' },
     { icon: 'edit', t: 'Edit a transaction from a vendor’s list', d: 'Open a vendor and click any transaction in its popup to edit it — the same quick edit you get from the Reports drill-downs.' },
