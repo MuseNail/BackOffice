@@ -6,7 +6,7 @@
 //    account is auto-marked so the transfer is never double-counted.
 //  • Fee split — a deposit where the processor kept a cut: posts gross income,
 //    the fee as its own expense, and the net into the bank, in one balanced txn.
-import { el, clear, toast, fmtMoney, modal, prettyDesc } from '../ui.js';
+import { el, clear, toast, fmtMoney, acctAmount, modal, prettyDesc } from '../ui.js';
 import { entities, subscribe, getState, usesInvoices } from '../store.js';
 import { dispatch, api } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -368,8 +368,8 @@ function drawBody(body, editable) {
     if (showSkipped) {
       const skippedRows = skippedAll.slice(0, 50).map(row => el('tr', {},
         el('td', {}, row.date),
-        el('td', {}, row.desc?.slice(0, 55) || ''),
-        el('td', { class: 'num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
+        el('td', {}, prettyDesc(row.desc).slice(0, 55)),
+        el('td', { class: 'num' }, acctAmount(row.amountCents, { colored: true, sign: row.amountCents > 0 })),
         el('td', {}, el('span', { class: 'pill gray' }, 'Skipped')),
         el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px' },
           el('button', { class: 'btn sm ghost', onclick: () => {
@@ -380,9 +380,9 @@ function drawBody(body, editable) {
       ));
       skippedSection.append(
         el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
-          el('table', { class: 'data' },
-            el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Status'), el('th', {}, '')),
-            ...skippedRows)));
+          el('table', { class: 'data xl' },
+            el('thead', {}, el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Status'), el('th', {}, ''))),
+            el('tbody', {}, ...skippedRows))));
     }
     sections.push(skippedSection);
   }
@@ -412,8 +412,8 @@ function drawBody(body, editable) {
       sel.addEventListener('change', () => { approve.disabled = !bal || !sel.value || sel.value === '__new__'; });
       return el('tr', {},
         el('td', {}, row.date),
-        el('td', {}, el('b', {}, (row.desc || t.label).slice(0, 55)), row.memo ? el('div', { class: 'sub', style: 'margin:0' }, row.memo.slice(0, 80)) : ''),
-        el('td', { class: 'num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
+        el('td', {}, el('b', {}, prettyDesc(row.desc || t.label).slice(0, 55)), row.memo ? el('div', { class: 'sub', style: 'margin:0' }, row.memo.slice(0, 80)) : ''),
+        el('td', { class: 'num' }, acctAmount(row.amountCents, { colored: true, sign: row.amountCents > 0 })),
         el('td', {}, editable ? sel : '—'),
         el('td', {}, bal ? el('span', { class: 'pill blue' }, `↔ ${bal.name}`) : el('span', { class: 'pill red' }, 'Map in Settings')),
         el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px' }, approve,
@@ -424,9 +424,9 @@ function drawBody(body, editable) {
       el('div', { class: 'cardtitle', style: 'margin-bottom:4px' }, 'Muse — synced from the salon ', el('span', { class: 'pill amber' }, `${museRows.length} waiting`)),
       el('p', { class: 'sub', style: 'margin:0 0 8px' }, 'Each row was pushed from the Muse salon app (Settings → Integrations → Back Office). Approving posts it to your ledger using the category you pick and the balancing account set in Settings. Rows marked "Map in Settings" need a balancing account first. Nothing posts automatically.'),
       el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
-        el('table', { class: 'data' },
-          el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'From the salon'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Account'), el('th', {}, 'Balancing account'), el('th', {}, '')),
-          ...museRows.map(museRowEl)))));
+        el('table', { class: 'data xl' },
+          el('thead', {}, el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'From the salon'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Account'), el('th', {}, 'Balancing account'), el('th', {}, ''))),
+          el('tbody', {}, ...museRows.map(museRowEl))))));
   }
 
   // "Approve all" covers both rule/AI/history suggestions (memorized) AND rows the
@@ -617,16 +617,16 @@ function confirmApproveAll(items, accountsById, body, editable) {
   const nameOf = (id) => { const a = accountsById.get(id); return a ? accountLabel(a, accountsById) : id; };
   const rows = items.map(({ row, accountId }) => el('tr', {},
     el('td', { style: 'white-space:nowrap' }, row.date),
-    el('td', { title: row.desc || '' }, (row.desc || '—').slice(0, 48)),
-    el('td', { class: 'num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 })),
+    el('td', { title: row.desc || '' }, prettyDesc(row.desc || '—').slice(0, 48)),
+    el('td', { class: 'num' }, acctAmount(row.amountCents, { colored: true, sign: row.amountCents > 0 })),
     el('td', {}, el('b', {}, nameOf(accountId))),
   ));
   m.body.append(
     el('p', { class: 'sub' }, 'These will be posted to the ledger with the accounts shown. Check them, then confirm.'),
     el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
-      el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Account')),
-        ...rows)),
+      el('table', { class: 'data xl' },
+        el('thead', {}, el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Account'))),
+        el('tbody', {}, ...rows))),
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn green', onclick: () => {
@@ -886,9 +886,9 @@ async function matchDepositModal(row, accountsById) {
   clear(m.body).append(
     el('p', {}, `This looks like the payout for `, el('b', {}, daysLabel), ` (from ${source}):`),
     el('table', { class: 'data' },
-      el('tr', {}, el('td', {}, 'Gross card sales'), el('td', { class: 'num' }, fmtMoney(match.grossCents))),
-      el('tr', {}, el('td', {}, 'Deposited'), el('td', { class: 'num' }, fmtMoney(row.amountCents))),
-      el('tr', {}, el('td', {}, el('b', {}, 'Processing fee')), el('td', { class: 'num' }, el('b', {}, fmtMoney(match.feeCents))))),
+      el('tr', {}, el('td', {}, 'Gross card sales'), el('td', { class: 'num' }, acctAmount(match.grossCents, { colored: false }))),
+      el('tr', {}, el('td', {}, 'Deposited'), el('td', { class: 'num' }, acctAmount(row.amountCents, { colored: false }))),
+      el('tr', {}, el('td', {}, el('b', {}, 'Processing fee')), el('td', { class: 'num' }, el('b', {}, acctAmount(match.feeCents, { colored: false }))))),
     clearing
       ? el('p', { class: 'sub' }, `Posts against “${clearing.name}” — the synced sales rows already booked the income, so this just moves the money to the bank.`)
       : el('p', { class: 'sub' }, 'No Muse clearing account is mapped (Settings → Muse sync), so this will post as income minus the fee — same as the % button.'),

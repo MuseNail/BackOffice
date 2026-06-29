@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.50', items: [
+    { icon: 'rule', t: 'Excel-style tables — Review & Deposits', d: 'Review’s tables (skipped rows, the Muse salon-synced section, and the “approve all” confirm list) and the Deposits reconciliation table now use the blue-header, gridlined look, with accounting-aligned amounts. The main list of waiting transactions keeps its card layout.' },
+  ] },
   { v: '0.69.49', items: [
     { icon: 'fact_check', t: 'Excel-style tables — Reconcile', d: 'The reconcile screen and the past-reconciliations list now use the blue-header, gridlined look with accounting-aligned amounts and a navy “checked” subtotal bar.' },
   ] },

@@ -134,14 +134,14 @@ function drawBody(body) {
       kpi('Days flagged', String(flagCount), flagCount ? 'see the table' : 'all days tie out')),
     dayRows.length
       ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:860px' },
-          el('table', { class: 'data' },
-            el('tr', {},
+          el('table', { class: 'data xl' },
+            el('thead', {}, el('tr', {},
               el('th', {}, 'Date'),
               el('th', { class: 'num' }, 'Muse recorded'),
               el('th', { class: 'num' }, 'Helcim gross'),
               el('th', { class: 'num' }, 'Δ surcharge'),
-              el('th', {}, 'Status')),
-            ...rows))
+              el('th', {}, 'Status'))),
+            el('tbody', {}, ...rows)))
       : el('p', { class: 'sub' }, 'No card sales or Helcim activity in this range.'),
     el('p', { class: 'sub', style: 'max-width:860px;margin-top:12px' },
       'Δ surcharge is Helcim gross minus Muse recorded — the customer surcharge Helcim added. With Fee Saver the bank deposit lands close to the Muse number (Helcim keeps the surcharge as its fee). Matching each bank deposit to its Helcim settlement batch — and posting the fee — comes next.'),
