@@ -3,7 +3,7 @@
 // posted, it's not in a report. The Balance Sheet balances structurally:
 // every posted txn sums to zero, so assets always equal liabilities + equity
 // + net income to date.
-import { el, clear, fmtMoney, modal } from '../ui.js';
+import { el, clear, fmtMoney, acctAmount, prettyDesc, modal } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -112,12 +112,12 @@ function openAccountTxns(account, label) {
     clear(host).append(
       el('p', { class: 'sub', style: 'margin:0 0 8px' }, `${txns.length} transaction${txns.length === 1 ? '' : 's'} · ${fmtMoney(total)}`),
       txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:55vh;margin:0' },
-        el('table', { class: 'data' },
-          el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Payee / memo'), el('th', { class: 'num' }, 'Amount')),
-          ...txns.map(t => el('tr', { style: 'cursor:pointer', title: 'Edit transaction', onclick: () => editTxnModal(t) },
+        el('table', { class: 'data xl' },
+          el('thead', {}, el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Payee / memo'), el('th', { class: 'num' }, 'Amount'))),
+          el('tbody', {}, ...txns.map(t => el('tr', { style: 'cursor:pointer', title: 'Edit transaction', onclick: () => editTxnModal(t) },
             el('td', { style: 'white-space:nowrap' }, t.date),
-            el('td', {}, el('b', {}, t.payee || '—'), t.memo ? el('div', { class: 'sub', style: 'margin:0' }, t.memo.slice(0, 90)) : ''),
-            el('td', { class: 'num ' + (disp(t) < 0 ? 'neg' : 'pos') }, fmtMoney(disp(t)))))))
+            el('td', {}, el('b', {}, prettyDesc(t.payee) || '—'), t.memo ? el('div', { class: 'sub', style: 'margin:0' }, t.memo.slice(0, 90)) : ''),
+            el('td', { class: 'num' }, acctAmount(disp(t), { colored: true })))))))
         : el('p', { class: 'sub' }, 'No transactions in this range.'));
   };
   draw();
@@ -226,6 +226,9 @@ function drawBody(body) {
   const mode2 = !!actCmp;                       // a two-period (prev / last-year) comparison
   const pctOn = s.pctOfIncome && !modeTrend;    // % of income column
   const colspan = modeTrend ? (1 + buckets.length) : (mode2 ? (pctOn ? 5 : 4) : (pctOn ? 3 : 2));
+  // Single-period view = one Amount column. Accounting alignment + the navy net bar only
+  // make sense there; the multi-column compare/trend views keep the compact glued format.
+  const stmtSingle = !mode2 && !pctOn && !modeTrend;
 
   const nz = (...xs) => xs.some(x => x !== 0);
   // Display amount for an account in P&L sign convention (income shown positive).
@@ -311,8 +314,11 @@ function drawBody(body) {
   // Trailing money cells for a row, per the active mode. `bold` for totals.
   const valueCells = (cur, cmp, trend, good, bold, colorVal) => {
     const tds = [];
-    const m = (v) => bold ? el('b', colorVal ? { style: `color:${v >= 0 ? 'var(--green)' : 'var(--red)'}` } : {}, fmtMoney(v))
-      : (colorVal ? el('span', { style: `color:${v >= 0 ? 'var(--green)' : 'var(--red)'}` }, fmtMoney(v)) : fmtMoney(v));
+    const m = (v) => {
+      if (stmtSingle) { const a = acctAmount(v, { colored: !!colorVal }); return bold ? el('b', {}, a) : a; }
+      return bold ? el('b', colorVal ? { style: `color:${v >= 0 ? 'var(--green)' : 'var(--red)'}` } : {}, fmtMoney(v))
+        : (colorVal ? el('span', { style: `color:${v >= 0 ? 'var(--green)' : 'var(--red)'}` }, fmtMoney(v)) : fmtMoney(v));
+    };
     if (modeTrend) { (trend || []).forEach(v => tds.push(el('td', { class: 'num' }, m(v)))); return tds; }
     tds.push(el('td', { class: 'num' }, m(cur)));
     if (pctOn) tds.push(el('td', { class: 'num', style: 'color:var(--mut)' }, pctStr(cur)));
@@ -330,6 +336,7 @@ function drawBody(body) {
     h.push(el('th', { class: 'num' }, compactRangeLabel(cmpRange)), el('th', { class: 'num' }, 'Change'));
     plRows.push(el('tr', {}, ...h));
   } else if (pctOn) plRows.push(el('tr', {}, el('th', {}, 'Account'), el('th', { class: 'num' }, 'Amount'), el('th', { class: 'num' }, '% inc')));
+  else plRows.push(el('tr', {}, el('th', {}, 'Account'), el('th', { class: 'num' }, 'Amount')));
 
   // A clickable leaf row → opens the account's transactions for the current range.
   // (Trend leaves aren't clickable — there's no single period to drill into.)
@@ -342,6 +349,13 @@ function drawBody(body) {
   };
   const totalRow = (label, cur, cmp, trend, good, rowStyle, colorVal) =>
     el('tr', rowStyle ? { style: rowStyle } : {}, el('td', {}, el('b', {}, label)), ...valueCells(cur, cmp, trend, good, true, colorVal));
+  // The bottom-line Net row: a navy bar in the single-period view; in the multi-column
+  // compare/trend views keep the light green/red tint (navy would clash with the colored
+  // comparison + variance cells).
+  const netBar = (label, cur, cmp, trend) => {
+    if (stmtSingle) { const tr = totalRow(label, cur, cmp, trend, 'up', '', false); tr.classList.add('stmt-net'); return tr; }
+    return totalRow(label, cur, cmp, trend, 'up', cur >= 0 ? 'background:var(--green-soft)' : 'background:var(--red-soft)', true);
+  };
 
   const section = (title, g, totalLabel, good) => {
     if (!g.nodes.length) return;
@@ -375,9 +389,9 @@ function drawBody(body) {
   if (otherExp.nodes.length) {
     plRows.push(totalRow('Net ordinary income', netOrdinary, netOrdinaryCmp, netOrdinaryTrend, 'up', 'background:var(--brand-soft)', true));
     section('Other expenses', otherExp, 'Total other expenses', 'down');
-    plRows.push(totalRow('Net income', net, netCmp, netTrend, 'up', net >= 0 ? 'background:var(--green-soft)' : 'background:var(--red-soft)', true));
+    plRows.push(netBar('Net income', net, netCmp, netTrend));
   } else {
-    plRows.push(totalRow('Net profit', net, netCmp, netTrend, 'up', net >= 0 ? 'background:var(--green-soft)' : 'background:var(--red-soft)', true));
+    plRows.push(netBar('Net profit', net, netCmp, netTrend));
   }
   const hasActivity = income.nodes.length || cogs.nodes.length || expenses.nodes.length || otherExp.nodes.length;
 
@@ -404,18 +418,20 @@ function drawBody(body) {
   const bsRows = [];
   const bsSection = (title, g, totalLabel, extra = null) => {
     bsRows.push(el('tr', {}, el('td', { class: 'coatype', colspan: '2', style: 'padding-top:12px' }, title)));
-    for (const r of g.rows) bsRows.push(el('tr', {}, el('td', { style: 'padding-left:24px' }, r.name), el('td', { class: 'num' }, fmtMoney(r.cents))));
-    if (extra) { bsRows.push(el('tr', {}, el('td', { style: 'padding-left:24px' }, extra.name), el('td', { class: 'num' }, fmtMoney(extra.cents)))); }
-    bsRows.push(el('tr', {}, el('td', {}, el('b', {}, totalLabel)), el('td', { class: 'num' }, el('b', {}, fmtMoney(g.total + (extra?.cents || 0))))));
+    for (const r of g.rows) bsRows.push(el('tr', {}, el('td', { style: 'padding-left:24px' }, r.name), el('td', { class: 'num' }, acctAmount(r.cents, { colored: false }))));
+    if (extra) { bsRows.push(el('tr', {}, el('td', { style: 'padding-left:24px' }, extra.name), el('td', { class: 'num' }, acctAmount(extra.cents, { colored: false })))); }
+    bsRows.push(el('tr', {}, el('td', {}, el('b', {}, totalLabel)), el('td', { class: 'num' }, el('b', {}, acctAmount(g.total + (extra?.cents || 0), { colored: false })))));
   };
   bsSection('Assets', assets, 'Total assets');
   bsSection('Liabilities', liabilities, 'Total liabilities');
   bsSection('Equity', equity, 'Total equity', { name: 'Net income to date', cents: netToDate });
   const liabEq = liabilities.total + equity.total + netToDate;
   const balanced = assets.total === liabEq;
-  bsRows.push(el('tr', { style: 'background:' + (balanced ? 'var(--brand-soft)' : 'var(--red-soft)') },
+  const balTr = el('tr', balanced ? {} : { style: 'background:var(--red-soft)' },
     el('td', {}, el('b', {}, 'Liabilities + equity')),
-    el('td', { class: 'num' }, el('b', {}, fmtMoney(liabEq) + (balanced ? ' ✓' : ' ≠ assets!')))));
+    el('td', { class: 'num' }, el('b', {}, fmtMoney(liabEq) + (balanced ? ' ✓' : ' ≠ assets!'))));
+  if (balanced) balTr.classList.add('stmt-net');
+  bsRows.push(balTr);
 
   // ── tax estimate (a planning number, not advice or books data) ──
   // The rate is a synced taxsetting entity so every device shares it. localStorage
@@ -477,14 +493,16 @@ function drawBody(body) {
           el('div', { class: 'pl-controls no-print' }, s.rangeCtl.el,
             el('span', { class: 'field-label', style: 'margin:0;white-space:nowrap' }, 'Compare to'),
             compareSel, pctToggle)),
-        hasActivity ? (modeTrend ? el('div', { style: 'overflow-x:auto' }, el('table', { class: 'data cmp' }, ...plRows)) : el('table', { class: 'data' + ((mode2 || pctOn) ? ' cmp' : '') }, ...plRows)) : el('p', { class: 'sub' }, 'No activity in this range.')),
+        hasActivity ? (modeTrend ? el('div', { style: 'overflow-x:auto' }, el('table', { class: 'data xl-stmt cmp' }, ...plRows)) : el('table', { class: 'data xl-stmt' + ((mode2 || pctOn) ? ' cmp' : '') }, ...plRows)) : el('p', { class: 'sub' }, 'No activity in this range.')),
       el('div', { class: 'card', style: 'flex:1;min-width:330px;max-width:460px' },
         el('div', { style: 'margin-bottom:10px' },
           el('div', { class: 'cardtitle', style: 'margin:0 0 6px' }, 'Balance Sheet'),
           el('div', { style: 'display:flex;gap:6px;align-items:center' },
             el('span', { class: 'field-label', style: 'margin:0' }, 'As of'),
             dateControl({ value: s.asOf, onPick: (iso) => { s.asOf = iso; drawBody(body); } }).el)),
-        el('table', { class: 'data' }, ...bsRows)),
+        el('table', { class: 'data xl-stmt' },
+          el('thead', {}, el('tr', {}, el('th', {}, 'Account'), el('th', { class: 'num' }, 'Amount'))),
+          el('tbody', {}, ...bsRows))),
       el('div', { class: 'card', style: 'flex:1;min-width:240px;max-width:300px' },
         el('div', { class: 'cardtitle' }, 'Tax set-aside estimate'),
         el('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:8px' }, rateIn, el('span', { class: 'sub', style: 'margin:0' }, '% of net profit')),

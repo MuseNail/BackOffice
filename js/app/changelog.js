@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.44', items: [
+    { icon: 'summarize', t: 'Reports — cleaner statements + Excel drill-downs', d: 'The Profit & Loss and Balance Sheet now have a blue header, light section bands, accounting-aligned figures, and a navy bottom-line bar (Net profit / the balanced check) — while keeping the indented accounts and bold subtotals. Clicking a line to see its transactions opens the full Excel-style table with red/green amounts. The denser “compare” and “monthly trend” views keep their compact multi-column format.' },
+  ] },
   { v: '0.69.43', items: [
     { icon: 'account_tree', t: 'Excel-style tables — Accounts + registers', d: 'The Chart of accounts and the per-account / per-vendor registers now use the blue-header, gridlined look. Register amounts and running balances use the accounting alignment (in red/green by sign), with a navy total bar at the bottom.' },
     { icon: 'table_rows', t: 'Fixed the Ledger’s row striping', d: 'The alternating row shading now shows correctly in the Ledger — it was being thrown off by the hidden phone-sized detail rows under each transaction.' },

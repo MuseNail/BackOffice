@@ -195,6 +195,16 @@ table.data.xl th.th-sort.on{color:#fff}
 .acctamt{display:flex;justify-content:space-between;gap:10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;font-size:12.5px}
 .acctcur{opacity:.7}
 
+/* Financial-statement treatment (Reports P&L / Balance Sheet): blue header, light
+   gridlines, section bands, accounting amounts, a navy bottom-line (Net / balanced) bar —
+   and NO zebra (it would fight the indentation and the bold subtotal rows). */
+table.data.xl-stmt th{background:var(--brand);color:#fff;font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-size:12.5px;padding:7px 11px;border:1px solid var(--brand-dim);text-align:left}
+table.data.xl-stmt th.num{text-align:right}
+table.data.xl-stmt td{border:1px solid #e9ecf2;padding:6px 11px;font-size:12.5px}
+table.data.xl-stmt td.coatype{background:var(--brand-soft);color:var(--brand-dim)}
+table.data.xl-stmt tr.stmt-net td{background:#16223c;color:#fff;border-color:#16223c;font-weight:700}
+table.data.xl-stmt tr.stmt-net .acctamt{color:#fff}
+
 /* ── combobox (type-to-search select) ── */
 .cbx{position:relative;display:inline-block;vertical-align:top}
 .cbx .cbx-input{margin:0;cursor:text}
