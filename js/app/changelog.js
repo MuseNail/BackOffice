@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.49', items: [
+    { icon: 'fact_check', t: 'Excel-style tables — Reconcile', d: 'The reconcile screen and the past-reconciliations list now use the blue-header, gridlined look with accounting-aligned amounts and a navy “checked” subtotal bar.' },
+  ] },
   { v: '0.69.48', items: [
     { icon: 'history', t: 'Excel-style table — Activity log', d: 'The activity / audit log now uses the blue-header, gridlined look with accounting-aligned amounts (money in green, out red).' },
   ] },

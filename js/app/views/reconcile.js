@@ -3,7 +3,7 @@
 // statement's ending balance before Close enables. Closing stamps each cleared
 // txn with reconciledIn (it leaves the uncleared list forever) and records a
 // recon entity for the audit trail.
-import { el, clear, toast, modal, fmtMoney } from '../ui.js';
+import { el, clear, toast, modal, fmtMoney, acctAmount, prettyDesc } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -88,9 +88,9 @@ function drawBody(body) {
     return el('tr', {},
       el('td', {}, editable ? box : ''),
       el('td', {}, t.date),
-      el('td', {}, t.payee || t.memo || '—'),
-      el('td', { class: 'num' }, cents < 0 ? fmtMoney(-cents) : ''),
-      el('td', { class: 'num' }, cents > 0 ? fmtMoney(cents) : ''));
+      el('td', {}, prettyDesc(t.payee || t.memo) || '—'),
+      el('td', { class: 'num' }, cents < 0 ? acctAmount(-cents, { colored: false }) : ''),
+      el('td', { class: 'num' }, cents > 0 ? acctAmount(cents, { colored: false }) : ''));
   });
 
   const history = entities('recon')
@@ -109,22 +109,22 @@ function drawBody(body) {
         (editable && balanced && s.checked.size) ? el('button', { class: 'btn sm green', onclick: () => confirmClose(bankacct, body) }, 'Close & lock these in') : el('span'))),
     candidates.length
       ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:800px' },
-          el('table', { class: 'data' },
-            el('tr', {}, el('th', {}, ''), el('th', {}, 'Date'), el('th', {}, 'Payee'), el('th', { class: 'num' }, 'Payments'), el('th', { class: 'num' }, 'Deposits')),
-            ...rows,
-            el('tr', { style: 'background:var(--brand-soft)' },
-              el('td', { colspan: '3' }, el('b', {}, `${s.checked.size} checked`)),
-              el('td', { class: 'num' }, el('b', {}, checkedPayments ? fmtMoney(checkedPayments) : '—')),
-              el('td', { class: 'num' }, el('b', {}, checkedDeposits ? fmtMoney(checkedDeposits) : '—')))))
+          el('table', { class: 'data xl' },
+            el('thead', {}, el('tr', {}, el('th', {}, ''), el('th', {}, 'Date'), el('th', {}, 'Payee'), el('th', { class: 'num' }, 'Payments'), el('th', { class: 'num' }, 'Deposits'))),
+            el('tbody', {}, ...rows),
+            el('tfoot', {}, el('tr', {},
+              el('td', { colspan: '3' }, `${s.checked.size} checked`),
+              el('td', { class: 'num' }, checkedPayments ? acctAmount(checkedPayments, { colored: false }) : '—'),
+              el('td', { class: 'num' }, checkedDeposits ? acctAmount(checkedDeposits, { colored: false }) : '—')))))
       : el('p', { class: 'sub' }, 'Nothing left to reconcile on or before that date — all caught up.'),
     history.length ? el('div', { class: 'card', style: 'max-width:760px' },
       el('div', { class: 'cardtitle' }, 'Past reconciliations'),
-      el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'Statement date'), el('th', { class: 'num' }, 'Ending balance'), el('th', { class: 'num' }, 'Items')),
-        ...history.map(r => el('tr', {},
+      el('table', { class: 'data xl' },
+        el('thead', {}, el('tr', {}, el('th', {}, 'Statement date'), el('th', { class: 'num' }, 'Ending balance'), el('th', { class: 'num' }, 'Items'))),
+        el('tbody', {}, ...history.map(r => el('tr', {},
           el('td', {}, r.statementEndDate),
-          el('td', { class: 'num' }, fmtMoney(r.statementBalanceCents)),
-          el('td', { class: 'num' }, String(r.clearedTxnIds.length)))))) : el('span'),
+          el('td', { class: 'num' }, acctAmount(r.statementBalanceCents, { colored: false })),
+          el('td', { class: 'num' }, String(r.clearedTxnIds.length))))))) : el('span'),
   );
 }
 
