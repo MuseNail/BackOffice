@@ -1,7 +1,7 @@
 // ── view: customers — client directory + per-customer register ─────────────────
 // Mirrors Vendors, but for the income side: your clients. Income transactions are
 // tagged to a customer (t.customerId) the way expenses are tagged to a vendor.
-import { el, clear, toast, modal, fmtMoney, acctAmount, sortTh, sortBy } from '../ui.js';
+import { el, clear, toast, modal, fmtMoney, acctAmount, prettyDesc, sortTh, sortBy } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -78,15 +78,15 @@ function drawTable(body, editable) {
     customers.map(c => { const tx = txnsForCustomer(c).filter(t => inRange(t.date, customerRange)); return { c, n: tx.length, total: tx.reduce((s, t) => s + incomeOf(t), 0) }; }),
     customerSort, { customer: r => r.c.name, txns: r => r.n, total: r => r.total });
   const redraw = () => drawTable(body, editable);
-  const tbl = el('table', { class: 'data' },
-    el('tr', {},
+  const tbl = el('table', { class: 'data xl' },
+    el('thead', {}, el('tr', {},
       sortTh(customerSort, 'customer', 'Customer', redraw),
       sortTh(customerSort, 'txns', 'Transactions', redraw, { numeric: true, cls: 'num' }),
-      sortTh(customerSort, 'total', 'Total received', redraw, { numeric: true, cls: 'num' })),
-    ...rows.map(({ c, n, total }) => el('tr', { style: 'cursor:pointer', title: 'View transactions / edit', onclick: () => customerDrilldown(c, () => drawTable(body, editable)) },
+      sortTh(customerSort, 'total', 'Total received', redraw, { numeric: true, cls: 'num' }))),
+    el('tbody', {}, ...rows.map(({ c, n, total }) => el('tr', { style: 'cursor:pointer', title: 'View transactions / edit', onclick: () => customerDrilldown(c, () => drawTable(body, editable)) },
       el('td', {}, el('b', {}, c.name)),
       el('td', { class: 'num' }, String(n)),
-      el('td', { class: 'num' }, fmtMoney(total)))));
+      el('td', { class: 'num' }, acctAmount(total, { colored: false }))))));
   clear(body).append(el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:760px' }, tbl));
 }
 
@@ -110,7 +110,7 @@ function customerDrilldown(c, refresh) {
       txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
         el('table', { class: 'data xl' },
           el('thead', {}, el('tr', {}, sortTh(txnSort, 'date', 'Date', drawList), sortTh(txnSort, 'desc', 'Description', drawList), sortTh(txnSort, 'account', 'Account', drawList), sortTh(txnSort, 'amount', 'Amount', drawList, { numeric: true, cls: 'num' }))),
-          el('tbody', {}, ...txns.map(t => el('tr', {}, el('td', {}, t.date), el('td', {}, t.payee || t.memo || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, acctAmount(Math.abs(incomeOf(t)), { colored: false })))))))
+          el('tbody', {}, ...txns.map(t => el('tr', {}, el('td', {}, t.date), el('td', {}, prettyDesc(t.payee || t.memo) || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, acctAmount(Math.abs(incomeOf(t)), { colored: false })))))))
         : el('p', { class: 'sub' }, 'No transactions yet.'));
   };
   const rangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { customerRange = r; pageRangeCtl?.setRange(r); drawList(); refresh?.(); } });

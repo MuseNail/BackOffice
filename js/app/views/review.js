@@ -6,7 +6,7 @@
 //    account is auto-marked so the transfer is never double-counted.
 //  • Fee split — a deposit where the processor kept a cut: posts gross income,
 //    the fee as its own expense, and the net into the bank, in one balanced txn.
-import { el, clear, toast, fmtMoney, modal } from '../ui.js';
+import { el, clear, toast, fmtMoney, modal, prettyDesc } from '../ui.js';
 import { entities, subscribe, getState, usesInvoices } from '../store.js';
 import { dispatch, api } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -309,7 +309,7 @@ function drawBody(body, editable) {
             editable ? el('input', { type: 'checkbox', class: 'revchk', checked: selected.has(row.id), title: 'Select for bulk action',
               onchange: (e) => { if (selectedBank !== row.bankacctId) { selected.clear(); selectedBank = row.bankacctId; } e.target.checked ? selected.add(row.id) : selected.delete(row.id); drawBody(body, editable); } }) : null,
             el('span', { class: 'revdate' }, row.date),
-            el('span', { class: 'revdesc' }, row.desc || '')),
+            el('span', { class: 'revdesc' }, prettyDesc(row.desc))),
           // The client's note to you (message, not the memo) — surfaced so you don't miss it.
           row.clientNote ? el('div', { class: 'client-note' }, el('span', { class: 'ms', style: 'font-size:15px' }, 'chat'), el('span', {}, row.clientNote)) : null,
           // The client proposed a new ACCOUNT that doesn't exist — one-click add (vendors

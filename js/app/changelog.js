@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.42', items: [
+    { icon: 'text_fields', t: 'Bank descriptions read normally, not IN ALL CAPS', d: 'Imported bank descriptions now show in regular Title Case (“Amazon Business” instead of “AMAZON BUSINESS”) across the Ledger, Review, search, and the vendor/customer drill-downs. Reference numbers, dates, and short codes like ACH, NY, and CA are left alone. Display only — your stored data and matching rules are unchanged.' },
+    { icon: 'table_view', t: 'Excel-style tables — Vendors & Customers', d: 'The Vendors and Customers lists now use the same blue-header, gridlined, accounting-aligned look as the Ledger.' },
+  ] },
   { v: '0.69.41', items: [
     { icon: 'table_view', t: 'New Excel-style tables — Ledger + vendor/customer drill-downs', d: 'Tables are getting a cleaner spreadsheet look, rolling out tab by tab. First: the Ledger and the vendor & customer drill-downs now have a blue header with white labels, full gridlines, alternating row shading, and a navy total bar on the Ledger. Amounts use accounting alignment — the “$” sits at the left and the figures line up on the right so the decimals stack neatly, with negatives shown as a minus sign. More tabs to follow.' },
   ] },

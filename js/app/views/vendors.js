@@ -1,5 +1,5 @@
 // ── view: vendors — vendors, their auto-categorize rules, and per-vendor register ─
-import { el, clear, toast, modal, fmtMoney, acctAmount, sortTh, sortBy } from '../ui.js';
+import { el, clear, toast, modal, fmtMoney, acctAmount, prettyDesc, sortTh, sortBy } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -104,17 +104,17 @@ function drawTable(body, editable) {
     vendors.map(v => { const tx = txnsForVendor(v).filter(t => inRange(t.date, vendorRange)); return { v, n: tx.length, total: tx.reduce((s, t) => s + expenseOf(t, expenseIds), 0) }; }),
     vendorSort, { vendor: r => r.v.name, rule: r => ruleSummary(r.v.matchers), txns: r => r.n, total: r => r.total });
   const redraw = () => drawTable(body, editable);
-  const tbl = el('table', { class: 'data' },
-    el('tr', {},
+  const tbl = el('table', { class: 'data xl' },
+    el('thead', {}, el('tr', {},
       sortTh(vendorSort, 'vendor', 'Vendor', redraw),
       sortTh(vendorSort, 'rule', 'Rule', redraw),
       sortTh(vendorSort, 'txns', 'Transactions', redraw, { numeric: true, cls: 'num' }),
-      sortTh(vendorSort, 'total', 'Total paid', redraw, { numeric: true, cls: 'num' })),
-    ...rows.map(({ v, n, total }) => el('tr', { style: 'cursor:pointer', title: 'View transactions / edit rule', onclick: () => vendorDrilldown(v, () => drawTable(body, editable)) },
+      sortTh(vendorSort, 'total', 'Total paid', redraw, { numeric: true, cls: 'num' }))),
+    el('tbody', {}, ...rows.map(({ v, n, total }) => el('tr', { style: 'cursor:pointer', title: 'View transactions / edit rule', onclick: () => vendorDrilldown(v, () => drawTable(body, editable)) },
       el('td', {}, el('b', {}, v.name)),
       el('td', { class: 'sub', style: 'margin:0;max-width:340px' }, ruleSummary(v.matchers)),
       el('td', { class: 'num' }, String(n)),
-      el('td', { class: 'num' }, fmtMoney(total)))));
+      el('td', { class: 'num' }, acctAmount(total, { colored: false }))))));
   clear(body).append(el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:900px' }, tbl));
 }
 
@@ -150,7 +150,7 @@ function vendorDrilldown(v, refresh) {
       txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
         el('table', { class: 'data xl' },
           el('thead', {}, el('tr', {}, sortTh(txnSort, 'date', 'Date', drawList), sortTh(txnSort, 'desc', 'Description', drawList), sortTh(txnSort, 'account', 'Account', drawList), sortTh(txnSort, 'amount', 'Amount', drawList, { numeric: true, cls: 'num' }))),
-          el('tbody', {}, ...txns.map(t => el('tr', { style: 'cursor:pointer', title: 'Edit transaction', onclick: () => editTxnModal(t) }, el('td', {}, t.date), el('td', {}, t.payee || t.memo || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, acctAmount(expenseOf(t, expenseIds), { colored: false })))))))
+          el('tbody', {}, ...txns.map(t => el('tr', { style: 'cursor:pointer', title: 'Edit transaction', onclick: () => editTxnModal(t) }, el('td', {}, t.date), el('td', {}, prettyDesc(t.payee || t.memo) || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, acctAmount(expenseOf(t, expenseIds), { colored: false })))))))
         : el('p', { class: 'sub' }, 'No transactions yet.'));
   };
   const rangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { vendorRange = r; pageRangeCtl?.setRange(r); drawList(); refresh?.(); } });

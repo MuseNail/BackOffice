@@ -152,6 +152,22 @@ export function fmtMoney(cents, { sign = false } = {}) {
   return (sign ? '+' : '') + `$${s}`;
 }
 
+// Bank descriptions arrive SHOUTING in all-caps. Show them in Title Case for readability
+// WITHOUT touching stored data (dedup + auto-categorize rules still match the raw text).
+// Guards: leave strings that already have lowercase (manual / already-clean) untouched;
+// leave any token containing a digit (ids, dates, phone/trace numbers) as-is; keep short
+// tokens (≤2 letters: state codes like CA/NY) and known acronyms uppercase.
+const DESC_KEEP = new Set(['ACH', 'ATM', 'POS', 'INC', 'LLC', 'LLP', 'SEC', 'USA', 'EFT', 'DBA', 'PPD', 'CCD', 'WEB', 'IVR', 'PMT', 'ID']);
+export function prettyDesc(s) {
+  if (!s || /[a-z]/.test(s)) return s || '';
+  // Title-case each run of capitals; digits/separators stay put. Short runs (state codes
+  // like CA/NY) and known acronyms keep their caps.
+  return s.replace(/[A-Z]+/g, (run) => {
+    if (run.length <= 2 || DESC_KEEP.has(run)) return run;
+    return run.charAt(0) + run.slice(1).toLowerCase();
+  });
+}
+
 // Accounting-style amount for table columns: the $ sits at the LEFT of the cell and the
 // figures align RIGHT (so decimals line up down the column). Negatives use a minus sign.
 // `colored` toggles the red/green (per-tab choice); pass false for plain ink.

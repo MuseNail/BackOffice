@@ -6,6 +6,7 @@ import { getActiveBiz } from './session.js';
 import { setLedgerQuery } from './views/ledger.js';
 import { setReviewQuery } from './views/review.js';
 import { openView } from './windows.js';
+import { prettyDesc } from './ui.js';
 
 let _input, _panel, _wrap;
 const money = (c) => (c < 0 ? '−$' : '$') + (Math.abs(c || 0) / 100).toFixed(2);
@@ -145,7 +146,7 @@ function render(q) {
     const items = byType.get(ty);
     if (!items || !items.length) continue;
     _panel.appendChild(subhead(`${TYPE_LABEL[ty] || ty} · ${items.length}`));
-    for (const t of items) _panel.appendChild(colRow(t.date, t.payee || '—', money(amtOf(t)), () => { setLedgerQuery(t.payee || t.memo || t.checkNo || ''); goView('ledger'); }));
+    for (const t of items) _panel.appendChild(colRow(t.date, prettyDesc(t.payee) || '—', money(amtOf(t)), () => { setLedgerQuery(t.payee || t.memo || t.checkNo || ''); goView('ledger'); }));
   }
 
   // In Review (raw bank rows) — date + account filter only (no category on a raw row yet).
@@ -158,7 +159,7 @@ function render(q) {
   });
   if (passStaged.length) {
     _panel.appendChild(subhead(`In review · ${passStaged.length}`));
-    for (const s of passStaged) _panel.appendChild(colRow(s.date, s.desc || '—', money(s.amountCents), () => { setReviewQuery(q); goView('review'); }));
+    for (const s of passStaged) _panel.appendChild(colRow(s.date, prettyDesc(s.desc) || '—', money(s.amountCents), () => { setReviewQuery(q); goView('review'); }));
   }
 
   // Non-transaction matches (text only) — plain one-line rows.

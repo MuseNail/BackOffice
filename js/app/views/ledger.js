@@ -1,5 +1,5 @@
 // ── view: ledger — posted transactions, manual entry, journal entries ────────────────
-import { el, clear, toast, modal, fmtMoney, acctAmount } from '../ui.js';
+import { el, clear, toast, modal, fmtMoney, acctAmount, prettyDesc } from '../ui.js';
 import { entities, subscribe, usesInvoices } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -261,7 +261,7 @@ function drawTable(host, editable) {
         title: inlineEditable ? 'Click to edit (date, amount) · delete / void inside' : '',
         onclick: inlineEditable ? () => editTxnModal(t) : undefined },
       el('td', { style: 'white-space:nowrap' }, t.date),
-      el('td', {}, el('b', {}, t.payee || '—'), t.checkNo ? el('span', { style: 'color:var(--mut)' }, ` · #${t.checkNo}`) : '', compact),
+      el('td', {}, el('b', {}, prettyDesc(t.payee) || '—'), t.checkNo ? el('span', { style: 'color:var(--mut)' }, ` · #${t.checkNo}`) : '', compact),
       detailsCell,
       srcCell, amtCell, balCell);
     return detail ? [summary, detail] : [summary];
