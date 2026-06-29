@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.40', items: [
+    { icon: 'view_column', t: 'Ledger details now really fit on one line', d: 'Follow-up to the last update: in a wide Ledger window the Vendor · Account · Invoice · Memo fields now lay out on a single row. The Details section is prioritized, so a long payee description wraps onto a second line rather than squeezing the fields. Narrow windows still fold the four fields back to two rows.' },
+  ] },
   { v: '0.69.39', items: [
     { icon: 'devices', t: 'Simpler “Signed-in devices” list', d: 'Settings → Team & access no longer mentions approving devices — any valid PIN signs straight in, so there was nothing to approve. The list is now just “Signed-in devices” with a single Sign out button, and Sign out now genuinely ends that device’s session (its next action drops it back to the sign-in screen). They can sign back in with their PIN; to remove someone for good, remove them under Users.' },
   ] },

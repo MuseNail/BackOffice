@@ -250,10 +250,13 @@ select.txi { background-position: right 7px center; padding-right: 24px; }
    is wide enough (like Review), collapsing back to 2×2 on a narrow window/MDI window.
    The container query reads the Details column's own width, not the viewport, so a small
    floating window collapses even on a wide screen. */
-.txdetails{min-width:280px}
+/* Prioritize a one-row Details (Vendor·Account·Invoice·Memo): claim ~half the row so the
+   Payee column yields and WRAPS to multiple lines (see payee rule below) rather than
+   starving Details. Auto table-layout otherwise hands the slack to Payee. */
+.txdetails{width:50%;min-width:240px}
 .txdetails-c{container-type:inline-size}
 .txgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:3px 18px}
-@container (max-width:520px){.txgrid{grid-template-columns:1fr 1fr;gap:5px 12px}}
+@container (max-width:480px){.txgrid{grid-template-columns:1fr 1fr;gap:5px 12px}}
 .txgrid>div{display:flex;flex-direction:column;gap:1px;min-width:0}
 .txglbl{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--ink)}
 .txgrid .txi{max-width:none;width:100%}
@@ -267,6 +270,8 @@ select.txi { background-position: right 7px center; padding-right: 24px; }
 table.ledger-table thead th{color:var(--ink);font-weight:800;position:sticky;top:var(--lhead,150px);z-index:5;background:#fff}
 .mdi-body table.ledger-table thead th{top:var(--lhead-mdi,96px)}
 table.ledger-table tbody td{vertical-align:top;padding-top:12px;padding-bottom:12px}
+/* Payee yields width to Details and wraps (incl. long unbroken tokens like phone #s / ids). */
+table.ledger-table tbody td:nth-child(2){overflow-wrap:anywhere}
 .txclickrow{cursor:pointer}
 .txchev{color:var(--mut);font-size:18px;margin-left:auto}
 .txcompact{display:none;align-items:center;gap:8px;margin-top:4px;font-size:11px;color:var(--mut)}
