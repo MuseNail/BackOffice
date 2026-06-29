@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.45', items: [
+    { icon: 'request_quote', t: 'Excel-style tables — Invoices', d: 'The invoice list and the invoice detail (line items, payments, the profit summary, linked expenses, and the drill-downs) now use the blue-header, gridlined look with accounting-aligned amounts. The open balance still shows in red when money is owed, and profit stays green/red.' },
+  ] },
   { v: '0.69.44', items: [
     { icon: 'summarize', t: 'Reports — cleaner statements + Excel drill-downs', d: 'The Profit & Loss and Balance Sheet now have a blue header, light section bands, accounting-aligned figures, and a navy bottom-line bar (Net profit / the balanced check) — while keeping the indented accounts and bold subtotals. Clicking a line to see its transactions opens the full Excel-style table with red/green amounts. The denser “compare” and “monthly trend” views keep their compact multi-column format.' },
   ] },

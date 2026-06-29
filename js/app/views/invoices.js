@@ -3,7 +3,7 @@
 // id), then list invoices with running open balances + aging. Posting payments
 // to the ledger and bank reconciliation are later phases — this view tracks, it
 // does not post.
-import { el, clear, toast, fmtMoney, modal } from '../ui.js';
+import { el, clear, toast, fmtMoney, acctAmount, prettyDesc, modal } from '../ui.js';
 import { entities, subscribe, getState, usesInvoices } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -599,9 +599,9 @@ function drawList(body) {
       el('td', {}, inv.date || '—'),
       el('td', {}, inv.clientName || '—'),
       el('td', {}, el('span', { class: 'pill ' + src.cls }, src.label)),
-      el('td', { class: 'num' }, fmtMoney(inv.totalCents)),
-      el('td', { class: 'num' }, fmtMoney(inv.paidCents)),
-      el('td', { class: 'num ' + (inv.balanceCents > 0 ? 'neg' : '') }, fmtMoney(inv.balanceCents)),
+      el('td', { class: 'num' }, acctAmount(inv.totalCents, { colored: false })),
+      el('td', { class: 'num' }, acctAmount(inv.paidCents, { colored: false })),
+      el('td', { class: 'num ' + (inv.balanceCents > 0 ? 'neg' : '') }, acctAmount(inv.balanceCents, { colored: false })),
       el('td', {}, el('span', { class: 'pill ' + st.cls }, st.label)),
     );
     tr.addEventListener('click', () => { location.hash = `#/b/${biz}/invoices/${inv.id}`; });
@@ -617,10 +617,10 @@ function drawList(body) {
     ),
     agingChips,
     el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
-      el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'Invoice'), el('th', {}, 'Invoice date'), el('th', {}, 'Client'), el('th', {}, 'Source'),
-          el('th', { class: 'num' }, 'Total'), el('th', { class: 'num' }, 'Paid'), el('th', { class: 'num' }, 'Open'), el('th', {}, 'Status')),
-        ...rows)),
+      el('table', { class: 'data xl' },
+        el('thead', {}, el('tr', {}, el('th', {}, 'Invoice'), el('th', {}, 'Invoice date'), el('th', {}, 'Client'), el('th', {}, 'Source'),
+          el('th', { class: 'num' }, 'Total'), el('th', { class: 'num' }, 'Paid'), el('th', { class: 'num' }, 'Open'), el('th', {}, 'Status'))),
+        el('tbody', {}, ...rows))),
     agingFilter != null && !rows.length ? el('p', { class: 'sub', style: 'margin:12px 0 0' }, 'No open invoices in this aging bucket.') : null,
   );
 }
@@ -635,15 +635,15 @@ function txnDetailModal(t, accountsById) {
   const m = modal(`Transaction · ${t.date || ''}`);
   m.body.append(
     el('p', { class: 'sub', style: 'margin-top:0' }, `${t.payee || '—'}${t.memo ? ' · ' + t.memo : ''}`),
-    el('table', { class: 'data' },
-      el('tr', {}, el('th', {}, 'Account'), el('th', { class: 'num' }, 'Debit'), el('th', { class: 'num' }, 'Credit')),
-      ...(t.lines || []).map(l => {
+    el('table', { class: 'data xl' },
+      el('thead', {}, el('tr', {}, el('th', {}, 'Account'), el('th', { class: 'num' }, 'Debit'), el('th', { class: 'num' }, 'Credit'))),
+      el('tbody', {}, ...(t.lines || []).map(l => {
         const a = accountsById.get(l.accountId);
         return el('tr', {},
           el('td', {}, a ? accountLabel(a, accountsById) : l.accountId),
-          el('td', { class: 'num' }, l.amountCents > 0 ? fmtMoney(l.amountCents) : ''),
-          el('td', { class: 'num' }, l.amountCents < 0 ? fmtMoney(-l.amountCents) : ''));
-      })),
+          el('td', { class: 'num' }, l.amountCents > 0 ? acctAmount(l.amountCents, { colored: false }) : ''),
+          el('td', { class: 'num' }, l.amountCents < 0 ? acctAmount(-l.amountCents, { colored: false }) : ''));
+      }))),
     el('div', { style: 'display:flex;justify-content:flex-end;margin-top:12px' }, el('button', { class: 'btn', onclick: m.close }, 'Close')));
 }
 
@@ -651,13 +651,13 @@ function txnDetailModal(t, accountsById) {
 function txnListModal(title, txns, accountsById, amountFor) {
   const m = modal(title);
   m.body.append(txns.length
-    ? el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Payee'), el('th', { class: 'num' }, 'Amount'), el('th', {}, '')),
-        ...txns.map(t => el('tr', {},
+    ? el('table', { class: 'data xl' },
+        el('thead', {}, el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Payee'), el('th', { class: 'num' }, 'Amount'), el('th', {}, ''))),
+        el('tbody', {}, ...txns.map(t => el('tr', {},
           el('td', {}, t.date || '—'),
-          el('td', {}, t.payee || '—'),
-          el('td', { class: 'num' }, fmtMoney(amountFor ? amountFor(t) : 0)),
-          el('td', {}, el('button', { class: 'linklike', onclick: () => txnDetailModal(t, accountsById) }, 'View')))))
+          el('td', {}, prettyDesc(t.payee) || '—'),
+          el('td', { class: 'num' }, acctAmount(amountFor ? amountFor(t) : 0, { colored: false })),
+          el('td', {}, el('button', { class: 'linklike', onclick: () => txnDetailModal(t, accountsById) }, 'View'))))))
     : el('p', { class: 'sub' }, 'No entries.'));
   m.body.append(el('div', { style: 'display:flex;justify-content:flex-end;margin-top:12px' }, el('button', { class: 'btn', onclick: m.close }, 'Close')));
 }
@@ -686,9 +686,9 @@ function reconTable(title, headers, rows, note, collapsible = false) {
   const isNum = (h) => /amount/i.test(h);
   const tableEl = rows.length
     ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-width:880px' },
-        el('table', { class: 'data' },
-          el('tr', {}, ...headers.map(h => el('th', { class: isNum(h) ? 'num' : '' }, h))),
-          ...rows.map(r => el('tr', {}, ...r.map((c, i) => el('td', { class: isNum(headers[i]) ? 'num' : '' }, c))))))
+        el('table', { class: 'data xl' },
+          el('thead', {}, el('tr', {}, ...headers.map(h => el('th', { class: isNum(h) ? 'num' : '' }, h)))),
+          el('tbody', {}, ...rows.map(r => el('tr', {}, ...r.map((c, i) => el('td', { class: isNum(headers[i]) ? 'num' : '' }, c)))))))
     : el('p', { class: 'sub' }, 'None — all clear. 🎉');
   const noteEl = note ? el('p', { class: 'sub', style: 'max-width:880px;margin-top:4px' }, note) : null;
   // Long lists collapse to keep the screen scannable; open it when you need the detail.
@@ -827,16 +827,16 @@ function renderInvoiceDetail(root, id) {
     ...candidates.map(t => el('option', { value: t.id }, `${t.date} · ${(t.payee || '—').slice(0, 30)} · ${fmtMoney(expenseAmt(t))}`)));
   const expenseRows = linkedExpenses.map(t => el('tr', { style: 'cursor:pointer', title: 'View transaction', onclick: () => txnDetailModal(t, accountsById) },
     el('td', {}, t.date),
-    el('td', {}, t.payee || '—'),
-    el('td', { class: 'num' }, fmtMoney(expenseAmt(t))),
+    el('td', {}, prettyDesc(t.payee) || '—'),
+    el('td', { class: 'num' }, acctAmount(expenseAmt(t), { colored: false })),
     el('td', {}, editable ? el('button', { class: 'linklike', onclick: (e) => { e.stopPropagation(); dispatch({ op: 'entity.upsert', kind: 'txn', value: { ...t, invoiceId: undefined } }); toast('Unlinked'); } }, 'Unlink') : '')));
   const expensesCard = (editable || linkedExpenses.length)
     ? el('div', { class: 'card', style: 'max-width:640px;margin-bottom:14px' },
         el('div', { class: 'cardtitle' }, 'Linked expenses'),
         linkedExpenses.length
-          ? el('table', { class: 'data' },
-              el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Payee'), el('th', { class: 'num' }, 'Expense'), el('th', {}, '')),
-              ...expenseRows)
+          ? el('table', { class: 'data xl' },
+              el('thead', {}, el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Payee'), el('th', { class: 'num' }, 'Expense'), el('th', {}, ''))),
+              el('tbody', {}, ...expenseRows))
           : el('p', { class: 'sub' }, 'No job expenses linked yet.'),
         editable ? el('div', { style: 'display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap' },
           linkSel,
@@ -862,8 +862,8 @@ function renderInvoiceDetail(root, id) {
   const itemRows = (inv.lineItems || []).map(it => el('tr', {},
     el('td', {}, it.description || it.code || '—'),
     el('td', { class: 'num' }, String(it.qty ?? '')),
-    el('td', { class: 'num' }, fmtMoney(it.unitPriceCents)),
-    el('td', { class: 'num' }, fmtMoney(it.amountCents))));
+    el('td', { class: 'num' }, acctAmount(it.unitPriceCents, { colored: false })),
+    el('td', { class: 'num' }, acctAmount(it.amountCents, { colored: false }))));
 
   // Per-payment fee view for review: the estimated Invoice2go cut (derived at the card
   // rate) and the surcharge passed to the customer (real data, from the export).
@@ -873,9 +873,9 @@ function renderInvoiceDetail(root, id) {
     return el('tr', {},
       el('td', {}, p.date || '—'),
       el('td', {}, editable ? methodSelect(inv, i, p.method || '') : methodLabel(p.method)),
-      el('td', { class: 'num' }, fmtMoney(p.amountCents)),
-      el('td', { class: 'num', title: 'Invoice2go card fee, estimated at ' + (cardRate * 100).toFixed(2).replace(/\.?0+$/, '') + '%' }, estFee ? fmtMoney(estFee) : '—'),
-      el('td', { class: 'num', title: 'Surcharge passed to the customer (from Invoice2go)' }, p.feeCents ? fmtMoney(p.feeCents) : '—'),
+      el('td', { class: 'num' }, acctAmount(p.amountCents, { colored: false })),
+      el('td', { class: 'num', title: 'Invoice2go card fee, estimated at ' + (cardRate * 100).toFixed(2).replace(/\.?0+$/, '') + '%' }, estFee ? acctAmount(estFee, { colored: false }) : '—'),
+      el('td', { class: 'num', title: 'Surcharge passed to the customer (from Invoice2go)' }, p.feeCents ? acctAmount(p.feeCents, { colored: false }) : '—'),
       el('td', {}, el('span', { class: 'pill ' + (p.status === 'succeeded' ? 'green' : 'gray') }, p.status || '—')));
   });
 
@@ -891,23 +891,24 @@ function renderInvoiceDetail(root, id) {
     actions,
     el('div', { class: 'card', style: 'max-width:460px;margin-bottom:14px' },
       el('table', { class: 'data' },
-        el('tr', {}, el('td', {}, el('b', {}, 'Revenue (invoice total)')), el('td', { class: 'num' }, el('b', {}, fmtMoney(inv.totalCents)))),
-        el('tr', {}, el('td', {}, 'Paid'), el('td', { class: 'num' }, fmtMoney(inv.paidCents))),
-        inv.balanceCents ? el('tr', {}, el('td', {}, 'Open balance'), el('td', { class: 'num' }, fmtMoney(inv.balanceCents))) : null,
-        el('tr', linkedExpenses.length ? { style: 'cursor:pointer', title: 'View linked expenses', onclick: () => txnListModal('Job expenses', linkedExpenses, accountsById, expenseAmt) } : {}, el('td', {}, 'Job expenses'), el('td', { class: 'num' }, fmtMoney(jobExpenses))),
-        cardAbsorbed ? el('tr', { style: 'cursor:pointer', title: 'View entries', onclick: () => txnListModal('Card fee absorbed (COGS)', absorbedTxns, accountsById, t => lineSum(t, isAbsorbedAcct)) }, el('td', {}, 'Card fee absorbed (COGS)'), el('td', { class: 'num' }, fmtMoney(cardAbsorbed))) : null,
-        payoutFee ? el('tr', { style: 'cursor:pointer', title: 'View entries', onclick: () => txnListModal('Payout fee', payoutTxns, accountsById, t => lineSum(t, isPayoutAcct)) }, el('td', {}, 'Payout fee'), el('td', { class: 'num' }, fmtMoney(payoutFee))) : null,
+        el('tr', {}, el('td', {}, el('b', {}, 'Revenue (invoice total)')), el('td', { class: 'num' }, el('b', {}, acctAmount(inv.totalCents, { colored: false })))),
+        el('tr', {}, el('td', {}, 'Paid'), el('td', { class: 'num' }, acctAmount(inv.paidCents, { colored: false }))),
+        inv.balanceCents ? el('tr', {}, el('td', {}, 'Open balance'), el('td', { class: 'num' }, acctAmount(inv.balanceCents, { colored: false }))) : null,
+        el('tr', linkedExpenses.length ? { style: 'cursor:pointer', title: 'View linked expenses', onclick: () => txnListModal('Job expenses', linkedExpenses, accountsById, expenseAmt) } : {}, el('td', {}, 'Job expenses'), el('td', { class: 'num' }, acctAmount(jobExpenses, { colored: false }))),
+        cardAbsorbed ? el('tr', { style: 'cursor:pointer', title: 'View entries', onclick: () => txnListModal('Card fee absorbed (COGS)', absorbedTxns, accountsById, t => lineSum(t, isAbsorbedAcct)) }, el('td', {}, 'Card fee absorbed (COGS)'), el('td', { class: 'num' }, acctAmount(cardAbsorbed, { colored: false }))) : null,
+        payoutFee ? el('tr', { style: 'cursor:pointer', title: 'View entries', onclick: () => txnListModal('Payout fee', payoutTxns, accountsById, t => lineSum(t, isPayoutAcct)) }, el('td', {}, 'Payout fee'), el('td', { class: 'num' }, acctAmount(payoutFee, { colored: false }))) : null,
         el('tr', {}, el('td', {}, el('b', {}, 'Profit')), el('td', { class: 'num ' + (marginCents >= 0 ? 'pos' : 'neg') }, el('b', {}, fmtMoney(marginCents) + (marginPct != null ? ` (${marginPct}%)` : '')))),
-        feePassed ? el('tr', passedTxns.length ? { style: 'color:var(--mut);cursor:pointer', title: 'View entries', onclick: () => txnListModal('Fee passed to customer', passedTxns, accountsById, t => lineSum(t, a => a && a.id === i2gMap.feePassedId)) } : { style: 'color:var(--mut)' }, el('td', {}, 'Fee passed to customer (from Invoice2go)'), el('td', { class: 'num' }, fmtMoney(feePassed))) : null)),
+        feePassed ? el('tr', passedTxns.length ? { style: 'color:var(--mut);cursor:pointer', title: 'View entries', onclick: () => txnListModal('Fee passed to customer', passedTxns, accountsById, t => lineSum(t, a => a && a.id === i2gMap.feePassedId)) } : { style: 'color:var(--mut)' }, el('td', {}, 'Fee passed to customer (from Invoice2go)'), el('td', { class: 'num' }, acctAmount(feePassed, { colored: false }))) : null)),
     expensesCard,
     itemRows.length ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;margin-bottom:14px;max-width:640px' },
-      el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'Line item'), el('th', { class: 'num' }, 'Qty'), el('th', { class: 'num' }, 'Unit'), el('th', { class: 'num' }, 'Amount')),
-        ...itemRows)) : el('span'),
+      el('table', { class: 'data xl' },
+        el('thead', {}, el('tr', {}, el('th', {}, 'Line item'), el('th', { class: 'num' }, 'Qty'), el('th', { class: 'num' }, 'Unit'), el('th', { class: 'num' }, 'Amount'))),
+        el('tbody', {}, ...itemRows))) : el('span'),
     payRows.length ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:640px' },
-      el('table', { class: 'data' },
-        el('tr', {}, el('th', { colspan: '6', style: 'text-align:left' }, 'Payments')),
-        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Method'), el('th', { class: 'num' }, 'Amount'), el('th', { class: 'num' }, 'Card fee (est.)'), el('th', { class: 'num' }, 'Passed'), el('th', {}, 'Status')),
-        ...payRows)) : el('p', { class: 'sub' }, 'No payments recorded.'),
+      el('table', { class: 'data xl' },
+        el('thead', {},
+          el('tr', {}, el('th', { colspan: '6', style: 'text-align:left' }, 'Payments')),
+          el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Method'), el('th', { class: 'num' }, 'Amount'), el('th', { class: 'num' }, 'Card fee (est.)'), el('th', { class: 'num' }, 'Passed'), el('th', {}, 'Status'))),
+        el('tbody', {}, ...payRows))) : el('p', { class: 'sub' }, 'No payments recorded.'),
   );
 }
