@@ -246,12 +246,27 @@ select.txi { background-position: right 7px center; padding-right: 24px; }
 .txi-cb{display:block;width:100%;min-width:130px;max-width:210px}
 .txi-cb .cbx-input{font-size:12px;padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;margin:0}
 .txgrid .txi-lazy,.txgrid .txi-face,.txgrid .txi-cb{max-width:none;width:100%}
-/* Ledger inline fields packed 2×2 in one "Details" cell (no horizontal scroll). */
+/* Ledger inline fields: one row of Vendor·Account·Invoice·Memo when the Details column
+   is wide enough (like Review), collapsing back to 2×2 on a narrow window/MDI window.
+   The container query reads the Details column's own width, not the viewport, so a small
+   floating window collapses even on a wide screen. */
 .txdetails{min-width:280px}
-.txgrid{display:grid;grid-template-columns:1fr 1fr;gap:5px 12px}
+.txdetails-c{container-type:inline-size}
+.txgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:3px 18px}
+@container (max-width:520px){.txgrid{grid-template-columns:1fr 1fr;gap:5px 12px}}
 .txgrid>div{display:flex;flex-direction:column;gap:1px;min-width:0}
-.txglbl{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--mut)}
+.txglbl{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--ink)}
 .txgrid .txi{max-width:none;width:100%}
+.txgrid .txi-face,.txgrid .txi-cb .cbx-input{min-width:0}
+/* Ledger: black headers + a roomier row rhythm, and a pinned head + column header.
+   --lhead/--lhead-mdi are measured per render (the account-tabs head height varies),
+   so the column header pins flush under the sticky head in both the full page (below the
+   53px topbar) and inside an MDI window (where .mdi-body is the scroll container). */
+.ledger-head{position:sticky;top:53px;z-index:6;background:var(--bg);padding:2px 0 8px}
+.mdi-body .ledger-head{top:0}
+table.ledger-table thead th{color:var(--ink);font-weight:800;position:sticky;top:var(--lhead,150px);z-index:5;background:#fff}
+.mdi-body table.ledger-table thead th{top:var(--lhead-mdi,96px)}
+table.ledger-table tbody td{vertical-align:top;padding-top:12px;padding-bottom:12px}
 .txclickrow{cursor:pointer}
 .txchev{color:var(--mut);font-size:18px;margin-left:auto}
 .txcompact{display:none;align-items:center;gap:8px;margin-top:4px;font-size:11px;color:var(--mut)}

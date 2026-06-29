@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.38', items: [
+    { icon: 'view_list', t: 'Easier-to-read Ledger', d: 'The Ledger’s column headers (Date, Payee, Details…) and the little field labels (Vendor, Account, Invoice, Memo) are now solid black instead of faint gray. The account tabs and the column header stay pinned at the top while you scroll the list, the four detail fields line up in one row when there’s room (like the Review screen), and there’s a bit more space between transactions.' },
+    { icon: 'edit', t: 'Edit a transaction from a vendor’s list', d: 'Open a vendor and click any transaction in its popup to edit it — the same quick edit you get from the Reports drill-downs.' },
+  ] },
   { v: '0.69.37', items: [
     { icon: 'wifi', t: 'Fewer “Offline” drops', d: 'The app now quietly keeps its live connection awake and reconnects the moment you come back to the tab or your internet returns, instead of flashing “Offline” when the connection has just been sitting idle. And if a change was still saving when you reloaded the page, it now stays on screen instead of looking like it didn’t save — which is what could lead to entering the same transaction twice.' },
     { icon: 'delete', t: 'Delete a skipped review row', d: 'Skipped rows in Review now have a Delete button next to Restore, so you can permanently remove an unwanted or duplicate bank row. A skipped row was never posted, so deleting it leaves your ledger and reports untouched.' },

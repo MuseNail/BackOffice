@@ -231,11 +231,12 @@ function drawTable(host, editable) {
     // Clicks inside the details cell drive the inline fields — they must NOT also
     // trigger the row's "click to edit".
     const detailsCell = el('td', { class: 'txinline txdetails', onclick: (e) => e.stopPropagation() },
-      el('div', { class: 'txgrid' },
-        gcell('Vendor', vendCell),
-        gcell('Account', catCell),
-        showInv ? gcell('Invoice', invCell) : el('div', {}),
-        gcell('Memo', memoCell)));
+      el('div', { class: 'txdetails-c' },
+        el('div', { class: 'txgrid' },
+          gcell('Vendor', vendCell),
+          gcell('Account', catCell),
+          showInv ? gcell('Invoice', invCell) : el('div', {}),
+          gcell('Memo', memoCell))));
 
     const srcCell = el('td', {},
       el('span', { class: `pill ${isVoid ? 'gray' : sourceTag(t.source?.app).cls}` }, isVoid ? 'Void' : sourceTag(t.source?.app).label),
@@ -267,26 +268,36 @@ function drawTable(host, editable) {
   });
   const th = (key, label, cls) => el('th', { class: cls || '', style: 'cursor:pointer;user-select:none', title: 'Click to sort', onclick: () => { setSort(key); drawTable(host, editable); } }, label + arrow(key));
   const balance = scoped ? accountBalance(entities('txn'), flt.accountId) : 0;
-  clear(host).append(
+  const headerRow = el('tr', {}, th('date', 'Date'), th('payee', 'Payee / memo'),
+    el('th', { class: 'txinline' }, 'Details'),
+    el('th', {}, 'Source'), th('amount', 'Amount', 'num'),
+    scoped ? el('th', { class: 'num' }, 'Balance') : null);
+  const table = el('table', { class: 'data ledger-table' + (editable ? ' txedit' : '') },
+    el('thead', {}, headerRow), el('tbody', {}, ...rows));
+  // Account tabs + count pin together; the column header pins flush beneath them.
+  const ledgerHead = el('div', { class: 'ledger-head no-print' },
     accountTabs(host, editable),
+    el('p', { class: 'sub', style: 'margin:6px 0 0' },
+      `${filtered.length} of ${allTxns.length} transaction${allTxns.length === 1 ? '' : 's'}${filtered.length > 200 ? ' · showing the first 200 — narrow the filters to see the rest' : ''}`));
+  clear(host).append(
     scoped ? el('div', { class: 'card', style: 'max-width:420px;margin-bottom:12px' },
       el('div', { class: 'kpilbl' }, `${scopedAcct.name} — current balance`),
       el('div', { class: 'kpi' }, fmtMoney(balance)),
       el('div', { class: 'sub', style: 'margin:0' }, isBank
         ? 'Should match your bank/card statement once every transaction through this account is entered and approved.'
         : 'Balance of all posted activity in this account.')) : el('span'),
-    el('p', { class: 'sub', style: 'margin:0 0 8px' },
-      `${filtered.length} of ${allTxns.length} transaction${allTxns.length === 1 ? '' : 's'}${filtered.length > 200 ? ' · showing the first 200 — narrow the filters to see the rest' : ''}`),
+    ledgerHead,
     filtered.length
-      ? el('div', { class: 'card', style: 'padding:0;overflow-x:auto' },
-          el('table', { class: 'data' + (editable ? ' txedit' : '') },
-            el('tr', {}, th('date', 'Date'), th('payee', 'Payee / memo'),
-              el('th', { class: 'txinline' }, 'Details'),
-              el('th', {}, 'Source'), th('amount', 'Amount', 'num'),
-              scoped ? el('th', { class: 'num' }, 'Balance') : null),
-            ...rows))
+      ? el('div', { class: 'card', style: 'padding:0' }, table)
       : el('p', { class: 'sub' }, 'No transactions match these filters.'),
   );
+  // Pin the column header just below the sticky head — its height varies with how many
+  // account chips wrap, so measure it and expose it to CSS (full-page adds the 53px topbar).
+  requestAnimationFrame(() => {
+    const h = ledgerHead.offsetHeight || 0;
+    table.style.setProperty('--lhead', (53 + h) + 'px');
+    table.style.setProperty('--lhead-mdi', h + 'px');
+  });
 }
 
 function confirmVoid(t) {

@@ -10,6 +10,7 @@ import { dateRangeControl, inRange } from '../daterange.js';
 import { ruleConditionsEditor, buildMatchers, ruleSummary } from '../rule-editor.js';
 import { combobox } from '../combobox.js';
 import { openMergeModal, mergeVendor } from '../merge.js';
+import { editTxnModal } from './ledger.js';
 
 let unsub = null;
 let vendorRange = { from: null, to: null };
@@ -149,7 +150,7 @@ function vendorDrilldown(v, refresh) {
       txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
         el('table', { class: 'data' },
           el('tr', {}, sortTh(txnSort, 'date', 'Date', drawList), sortTh(txnSort, 'desc', 'Description', drawList), sortTh(txnSort, 'account', 'Account', drawList), sortTh(txnSort, 'amount', 'Amount', drawList, { numeric: true, cls: 'num' })),
-          ...txns.map(t => el('tr', {}, el('td', {}, t.date), el('td', {}, t.payee || t.memo || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, fmtMoney(expenseOf(t, expenseIds)))))))
+          ...txns.map(t => el('tr', { style: 'cursor:pointer', title: 'Edit transaction', onclick: () => editTxnModal(t) }, el('td', {}, t.date), el('td', {}, t.payee || t.memo || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, fmtMoney(expenseOf(t, expenseIds)))))))
         : el('p', { class: 'sub' }, 'No transactions yet.'));
   };
   const rangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { vendorRange = r; pageRangeCtl?.setRange(r); drawList(); refresh?.(); } });
