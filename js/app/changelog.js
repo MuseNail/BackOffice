@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.41', items: [
+    { icon: 'table_view', t: 'New Excel-style tables — Ledger + vendor/customer drill-downs', d: 'Tables are getting a cleaner spreadsheet look, rolling out tab by tab. First: the Ledger and the vendor & customer drill-downs now have a blue header with white labels, full gridlines, alternating row shading, and a navy total bar on the Ledger. Amounts use accounting alignment — the “$” sits at the left and the figures line up on the right so the decimals stack neatly, with negatives shown as a minus sign. More tabs to follow.' },
+  ] },
   { v: '0.69.40', items: [
     { icon: 'view_column', t: 'Ledger details now really fit on one line', d: 'Follow-up to the last update: in a wide Ledger window the Vendor · Account · Invoice · Memo fields now lay out on a single row. The Details section is prioritized, so a long payee description wraps onto a second line rather than squeezing the fields. Narrow windows still fold the four fields back to two rows.' },
   ] },

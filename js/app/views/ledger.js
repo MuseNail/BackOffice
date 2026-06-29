@@ -1,5 +1,5 @@
 // ── view: ledger — posted transactions, manual entry, journal entries ────────────────
-import { el, clear, toast, modal, fmtMoney } from '../ui.js';
+import { el, clear, toast, modal, fmtMoney, acctAmount } from '../ui.js';
 import { entities, subscribe, usesInvoices } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -241,8 +241,8 @@ function drawTable(host, editable) {
     const srcCell = el('td', {},
       el('span', { class: `pill ${isVoid ? 'gray' : sourceTag(t.source?.app).cls}` }, isVoid ? 'Void' : sourceTag(t.source?.app).label),
       isRecon ? el('span', { class: 'pill gray', title: 'Amounts and accounts are locked — reconciled in a closed period', style: 'margin-left:4px' }, 'Reconciled') : '');
-    const amtCell = el('td', { class: 'num ' + (amt > 0 ? 'pos' : amt < 0 ? 'neg' : ''), style: 'white-space:nowrap' }, amt == null ? '—' : fmtMoney(amt, { sign: amt > 0 }));
-    const balCell = scoped ? el('td', { class: 'num' }, isVoid ? '—' : fmtMoney(balAfter.get(t.id) || 0)) : null;
+    const amtCell = el('td', { class: 'num' }, amt == null ? '—' : acctAmount(amt, { colored: true, sign: amt > 0 }));
+    const balCell = scoped ? el('td', { class: 'num' }, isVoid ? '—' : acctAmount(balAfter.get(t.id) || 0, { colored: true })) : null;
 
     // Mobile compact line + tap-to-expand stacked editor.
     const iv = t.invoiceId ? invById.get(t.invoiceId) : null;
@@ -272,8 +272,13 @@ function drawTable(host, editable) {
     el('th', { class: 'txinline' }, 'Details'),
     el('th', {}, 'Source'), th('amount', 'Amount', 'num'),
     scoped ? el('th', { class: 'num' }, 'Balance') : null);
-  const table = el('table', { class: 'data ledger-table' + (editable ? ' txedit' : '') },
-    el('thead', {}, headerRow), el('tbody', {}, ...rows));
+  const totalCents = filtered.reduce((s, t) => { const a = rowAmount(t); return s + (a == null ? 0 : a); }, 0);
+  const footRow = el('tr', {},
+    el('td', { colspan: '4' }, `Total · ${filtered.length} transaction${filtered.length === 1 ? '' : 's'}`),
+    el('td', { class: 'num' }, acctAmount(totalCents, { colored: false })),
+    scoped ? el('td', {}) : null);
+  const table = el('table', { class: 'data xl ledger-table' + (editable ? ' txedit' : '') },
+    el('thead', {}, headerRow), el('tbody', {}, ...rows), el('tfoot', {}, footRow));
   // Account tabs + count pin together; the column header pins flush beneath them.
   const ledgerHead = el('div', { class: 'ledger-head no-print' },
     accountTabs(host, editable),

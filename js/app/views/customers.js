@@ -1,7 +1,7 @@
 // ── view: customers — client directory + per-customer register ─────────────────
 // Mirrors Vendors, but for the income side: your clients. Income transactions are
 // tagged to a customer (t.customerId) the way expenses are tagged to a vendor.
-import { el, clear, toast, modal, fmtMoney, sortTh, sortBy } from '../ui.js';
+import { el, clear, toast, modal, fmtMoney, acctAmount, sortTh, sortBy } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -108,9 +108,9 @@ function customerDrilldown(c, refresh) {
     clear(listHost).append(
       el('div', { style: 'font-weight:800;font-size:18px;margin:2px 0 10px' }, fmtMoney(total), el('span', { class: 'sub', style: 'font-weight:400;margin-left:8px' }, `received · ${txns.length} transactions`)),
       txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
-        el('table', { class: 'data' },
-          el('tr', {}, sortTh(txnSort, 'date', 'Date', drawList), sortTh(txnSort, 'desc', 'Description', drawList), sortTh(txnSort, 'account', 'Account', drawList), sortTh(txnSort, 'amount', 'Amount', drawList, { numeric: true, cls: 'num' })),
-          ...txns.map(t => el('tr', {}, el('td', {}, t.date), el('td', {}, t.payee || t.memo || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, fmtMoney(Math.abs(incomeOf(t))))))))
+        el('table', { class: 'data xl' },
+          el('thead', {}, el('tr', {}, sortTh(txnSort, 'date', 'Date', drawList), sortTh(txnSort, 'desc', 'Description', drawList), sortTh(txnSort, 'account', 'Account', drawList), sortTh(txnSort, 'amount', 'Amount', drawList, { numeric: true, cls: 'num' }))),
+          el('tbody', {}, ...txns.map(t => el('tr', {}, el('td', {}, t.date), el('td', {}, t.payee || t.memo || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, acctAmount(Math.abs(incomeOf(t)), { colored: false })))))))
         : el('p', { class: 'sub' }, 'No transactions yet.'));
   };
   const rangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { customerRange = r; pageRangeCtl?.setRange(r); drawList(); refresh?.(); } });

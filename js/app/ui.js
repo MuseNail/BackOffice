@@ -151,3 +151,15 @@ export function fmtMoney(cents, { sign = false } = {}) {
   if (cents < 0) return `−$${s}`;
   return (sign ? '+' : '') + `$${s}`;
 }
+
+// Accounting-style amount for table columns: the $ sits at the LEFT of the cell and the
+// figures align RIGHT (so decimals line up down the column). Negatives use a minus sign.
+// `colored` toggles the red/green (per-tab choice); pass false for plain ink.
+export function acctAmount(cents, { colored = true, sign = false } = {}) {
+  const s = (Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const num = cents < 0 ? `−${s}` : (sign && cents > 0 ? `+${s}` : s);
+  const tone = colored ? (cents < 0 ? ' neg' : cents > 0 ? ' pos' : '') : '';
+  return el('span', { class: 'acctamt' + tone },
+    el('span', { class: 'acctcur' }, '$'),
+    el('span', {}, num));
+}

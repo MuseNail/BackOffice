@@ -172,6 +172,23 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 .pill.gray{background:#eef0f4;color:#5b5e68}
 .linklike{background:none;border:none;color:var(--brand);font-weight:700;cursor:pointer;font:inherit;padding:0}
 
+/* ── "Excel" data-table style — opt-in via .xl, rolled out per tab ──
+   Blue gridline header (white caps), full cell gridlines, light-blue zebra, navy total bar.
+   One uniform 12.5px size everywhere (header/body/footer). */
+table.data.xl th{background:var(--brand);color:#fff;font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-size:12.5px;padding:7px 11px;border:1px solid var(--brand-dim);text-align:left}
+table.data.xl th.num{text-align:right}
+table.data.xl td{border:1px solid #d7dded;padding:7px 11px;font-size:12.5px;vertical-align:top}
+table.data.xl tbody tr:nth-child(odd){background:#fff}
+table.data.xl tbody tr:nth-child(even){background:#eef2f8}
+table.data.xl tfoot td{background:#16223c;color:#fff;border-color:#16223c;font-weight:700;font-size:12.5px}
+table.data.xl tfoot .acctamt{color:#fff}
+/* Sortable headers stay readable on the blue fill (the default blue active-state would vanish). */
+table.data.xl th.th-sort:hover{color:#dbe7fb}
+table.data.xl th.th-sort.on{color:#fff}
+/* Accounting amount: $ pinned left, figures right, monospaced so columns line up. */
+.acctamt{display:flex;justify-content:space-between;gap:10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;font-size:12.5px}
+.acctcur{opacity:.7}
+
 /* ── combobox (type-to-search select) ── */
 .cbx{position:relative;display:inline-block;vertical-align:top}
 .cbx .cbx-input{margin:0;cursor:text}
@@ -261,15 +278,14 @@ select.txi { background-position: right 7px center; padding-right: 24px; }
 .txglbl{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--ink)}
 .txgrid .txi{max-width:none;width:100%}
 .txgrid .txi-face,.txgrid .txi-cb .cbx-input{min-width:0}
-/* Ledger: black headers + a roomier row rhythm, and a pinned head + column header.
+/* Ledger pinned head + column header (header LOOK comes from .xl above).
    --lhead/--lhead-mdi are measured per render (the account-tabs head height varies),
    so the column header pins flush under the sticky head in both the full page (below the
    53px topbar) and inside an MDI window (where .mdi-body is the scroll container). */
 .ledger-head{position:sticky;top:53px;z-index:6;background:var(--bg);padding:2px 0 8px}
 .mdi-body .ledger-head{top:0}
-table.ledger-table thead th{color:var(--ink);font-weight:800;position:sticky;top:var(--lhead,150px);z-index:5;background:#fff}
+table.ledger-table thead th{position:sticky;top:var(--lhead,150px);z-index:5}
 .mdi-body table.ledger-table thead th{top:var(--lhead-mdi,96px)}
-table.ledger-table tbody td{vertical-align:top;padding-top:12px;padding-bottom:12px}
 /* Payee yields width to Details and wraps (incl. long unbroken tokens like phone #s / ids). */
 table.ledger-table tbody td:nth-child(2){overflow-wrap:anywhere}
 .txclickrow{cursor:pointer}
