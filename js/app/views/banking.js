@@ -1,7 +1,7 @@
 // ── view: banking — bank/card accounts, CSV import wizard, import history ────────────────
 // Bank accounts are created HERE (not in Accounts): each one is a bankacct
 // entity PLUS its linked ledger account (qbType BANK/CCARD), created together.
-import { el, clear, toast, modal, fmtMoney } from '../ui.js';
+import { el, clear, toast, modal, fmtMoney, acctAmount, prettyDesc } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -88,9 +88,9 @@ function drawBody(body, editable) {
     imports.length ? el('div', { style: 'max-width:880px' },
       el('div', { class: 'cardtitle', style: 'margin-bottom:6px' }, 'Import history'),
       el('div', { class: 'card', style: 'padding:0;overflow:hidden;margin:0' },
-        el('table', { class: 'data' },
-          el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Account'), el('th', {}, 'File'), el('th', { class: 'num' }, 'Rows'), el('th', { class: 'num' }, 'Dups'), el('th', { class: 'num' }, 'Posted'), el('th', {}, 'Status')),
-          ...importRows))) : el('span'),
+        el('table', { class: 'data xl' },
+          el('thead', {}, el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Account'), el('th', {}, 'File'), el('th', { class: 'num' }, 'Rows'), el('th', { class: 'num' }, 'Dups'), el('th', { class: 'num' }, 'Posted'), el('th', {}, 'Status'))),
+          el('tbody', {}, ...importRows)))) : el('span'),
   );
 }
 
@@ -291,12 +291,12 @@ function importWizard(bankacct) {
     const fresh = [], dups = [];
     for (const r of good) ((knownPrimary.has(dedupHashFor(r)) || knownPlain.has(dedupHash(r))) ? dups : fresh).push(r);
     const preview = fresh.slice(0, 8).map(r => el('tr', {},
-      el('td', {}, r.date), el('td', {}, r.desc.slice(0, 60)),
-      el('td', { class: 'num ' + (r.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(r.amountCents, { sign: r.amountCents > 0 }))));
+      el('td', {}, r.date), el('td', {}, prettyDesc(r.desc).slice(0, 60)),
+      el('td', { class: 'num' }, acctAmount(r.amountCents, { colored: true, sign: r.amountCents > 0 }))));
     clear(m.body).append(
       el('p', {}, el('b', {}, `${fresh.length} new rows`), ` will go to Review. ${dups.length ? `${dups.length} duplicates skipped (already imported). ` : ''}${bad ? `${bad} unreadable rows ignored.` : ''}`),
       el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
-        el('table', { class: 'data' }, el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', { class: 'num' }, 'Amount')), ...preview)),
+        el('table', { class: 'data xl' }, el('thead', {}, el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', { class: 'num' }, 'Amount'))), el('tbody', {}, ...preview))),
       fresh.length > 8 ? el('p', { class: 'sub' }, `…and ${fresh.length - 8} more`) : el('span'),
       el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
         el('button', { class: 'btn ghost', onclick: back || step1 }, 'Back'),

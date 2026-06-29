@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.46', items: [
+    { icon: 'account_balance', t: 'Excel-style tables — Banking', d: 'The import history and the CSV/bank import preview now use the blue-header, gridlined look, with accounting-aligned amounts and Title-Case descriptions in the preview. The account balance cards are unchanged.' },
+  ] },
   { v: '0.69.45', items: [
     { icon: 'request_quote', t: 'Excel-style tables — Invoices', d: 'The invoice list and the invoice detail (line items, payments, the profit summary, linked expenses, and the drill-downs) now use the blue-header, gridlined look with accounting-aligned amounts. The open balance still shows in red when money is owed, and profit stays green/red.' },
   ] },
