@@ -178,8 +178,14 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 table.data.xl th{background:var(--brand);color:#fff;font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-size:12.5px;padding:7px 11px;border:1px solid var(--brand-dim);text-align:left}
 table.data.xl th.num{text-align:right}
 table.data.xl td{border:1px solid #d7dded;padding:7px 11px;font-size:12.5px;vertical-align:top}
-table.data.xl tbody tr:nth-child(odd){background:#fff}
-table.data.xl tbody tr:nth-child(even){background:#eef2f8}
+table.data.xl:not(.xl-grp) tbody tr:nth-child(odd){background:#fff}
+table.data.xl:not(.xl-grp) tbody tr:nth-child(even){background:#eef2f8}
+/* Grouped tables (Ledger / register) carry a hidden mobile-detail row under each
+   transaction, which throws off nth-child striping — so they stripe by an explicit
+   class on alternate VISIBLE rows instead. */
+table.data.xl.xl-grp tbody tr.xlz td{background:#eef2f8}
+/* Chart-of-accounts section dividers read as a light band, not a zebra row. */
+table.data.xl td.coatype{background:var(--brand-soft);color:var(--brand-dim)}
 table.data.xl tfoot td{background:#16223c;color:#fff;border-color:#16223c;font-weight:700;font-size:12.5px}
 table.data.xl tfoot .acctamt{color:#fff}
 /* Sortable headers stay readable on the blue fill (the default blue active-state would vanish). */

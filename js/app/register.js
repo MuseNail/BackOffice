@@ -4,7 +4,7 @@
 // host view passes the already-filtered transactions; this renders the date-range
 // filter, the table, a total, and Print / CSV export. Reuses the @media print rules.
 
-import { el, clear, fmtMoney } from './ui.js';
+import { el, clear, fmtMoney, acctAmount, prettyDesc } from './ui.js';
 import { entities, subscribe, usesInvoices } from './store.js';
 import { canEdit, getActiveBiz } from './session.js';
 import { categoryField, vendorField, memoField, invoiceField, categoryName, stackedEditor } from './txn-inline.js';
@@ -65,17 +65,17 @@ function drawRegister(body, opts, state) {
   const colCount = 2 + extraCols + 1 + (isAcct ? 1 : 0); // date,payee,…,amount,(balance)
 
   let total = 0;
-  const trs = rows.flatMap(t => {
+  const trs = rows.flatMap((t, i) => {
     const amt = amtOf(t);
     total += amt;
     if (!editable) {
-      return [el('tr', {},
+      return [el('tr', { class: i % 2 ? 'xlz' : '' },
         el('td', {}, t.date),
-        el('td', {}, t.payee || '—'),
+        el('td', {}, prettyDesc(t.payee) || '—'),
         el('td', {}, otherSide(t, focusAccountId || '', byId)),
         el('td', {}, t.memo || ''),
-        el('td', { class: 'num ' + (amt < 0 ? 'neg' : amt > 0 ? 'pos' : '') }, fmtMoney(amt, { sign: isAcct })),
-        isAcct ? el('td', { class: 'num' }, fmtMoney(balAfter.get(t.id) || 0)) : null)];
+        el('td', { class: 'num' }, acctAmount(amt, { colored: true, sign: isAcct })),
+        isAcct ? el('td', { class: 'num' }, acctAmount(balAfter.get(t.id) || 0, { colored: true })) : null)];
     }
     const detail = el('tr', { class: 'txrow-detail' },
       el('td', { colspan: String(colCount), style: 'background:var(--bg);padding:12px 14px' }, stackedEditor(t)));
@@ -85,17 +85,17 @@ function drawRegister(body, opts, state) {
       el('span', { style: 'color:var(--mut)' }, categoryName(t) || otherSide(t, focusAccountId || '', byId)),
       (showInv && inv) ? el('span', { class: 'pill blue', style: 'font-size:10px;padding:2px 7px' }, `#${inv.number || inv.id}`) : '',
       chevron);
-    const summary = el('tr', {},
+    const summary = el('tr', { class: i % 2 ? 'xlz' : '' },
       el('td', { style: 'white-space:nowrap' }, t.date),
-      el('td', {}, el('b', {}, t.payee || '—'),
+      el('td', {}, el('b', {}, prettyDesc(t.payee) || '—'),
         el('button', { class: 'btn sm ghost', style: 'margin-left:8px;padding:2px 9px;font-size:11px', title: 'Open the full transaction editor (amount, date, splits, delete)', onclick: () => editTxnModal(t) }, 'Edit'),
         compact),
       el('td', { class: 'txinline' }, categoryField(t)),
       el('td', { class: 'txinline' }, vendorField(t)),
       el('td', { class: 'txinline' }, memoField(t)),
       showInv ? el('td', { class: 'txinline' }, invoiceField(t)) : null,
-      el('td', { class: 'num ' + (amt < 0 ? 'neg' : amt > 0 ? 'pos' : ''), style: 'white-space:nowrap' }, fmtMoney(amt, { sign: isAcct })),
-      isAcct ? el('td', { class: 'num' }, fmtMoney(balAfter.get(t.id) || 0)) : null);
+      el('td', { class: 'num' }, acctAmount(amt, { colored: true, sign: isAcct })),
+      isAcct ? el('td', { class: 'num' }, acctAmount(balAfter.get(t.id) || 0, { colored: true })) : null);
     return [summary, detail];
   });
 
@@ -122,8 +122,8 @@ function drawRegister(body, opts, state) {
     subtitle ? el('p', { class: 'sub' }, subtitle) : null,
     el('div', { class: 'card', style: 'padding:0;overflow-x:auto' },
       rows.length
-        ? el('table', { class: 'data' + (editable ? ' txedit' : '') },
-            el('tr', {},
+        ? el('table', { class: 'data xl xl-grp' + (editable ? ' txedit' : '') },
+            el('thead', {}, el('tr', {},
               th('date', 'Date'), th('payee', 'Payee'),
               editable
                 ? [el('th', { class: 'txinline' }, 'Account'),
@@ -132,12 +132,12 @@ function drawRegister(body, opts, state) {
                    showInv ? el('th', { class: 'txinline' }, 'Invoice') : null]
                 : [el('th', {}, 'Account'), el('th', {}, 'Memo')],
               th('amount', isAcct ? 'Amount' : 'Spent', 'num'),
-              isAcct ? el('th', { class: 'num' }, 'Balance') : null),
-            ...trs,
-            el('tr', { style: 'background:var(--brand-soft)' },
-              el('td', { colspan: String(editable ? 2 + extraCols : 4) }, el('b', {}, `Total — ${rows.length} transaction${rows.length === 1 ? '' : 's'}`)),
-              el('td', { class: 'num' }, el('b', {}, fmtMoney(total, { sign: isAcct }))),
-              isAcct ? el('td', {}) : null))
+              isAcct ? el('th', { class: 'num' }, 'Balance') : null)),
+            el('tbody', {}, ...trs),
+            el('tfoot', {}, el('tr', {},
+              el('td', { colspan: String(editable ? 2 + extraCols : 4) }, `Total — ${rows.length} transaction${rows.length === 1 ? '' : 's'}`),
+              el('td', { class: 'num' }, acctAmount(total, { colored: false, sign: isAcct })),
+              isAcct ? el('td', {}) : null)))
         : el('p', { class: 'sub', style: 'padding:14px' }, 'No transactions in this range.')),
   );
 }

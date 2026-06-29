@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.43', items: [
+    { icon: 'account_tree', t: 'Excel-style tables — Accounts + registers', d: 'The Chart of accounts and the per-account / per-vendor registers now use the blue-header, gridlined look. Register amounts and running balances use the accounting alignment (in red/green by sign), with a navy total bar at the bottom.' },
+    { icon: 'table_rows', t: 'Fixed the Ledger’s row striping', d: 'The alternating row shading now shows correctly in the Ledger — it was being thrown off by the hidden phone-sized detail rows under each transaction.' },
+  ] },
   { v: '0.69.42', items: [
     { icon: 'text_fields', t: 'Bank descriptions read normally, not IN ALL CAPS', d: 'Imported bank descriptions now show in regular Title Case (“Amazon Business” instead of “AMAZON BUSINESS”) across the Ledger, Review, search, and the vendor/customer drill-downs. Reference numbers, dates, and short codes like ACH, NY, and CA are left alone. Display only — your stored data and matching rules are unchanged.' },
     { icon: 'table_view', t: 'Excel-style tables — Vendors & Customers', d: 'The Vendors and Customers lists now use the same blue-header, gridlined, accounting-aligned look as the Ledger.' },

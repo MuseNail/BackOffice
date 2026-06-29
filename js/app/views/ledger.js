@@ -205,7 +205,7 @@ function drawTable(host, editable) {
 
   const filtered = applySort(applyFilters(allTxns));
   const txns = filtered.slice(0, 200);
-  const rows = txns.flatMap(t => {
+  const rows = txns.flatMap((t, i) => {
     const d = describe(t);
     const amt = rowAmount(t);
     const isVoid = t.status === 'void';
@@ -257,6 +257,7 @@ function drawTable(host, editable) {
     // The whole row is the Edit button (Delete / Void now live inside that modal).
     // The dropdowns above stopPropagation so they edit inline instead of opening it.
     const summary = el('tr', {
+        class: i % 2 ? 'xlz' : '',
         style: isVoid ? 'opacity:.45;' : (inlineEditable ? 'cursor:pointer' : ''),
         title: inlineEditable ? 'Click to edit (date, amount) · delete / void inside' : '',
         onclick: inlineEditable ? () => editTxnModal(t) : undefined },
@@ -277,7 +278,7 @@ function drawTable(host, editable) {
     el('td', { colspan: '4' }, `Total · ${filtered.length} transaction${filtered.length === 1 ? '' : 's'}`),
     el('td', { class: 'num' }, acctAmount(totalCents, { colored: false })),
     scoped ? el('td', {}) : null);
-  const table = el('table', { class: 'data xl ledger-table' + (editable ? ' txedit' : '') },
+  const table = el('table', { class: 'data xl xl-grp ledger-table' + (editable ? ' txedit' : '') },
     el('thead', {}, headerRow), el('tbody', {}, ...rows), el('tfoot', {}, footRow));
   // Account tabs + count pin together; the column header pins flush beneath them.
   const ledgerHead = el('div', { class: 'ledger-head no-print' },

@@ -126,9 +126,9 @@ function drawTable(body, editable) {
   clear(body).append(
     rows.length
       ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:860px' },
-          el('table', { class: 'data' },
-            el('tr', {}, el('th', {}, 'Account'), el('th', {}, 'Type'), el('th', {}, 'QuickBooks name'), el('th', {}, '')),
-            ...rows))
+          el('table', { class: 'data xl' },
+            el('thead', {}, el('tr', {}, el('th', {}, 'Account'), el('th', {}, 'Type'), el('th', {}, 'QuickBooks name'), el('th', {}, ''))),
+            el('tbody', {}, ...rows)))
       : el('p', { class: 'sub' }, q ? 'No accounts match your search.' : 'No accounts to show.'),
     el('button', { class: 'linklike', onclick: () => { body.dataset.showArchived = showArchived ? '' : '1'; drawTable(body, editable); } },
       showArchived ? 'Hide archived' : 'Show archived'),
