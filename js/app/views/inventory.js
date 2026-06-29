@@ -3,7 +3,7 @@
 // payment txn in one action, linked through a purchase entity (provenance both
 // ways). Quantity adjustments (usage, shrinkage) change the count only — no
 // money moves without a real transaction.
-import { el, clear, toast, modal, fmtMoney } from '../ui.js';
+import { el, clear, toast, modal, fmtMoney, acctAmount } from '../ui.js';
 import { entities, byId, subscribe, getState } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -90,8 +90,8 @@ function drawBody(body, editable) {
       el('td', {}, el('b', {}, it.name), it.supplier ? el('div', { class: 'sub', style: 'margin:0;font-size:11px' }, it.supplier) : ''),
       el('td', { class: 'num' }, el('b', {}, String(it.qtyOnHand || 0)), it.unit ? ` ${it.unit}` : ''),
       el('td', { class: 'num' }, it.restockAt ? String(it.restockAt) : '—'),
-      el('td', { class: 'num' }, it.avgUnitCostCents ? fmtMoney(it.avgUnitCostCents) : '—'),
-      el('td', { class: 'num' }, fmtMoney((it.qtyOnHand || 0) * (it.avgUnitCostCents || 0))),
+      el('td', { class: 'num' }, it.avgUnitCostCents ? acctAmount(it.avgUnitCostCents, { colored: false }) : '—'),
+      el('td', { class: 'num' }, acctAmount((it.qtyOnHand || 0) * (it.avgUnitCostCents || 0), { colored: false })),
       el('td', {}, low ? el('span', { class: 'pill amber' }, 'Restock soon') : el('span', { class: 'pill green' }, 'OK')),
       el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap' },
         el('button', { class: 'linklike', onclick: () => itemModal(it) }, 'Edit'),
@@ -105,22 +105,22 @@ function drawBody(body, editable) {
     el('td', {}, p.date),
     el('td', {}, byId('item', p.itemId)?.name || p.itemId),
     el('td', { class: 'num' }, '+' + p.qty),
-    el('td', { class: 'num' }, fmtMoney(p.unitCostCents)),
-    el('td', { class: 'num' }, fmtMoney(p.qty * p.unitCostCents)),
+    el('td', { class: 'num' }, acctAmount(p.unitCostCents, { colored: false })),
+    el('td', { class: 'num' }, acctAmount(p.qty * p.unitCostCents, { colored: false })),
     el('td', {}, el('span', { class: 'pill blue' }, 'posted to ledger'))));
 
   clear(body).append(
     shoppingCard(editable),
     el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:920px' },
-      el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'Item'), el('th', { class: 'num' }, 'On hand'), el('th', { class: 'num' }, 'Restock at'),
-          el('th', { class: 'num' }, 'Avg unit cost'), el('th', { class: 'num' }, 'Value'), el('th', {}, 'Status'), el('th', {}, '')),
-        ...rows)),
+      el('table', { class: 'data xl' },
+        el('thead', {}, el('tr', {}, el('th', {}, 'Item'), el('th', { class: 'num' }, 'On hand'), el('th', { class: 'num' }, 'Restock at'),
+          el('th', { class: 'num' }, 'Avg unit cost'), el('th', { class: 'num' }, 'Value'), el('th', {}, 'Status'), el('th', {}, ''))),
+        el('tbody', {}, ...rows))),
     purchases.length ? el('div', { class: 'card', style: 'max-width:920px' },
       el('div', { class: 'cardtitle' }, 'Recent restocks'),
-      el('table', { class: 'data' },
-        el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Item'), el('th', { class: 'num' }, 'Qty'), el('th', { class: 'num' }, 'Unit cost'), el('th', { class: 'num' }, 'Total'), el('th', {}, '')),
-        ...purchaseRows)) : el('span'),
+      el('table', { class: 'data xl' },
+        el('thead', {}, el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Item'), el('th', { class: 'num' }, 'Qty'), el('th', { class: 'num' }, 'Unit cost'), el('th', { class: 'num' }, 'Total'), el('th', {}, ''))),
+        el('tbody', {}, ...purchaseRows))) : el('span'),
   );
 }
 

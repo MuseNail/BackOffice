@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.47', items: [
+    { icon: 'inventory_2', t: 'Excel-style tables — Inventory', d: 'The items list and Recent restocks now use the blue-header, gridlined look with accounting-aligned costs and values. Low-stock items still highlight in peach.' },
+  ] },
   { v: '0.69.46', items: [
     { icon: 'account_balance', t: 'Excel-style tables — Banking', d: 'The import history and the CSV/bank import preview now use the blue-header, gridlined look, with accounting-aligned amounts and Title-Case descriptions in the preview. The account balance cards are unchanged.' },
   ] },
