@@ -455,6 +455,17 @@ body.has-windows #view{max-width:none;padding:0;display:flex;flex-direction:colu
 .bo-client .main{padding:16px 18px}
 .client-note{display:flex;align-items:flex-start;gap:7px;margin-top:8px;background:var(--brand-soft);border:1px solid #c5d6f1;color:#1d4e8f;border-radius:9px;padding:8px 11px;font-size:12.5px;font-weight:500;line-height:1.4}
 
+/* ── Input controls — one radius + one focus ring (cosmetic consistency pass) ──
+   Text inputs, the inline ledger field + its combobox face, selects, and the date
+   button all land on a single 9px radius; the form/select fields pick up the same
+   brand focus ring the inline ledger field (.txi) already had — so the vendor/account
+   field reads the same in the Ledger, Review, and modals. */
+.field-input, .login-input, .txi, .txi-face, .txi-cb .cbx-input,
+.dpk-btn, select.cmp-select { border-radius: 9px; }
+.field-input:focus, .login-input:focus, .txi-face:focus, select.cmp-select:focus {
+  outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft);
+}
+
 /* ── Phone layout (≤640px) ── */
 @media (max-width:640px){
   /* iOS zooms into any focused field whose text is under 16px — bump form controls so it doesn't. */
