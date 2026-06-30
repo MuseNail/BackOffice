@@ -1,7 +1,7 @@
 /* ── Back Office — base styles (design language from mockups/backoffice-app.html) ── */
 :root{
   --brand:#2456a6; --brand-dim:#1b4485; --brand-soft:#e8effb; --navy:#16223c;
-  --bg:#f4f5f8; --card:#fff; --line:#e6e7ec; --ink:#1c1d22; --mut:#6b6e78; --fill:#f1f3f7;
+  --bg:#f4f5f8; --card:#fff; --line:#e6e7ec; --line-2:#d9deea; --ink:#1c1d22; --ink-2:#3c3f48; --mut:#6b6e78; --hint:#9a9ca3; --fill:#f1f3f7; --fill-2:#e4e7ee;
   --green:#1f8a4c; --green-soft:#e3f3e9; --red:#c43a3a; --red-soft:#fbe9e9;
   --amber:#9a6b00; --amber-soft:#fdf3d8;
 }
@@ -29,13 +29,13 @@ body{margin:0;font-family:'Inter',Arial,sans-serif;background:var(--bg);color:va
 .side{width:200px;flex-shrink:0;padding:14px 10px;border-right:1px solid var(--line);background:#fff;position:sticky;top:53px;align-self:flex-start;height:calc(100vh - 53px);overflow-y:auto}
 /* Collapsible nav: a narrow icon rail that peeks open on hover, unless pinned open */
 .navtoggle{background:none;border:0;cursor:pointer;color:var(--brand);padding:4px;margin-right:2px;border-radius:8px;display:flex;align-items:center}
-.navtoggle:hover{background:#eef1f6}
+.navtoggle:hover{background:var(--fill)}
 .navtoggle .ms{font-size:22px}
 body.nav-collapsed .side{position:fixed;top:53px;bottom:0;height:auto;width:54px;overflow:hidden;z-index:15;transition:width .15s ease}
 body.nav-collapsed .side:hover{width:212px;overflow-y:auto;box-shadow:6px 0 20px rgba(20,30,55,.16)}
 body.nav-collapsed .main{margin-left:54px}
-.navitem{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:11px;font-weight:600;color:#3c3f48;cursor:pointer;margin-bottom:6px;background:#f6f7fb;border:1px solid #ebedf3;transition:background .12s,border-color .12s,box-shadow .12s}
-.navitem:hover{background:#eef1f8;border-color:#d9deea}
+.navitem{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:11px;font-weight:600;color:var(--ink-2);cursor:pointer;margin-bottom:6px;background:var(--fill);border:1px solid var(--line);transition:background .12s,border-color .12s,box-shadow .12s}
+.navitem:hover{background:var(--fill);border-color:var(--line-2)}
 .navitem.on{background:var(--brand);color:#fff;border-color:var(--brand);box-shadow:0 3px 10px rgba(36,86,166,.30)}
 .navitem .ms{font-size:19px}
 .navitem .badge{margin-left:auto;background:var(--red);color:#fff;font-size:11px;font-weight:800;border-radius:999px;padding:2px 8px}
@@ -52,14 +52,14 @@ h2{font-size:19px;margin:0 0 2px}
 /* Pinned toolbar (New button / filters) — stays put below the top bar while a list scrolls */
 .sticky-toolbar{position:sticky;top:53px;z-index:4;background:var(--bg);padding:8px 0 10px;margin-bottom:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 /* ── Review row cards: all fields inline, 2-line, dashed column dividers ── */
-.revrow{border:1px solid #d7dce6;border-radius:10px;box-shadow:0 2px 8px rgba(20,30,55,.15);background:#fff;padding:10px 12px;margin-bottom:8px}
+.revrow{border:1px solid var(--line-2);border-radius:10px;box-shadow:0 2px 8px rgba(20,30,55,.15);background:#fff;padding:10px 12px;margin-bottom:8px}
 /* Two-column row: LEFT block (description + fields) grows; RIGHT rail (chip+amount on
    top, actions below) is content-width. The fields fill the left block, so the wrapped
    description ends exactly where the Note column ends — and the amount stays far right. */
 .revbody{display:flex;gap:14px;align-items:flex-start}
 .revmain{flex:1 1 auto;min-width:0}
 .revtop{display:flex;gap:12px;align-items:baseline;flex-wrap:nowrap}
-.revtop .revdate{color:#23252c;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.revtop .revdate{color:var(--ink);font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
 .revtop .revdesc{flex:1 1 0;min-width:0;font-weight:600;word-break:break-word;line-height:1.35}
 .revside{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
 .revside-top{display:flex;align-items:center;gap:10px;white-space:nowrap}
@@ -90,14 +90,14 @@ table.data tr[style*="cursor:pointer"]:hover td,table.data tr[style*="cursor: po
 /* ── setup wizard ── */
 .wizard{max-width:680px}
 .stepbar{display:flex;align-items:center;margin-bottom:18px}
-.step{display:flex;align-items:center;gap:8px;font-weight:700;color:#9a9da6}
-.step .n{width:26px;height:26px;border-radius:999px;background:#e8eaef;display:flex;align-items:center;justify-content:center;font-size:13px}
+.step{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--hint)}
+.step .n{width:26px;height:26px;border-radius:999px;background:var(--fill-2);display:flex;align-items:center;justify-content:center;font-size:13px}
 .step.on{color:var(--brand)} .step.on .n{background:var(--brand);color:#fff}
 .step.done{color:var(--green)} .step.done .n{background:var(--green);color:#fff}
-.steplink{width:40px;height:2px;background:#e0e2e8;margin:0 12px}
-.field-label{display:block;font-weight:700;font-size:12px;margin-bottom:5px;color:#3c3f48}
+.steplink{width:40px;height:2px;background:var(--line);margin:0 12px}
+.field-label{display:block;font-weight:700;font-size:12px;margin-bottom:5px;color:var(--ink-2)}
 .wizbtns{display:flex;gap:9px;margin-top:14px}
-.btn.ghost{background:var(--fill);color:#3c3f48}
+.btn.ghost{background:var(--fill);color:var(--ink-2)}
 .btn.green{background:var(--green)}
 .btn[disabled]{opacity:.5;cursor:default}
 .indgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
@@ -119,14 +119,14 @@ table.data tr[style*="cursor:pointer"]:hover td,table.data tr[style*="cursor: po
 
 /* ── topbar user ── */
 .userchip{display:flex;align-items:center;gap:8px;font-weight:700;position:relative}
-.iconbtn{border:none;background:var(--fill);border-radius:8px;padding:6px 8px;cursor:pointer;color:#3c3f48}
-.iconbtn:hover{background:#e4e7ee}
-#userchip-btn{display:flex;align-items:center;gap:6px;border:none;background:var(--fill);border-radius:999px;padding:6px 12px;cursor:pointer;color:#2a2d35;font:inherit;font-weight:700}
-#userchip-btn:hover{background:#e4e7ee}
+.iconbtn{border:none;background:var(--fill);border-radius:8px;padding:6px 8px;cursor:pointer;color:var(--ink-2)}
+.iconbtn:hover{background:var(--fill-2)}
+#userchip-btn{display:flex;align-items:center;gap:6px;border:none;background:var(--fill);border-radius:999px;padding:6px 12px;cursor:pointer;color:var(--ink);font:inherit;font-weight:700}
+#userchip-btn:hover{background:var(--fill-2)}
 .usermenu{position:absolute;right:0;top:calc(100% + 6px);min-width:210px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.16);overflow:hidden;z-index:30;padding:6px 0}
 .usermenu[hidden]{display:none}
-.usermenu button{display:flex;align-items:center;gap:10px;width:100%;border:none;background:transparent;text-align:left;padding:9px 14px;font:inherit;font-size:14px;font-weight:600;color:#2a2d35;cursor:pointer}
-.usermenu button:hover{background:#f3f5f9}
+.usermenu button{display:flex;align-items:center;gap:10px;width:100%;border:none;background:transparent;text-align:left;padding:9px 14px;font:inherit;font-size:14px;font-weight:600;color:var(--ink);cursor:pointer}
+.usermenu button:hover{background:var(--fill)}
 .usermenu .ms{font-size:18px;color:var(--mut)}
 .usermenu-div{height:1px;background:var(--line);margin:5px 0}
 .rowline{display:flex;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}
@@ -153,7 +153,7 @@ table.data tr[style*="cursor:pointer"]:hover td,table.data tr[style*="cursor: po
 table.data{width:100%;border-collapse:collapse}
 table.data th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);text-align:left;padding:8px 10px;border-bottom:2px solid var(--line);white-space:nowrap}
 th.th-sort{cursor:pointer;user-select:none}
-th.th-sort:hover{color:var(--ink,#23252c)}
+th.th-sort:hover{color:var(--ink)}
 th.th-sort.on{color:var(--brand)}
 /* Settings landing menu — each row opens its section as its own window. */
 .set-menu{display:flex;flex-direction:column;gap:8px;max-width:560px}
@@ -169,7 +169,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px}
 .pill.green{background:var(--green-soft);color:var(--green)} .pill.red{background:var(--red-soft);color:var(--red)}
 .pill.amber{background:var(--amber-soft);color:var(--amber)} .pill.blue{background:var(--brand-soft);color:var(--brand)}
-.pill.gray{background:#eef0f4;color:#5b5e68}
+.pill.gray{background:var(--fill);color:var(--mut)}
 .linklike{background:none;border:none;color:var(--brand);font-weight:700;cursor:pointer;font:inherit;padding:0}
 
 /* ── "Excel" data-table style — opt-in via .xl, rolled out per tab ──
@@ -177,7 +177,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
    One uniform 12.5px size everywhere (header/body/footer). */
 table.data.xl th{background:var(--brand);color:#fff;font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-size:12.5px;padding:7px 11px;border:1px solid var(--brand-dim);text-align:left}
 table.data.xl th.num{text-align:right}
-table.data.xl td{border:1px solid #d7dded;padding:7px 11px;font-size:12.5px;vertical-align:top}
+table.data.xl td{border:1px solid var(--line-2);padding:7px 11px;font-size:12.5px;vertical-align:top}
 table.data.xl:not(.xl-grp) tbody tr:nth-child(odd){background:#fff}
 table.data.xl:not(.xl-grp) tbody tr:nth-child(even){background:#eef2f8}
 /* Grouped tables (Ledger / register) carry a hidden mobile-detail row under each
@@ -202,7 +202,7 @@ table.data.xl th.th-sort.on{color:#fff}
    and NO zebra (it would fight the indentation and the bold subtotal rows). */
 table.data.xl-stmt th{background:var(--brand);color:#fff;font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-size:12.5px;padding:7px 11px;border:1px solid var(--brand-dim);text-align:left}
 table.data.xl-stmt th.num{text-align:right}
-table.data.xl-stmt td{border:1px solid #e9ecf2;padding:6px 11px;font-size:12.5px}
+table.data.xl-stmt td{border:1px solid var(--line);padding:6px 11px;font-size:12.5px}
 table.data.xl-stmt td.coatype{background:var(--brand-soft);color:var(--brand-dim)}
 table.data.xl-stmt tr.stmt-net td{background:var(--navy);color:#fff;border-color:var(--navy);font-weight:700}
 table.data.xl-stmt tr.stmt-net .acctamt{color:#fff}
@@ -210,7 +210,7 @@ table.data.xl-stmt tr.stmt-net .acctamt{color:#fff}
 /* ── combobox (type-to-search select) ── */
 .cbx{position:relative;display:inline-block;vertical-align:top}
 .cbx .cbx-input{margin:0;cursor:text}
-.cbx-panel{position:fixed;min-width:200px;background:#fff;border:1px solid #d2d6e0;border-radius:9px;box-shadow:0 10px 28px rgba(20,30,55,.18);max-height:280px;overflow:auto;overscroll-behavior:contain;z-index:2000;padding:4px}
+.cbx-panel{position:fixed;min-width:200px;background:#fff;border:1px solid var(--line-2);border-radius:9px;box-shadow:0 10px 28px rgba(20,30,55,.18);max-height:280px;overflow:auto;overscroll-behavior:contain;z-index:2000;padding:4px}
 .cbx-group{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:800;padding:7px 9px 3px}
 .cbx-opt{padding:7px 9px;border-radius:7px;cursor:pointer;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cbx-opt.sel{font-weight:700}
@@ -242,9 +242,9 @@ select.txi { background-position: right 7px center; padding-right: 24px; }
 .dpk-step{background:#fff;border:1.5px solid var(--line);border-radius:9px;width:30px;height:34px;cursor:pointer;color:var(--ink);font-size:15px;line-height:1}
 .dpk-step:hover{border-color:var(--brand)}
 .dpk-step:disabled{opacity:.4;cursor:default}
-.dpk-pop{position:absolute;top:calc(100% + 6px);left:0;z-index:70;display:flex;background:#fff;border:1px solid #d2d6e0;border-radius:12px;box-shadow:0 14px 40px rgba(20,30,55,.22);overflow:hidden}
+.dpk-pop{position:absolute;top:calc(100% + 6px);left:0;z-index:70;display:flex;background:#fff;border:1px solid var(--line-2);border-radius:12px;box-shadow:0 14px 40px rgba(20,30,55,.22);overflow:hidden}
 .dpk-pop[hidden]{display:none}
-.dpk-rail{display:flex;flex-direction:column;padding:6px;border-right:1px solid var(--line);min-width:142px;background:#fafbfd}
+.dpk-rail{display:flex;flex-direction:column;padding:6px;border-right:1px solid var(--line);min-width:142px;background:var(--fill)}
 .dpk-preset{display:block;width:100%;text-align:left;padding:9px 14px;font-size:13px;font-weight:600;color:var(--ink);background:transparent;border:none;border-radius:8px;cursor:pointer;white-space:nowrap}
 .dpk-preset:hover{background:var(--brand-soft)}
 .dpk-preset.active{background:var(--brand);color:#fff}
@@ -263,7 +263,7 @@ select.txi { background-position: right 7px center; padding-right: 24px; }
 @media (max-width:560px){.dpk-pop{flex-direction:column}.dpk-rail{flex-direction:row;flex-wrap:wrap;border-right:none;border-bottom:1px solid var(--line);min-width:0}}
 
 /* ── toast ── */
-.toast{position:fixed;bottom:22px;left:50%;transform:translate(-50%,12px);background:#23252c;color:#fff;font-weight:600;padding:10px 18px;border-radius:10px;opacity:0;transition:.25s;z-index:2147483000}
+.toast{position:fixed;bottom:22px;left:50%;transform:translate(-50%,12px);background:var(--ink);color:#fff;font-weight:600;padding:10px 18px;border-radius:10px;opacity:0;transition:.25s;z-index:2147483000}
 .toast.on{opacity:1;transform:translate(-50%,0)}
 .toast.err{background:var(--red)}
 
@@ -338,7 +338,7 @@ table.ledger-table tbody td:nth-child(2){overflow-wrap:anywhere}
 /* Reports — P&L period-comparison controls */
 select.cmp-select{font:inherit;font-weight:700;font-size:12px;color:var(--ink);background:#fff;border:1.5px solid var(--line);border-radius:10px;padding:7px 28px 7px 11px;cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%236b6e78' stroke-width='3'><path d='M6 9l6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 10px center;background-size:11px}
 select.cmp-select:hover{border-color:var(--brand)}
-label.pct-toggle{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#3c3f48;cursor:pointer;white-space:nowrap;user-select:none}
+label.pct-toggle{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--ink-2);cursor:pointer;white-space:nowrap;user-select:none}
 label.pct-toggle.off{opacity:.45;cursor:default}
 label.pct-toggle input{width:15px;height:15px;accent-color:var(--brand);cursor:pointer}
 .pl-controls{display:flex;gap:8px 10px;align-items:center;flex-wrap:wrap}
@@ -347,8 +347,8 @@ label.pct-toggle input{width:15px;height:15px;accent-color:var(--brand);cursor:p
 
 /* Global "+ New" create menu (top bar) */
 #createpop{left:0;right:auto;min-width:236px}
-.usermenu-grp{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#9a9ca3;padding:8px 14px 3px}
-.usermenu .kbd{margin-left:auto;font-size:10.5px;font-weight:700;color:#9a9ca3;background:var(--fill);border-radius:5px;padding:2px 7px}
+.usermenu-grp{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--hint);padding:8px 14px 3px}
+.usermenu .kbd{margin-left:auto;font-size:10.5px;font-weight:700;color:var(--hint);background:var(--fill);border-radius:5px;padding:2px 7px}
 
 /* Review — bulk-select sticky bar + row checkboxes */
 .review-bulkbar{position:sticky;top:53px;z-index:6;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--brand-soft);border:1.5px solid #bcd2f0;border-radius:11px;padding:9px 13px;margin-bottom:12px;box-shadow:0 2px 8px rgba(20,30,55,.10)}
@@ -377,7 +377,7 @@ table.data.cmp th,table.data.cmp td{padding-left:12px;padding-right:12px}
 .crumb{display:flex;align-items:center;gap:7px;font-size:13px;margin:0 0 8px;flex-wrap:wrap}
 .crumb-link{color:var(--brand);font-weight:700;text-decoration:none}
 .crumb-link:hover{text-decoration:underline}
-.crumb-sep{color:#9a9ca3}
+.crumb-sep{color:var(--hint)}
 .crumb-cur{font-weight:700;color:var(--ink)}
 
 /* Self-hosted Material Symbols — removes the Google Fonts runtime dependency for icons */
@@ -403,7 +403,7 @@ table.data.cmp th,table.data.cmp td{padding-left:12px;padding-right:12px}
    visible; the window's border + shadow keep it clearly distinct. */
 .overlay{background:transparent}
 .modal{border:1px solid var(--line);box-shadow:0 18px 50px rgba(0,0,0,.28),0 2px 10px rgba(0,0,0,.12)}
-.mhead{margin:-20px -20px 14px;padding:11px 14px;background:#f5f6f8;border-bottom:1px solid var(--line);border-radius:16px 16px 0 0;cursor:move;user-select:none;touch-action:none}
+.mhead{margin:-20px -20px 14px;padding:11px 14px;background:var(--fill);border-bottom:1px solid var(--line);border-radius:16px 16px 0 0;cursor:move;user-select:none;touch-action:none}
 .mhead .mclose{cursor:pointer}
 
 /* Collapsed nav rail (not hovered): show ONLY the centered icon — no clipped text
@@ -416,12 +416,12 @@ body.nav-collapsed .side:not(:hover) .navitem .badge{display:none}
 body.has-windows #view{max-width:none;padding:0;display:flex;flex-direction:column;height:calc(100vh - 53px);overflow:hidden}
 /* isolate: window z-indices stay LOCAL to the workspace, so the top bar (search),
    the hover-peek sidebar, and modals/popups always render above the windows. */
-.mdi-workspace{position:relative;flex:1;overflow:hidden;background:#eef1f6;isolation:isolate}
+.mdi-workspace{position:relative;flex:1;overflow:hidden;background:var(--fill);isolation:isolate}
 .mdi-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:14px;pointer-events:none}
 .mdi-win{position:absolute;display:flex;flex-direction:column;background:#fff;border:1px solid #c9cedd;border-radius:12px;box-shadow:0 10px 30px rgba(20,30,55,.18);overflow:hidden;min-width:300px;min-height:200px}
 .mdi-win.focused{border-color:var(--brand);box-shadow:0 16px 42px rgba(20,30,55,.30)}
 .mdi-win.maxd{border-radius:0}
-.mdi-bar{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#f1f3f8;border-bottom:1px solid #e3e7f0;cursor:move;user-select:none;touch-action:none;flex:none}
+.mdi-bar{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--fill);border-bottom:1px solid var(--line);cursor:move;user-select:none;touch-action:none;flex:none}
 .mdi-win.focused .mdi-bar{background:var(--brand);color:#fff;border-bottom-color:var(--brand)}
 .mdi-ticon{font-size:17px;color:var(--brand)}
 .mdi-win.focused .mdi-ticon{color:#fff}
@@ -444,12 +444,12 @@ body.has-windows #view{max-width:none;padding:0;display:flex;flex-direction:colu
 .mdi-taskbar{display:flex;align-items:center;gap:7px;padding:6px 10px;background:#fff;border-top:1px solid var(--line);min-height:40px;flex:none;overflow-x:auto}
 .mdi-taskbar-lbl{font-size:12px;color:var(--mut);font-weight:600;flex:none}
 .mdi-chip{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:5px 12px;border-radius:999px;cursor:pointer;border:1px solid var(--brand);background:var(--brand);color:#fff;white-space:nowrap;flex:none}
-.mdi-chip.min{background:#f0f2f7;color:var(--mut);border-color:#d9deea}
+.mdi-chip.min{background:var(--fill);color:var(--mut);border-color:var(--line-2)}
 .mdi-chip .ms{font-size:14px}
 
 /* ── Client app (client.html) — slim suggest/view workspace ── */
 .clienttabs{display:flex;gap:8px;padding:12px 18px 0;max-width:1000px;margin:0 auto;flex-wrap:wrap}
-.clienttab{display:inline-flex;align-items:center;gap:7px;border:1px solid #d9deea;background:#fff;color:#3c3f48;border-radius:999px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer}
+.clienttab{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line-2);background:#fff;color:var(--ink-2);border-radius:999px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer}
 .clienttab.on{background:var(--brand);border-color:var(--brand);color:#fff}
 .clienttab .ms{font-size:16px}
 .bo-client .main{padding:16px 18px}
