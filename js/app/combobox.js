@@ -76,7 +76,7 @@ export function combobox({ groups = [], value = '', text = '', placeholder = 'â€
         const idx = visible.length;
         visible.push(it);
         const opt = el('div', { class: 'cbx-opt' + (it.value === current ? ' sel' : ''), 'data-i': String(idx) }, it.label);
-        opt.addEventListener('mousedown', (e) => { e.preventDefault(); pick(it.value); });
+        opt.addEventListener('pointerdown', (e) => { e.preventDefault(); pick(it.value); });
         opt.addEventListener('mousemove', () => setHl(idx));
         panel.append(opt);
       }
@@ -84,7 +84,7 @@ export function combobox({ groups = [], value = '', text = '', placeholder = 'â€
     if (!visible.length && !onAdd) panel.append(el('div', { class: 'cbx-empty' }, emptyText));
     if (onAdd) {
       const add = el('div', { class: 'cbx-add' }, 'ï¼‹ ' + addLabel);
-      add.addEventListener('mousedown', (e) => { e.preventDefault(); closePanel(); onAdd(); });
+      add.addEventListener('pointerdown', (e) => { e.preventDefault(); closePanel(); onAdd(); });
       panel.append(add);
     }
     hl = visible.findIndex(it => it.value === current);
@@ -131,12 +131,10 @@ export function combobox({ groups = [], value = '', text = '', placeholder = 'â€
   function blockBgScroll(e) {
     // A drag OUTSIDE the menu dismisses it and lets the sheet scroll. (The panel is
     // position:fixed and can't track the field during iOS momentum scroll â€” it would drift
-    // past the input â€” so closing is cleaner than trying to follow.)
+    // past the input â€” so closing is cleaner than trying to follow.) A touch INSIDE the panel
+    // is left alone: the list scrolls itself, and we must never preventDefault it â€” on a short,
+    // non-scrolling list that would swallow the tap and the option would never get selected.
     if (!panel.contains(e.target)) { closePanel(); return; }
-    // Inside a scrollable list, let it scroll itself; inside a SHORT list there's nothing to
-    // scroll, so swallow it rather than letting the gesture drag the page out from under it.
-    if (panel.scrollHeight > panel.clientHeight) return;
-    e.preventDefault();
   }
 
   function openPanel() {

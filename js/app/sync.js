@@ -6,6 +6,7 @@ import { setSnapshot, applyChange } from './store.js';
 let ws = null;
 let wsBiz = '';
 let hb = null;              // heartbeat interval — keeps the socket from being reaped while idle
+let lastPong = 0;           // last time the DO answered a ping — stale ⇒ the socket is half-open
 let reconnectTimer = null;  // backstop reconnect timer (also kicked on wake)
 let wakeWired = false;      // one-time visibility/online listeners
 let flushing = false;       // single-flusher guard for the outbox
@@ -148,10 +149,12 @@ function connectWS(bizId, isReconnect = false) {
   ws.onmessage = (ev) => {
     try {
       const msg = JSON.parse(ev.data);
+      if (msg.type === 'pong') { lastPong = Date.now(); return; }
       if (msg.type === 'op' && msg.op?.device !== deviceId()) applyChange(msg.op);
     } catch { /* ignore */ }
   };
   ws.onopen = () => {
+    lastPong = Date.now();
     onStatus(failedCount() ? 'attention' : 'synced');
     startHeartbeat();
     // After a reconnect we may have missed live broadcasts while disconnected — re-pull the
@@ -171,7 +174,13 @@ function connectWS(bizId, isReconnect = false) {
 function startHeartbeat() {
   stopHeartbeat();
   hb = setInterval(() => {
-    try { if (ws?.readyState === WebSocket.OPEN) ws.send('{"type":"ping"}'); } catch { /* will close → reconnect */ }
+    if (ws?.readyState !== WebSocket.OPEN) return;
+    // A half-open socket (NAT/proxy reaped it) still reports OPEN and never fires onclose, so
+    // live broadcasts are silently missed and nothing re-syncs. If the DO hasn't ponged in 2+
+    // heartbeats, treat the socket as dead: close it → onclose → reconnect(true) → resync, which
+    // re-pulls a fresh snapshot so the client catches up on anything it missed.
+    if (lastPong && Date.now() - lastPong > 60000) { try { ws.close(); } catch { /* already gone */ } return; }
+    try { ws.send('{"type":"ping"}'); } catch { /* will close → reconnect */ }
   }, 25000);
 }
 function stopHeartbeat() { if (hb) { clearInterval(hb); hb = null; } }

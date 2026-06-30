@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.58', items: [
+    { icon: 'ads_click', t: 'Picking a vendor/account now works (client app)', d: 'The Suggest dropdowns now register your selection reliably on both desktop and tablet. (The previous attempt fixed the wrong part — this is the real fix: selections commit the instant you tap, before anything can refresh underneath them.)' },
+    { icon: 'sync', t: 'Apps stay in sync on their own', d: 'The live connection now detects when it has silently dropped (idle networks/proxies do this) and reconnects + re-pulls automatically — so a change you make in the main app shows up in the client app without a manual refresh.' },
+  ] },
   { v: '0.69.57', items: [
     { icon: 'ads_click', t: 'Fixed picking a vendor/account (client app)', d: 'In the client Suggest screen, the vendor/account dropdown could refresh underneath you and close before your click registered, so a selection wouldn’t stick. The list now holds still while a dropdown is open, so picks always land.' },
   ] },

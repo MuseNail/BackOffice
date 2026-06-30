@@ -70,14 +70,16 @@ const suggestView = (() => {
     // A store change rebuilds every row — which destroys a combobox the user has open
     // mid-pick (its panel is portaled to <body>), so a click lands on a detached option
     // and the selection is lost. Defer the rebuild until no dropdown is open.
+    let dirty = false;
     const draw = () => {
       if (document.querySelector('.cbx-panel')) {
+        dirty = true;
         if (!deferTimer) deferTimer = setInterval(() => {
-          if (!document.querySelector('.cbx-panel')) { clearInterval(deferTimer); deferTimer = 0; drawSuggest(body, cf); }
+          if (!document.querySelector('.cbx-panel')) { clearInterval(deferTimer); deferTimer = 0; if (dirty) { dirty = false; drawSuggest(body, cf); } }
         }, 250);
         return;
       }
-      drawSuggest(body, cf);
+      dirty = false; drawSuggest(body, cf);
     };
     // The search box + filters live ABOVE the body, built once, so typing/redraws never
     // lose focus (the body is the only thing re-rendered on a store change).
