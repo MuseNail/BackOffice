@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.59', items: [
+    { icon: 'receipt_long', t: 'Deposits show the invoices they paid', d: 'When a deposit’s memo lists invoice numbers (e.g. “4037, 4036, 4040”), the ledger now shows each one as a clickable chip under that row — so you can see at a glance which invoices a single deposit covered, and tap one to open it. Only numbers that match a real invoice become chips.' },
+  ] },
   { v: '0.69.58', items: [
     { icon: 'ads_click', t: 'Picking a vendor/account now works (client app)', d: 'The Suggest dropdowns now register your selection reliably on both desktop and tablet. (The previous attempt fixed the wrong part — this is the real fix: selections commit the instant you tap, before anything can refresh underneath them.)' },
     { icon: 'sync', t: 'Apps stay in sync on their own', d: 'The live connection now detects when it has silently dropped (idle networks/proxies do this) and reconnects + re-pulls automatically — so a change you make in the main app shows up in the client app without a manual refresh.' },

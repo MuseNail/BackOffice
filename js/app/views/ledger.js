@@ -27,6 +27,22 @@ const SOURCE_TAGS = {
 };
 const sourceTag = (app) => SOURCE_TAGS[app] || { label: 'Import', cls: 'blue' };
 
+// A deposit's memo usually lists the invoice numbers it grouped together (e.g.
+// "4037-T, 4036, 4040"). Resolve those to invoices so each deposit row can show —
+// and link to — every invoice it paid. Display-only: only numbers that match a real
+// invoice are kept, so a stray figure in a memo never invents a link.
+function coveredInvoices(memo, invByNum) {
+  if (!memo) return [];
+  const out = [], seen = new Set();
+  for (const num of String(memo).match(/\d{3,6}/g) || []) {
+    if (seen.has(num)) continue;
+    seen.add(num);
+    const inv = invByNum.get(num);
+    if (inv) out.push(inv);
+  }
+  return out;
+}
+
 const flt = { q: '', from: '', to: '', accountId: '', vendorId: '', source: '', type: '' };
 const sort = { key: 'date', dir: 'desc' };
 // A global-search transaction result deep-links the ledger to a query (set before navigating).
@@ -200,6 +216,9 @@ function drawTable(host, editable) {
 
   const showInv = usesInvoices();
   const invById = new Map(entities('invoice').map(i => [i.id, i]));
+  const invByNum = new Map();
+  for (const i of entities('invoice')) if (i.number) invByNum.set(String(i.number).trim(), i);
+  const biz = getActiveBiz();
   const vendById = new Map(entities('vendor').map(v => [v.id, v]));
   const colCount = 2 + 1 /*details*/ + 1 /*source*/ + 1 /*amount*/ + (scoped ? 1 : 0);
 
@@ -228,6 +247,21 @@ function drawTable(host, editable) {
       invCell = showInv ? el('span', { class: 'txi-static' }, iv0 ? `#${iv0.number || iv0.id}` : '—') : null;
     }
     const gcell = (lbl, node) => el('div', {}, el('span', { class: 'txglbl' }, lbl), node);
+    // A grouped deposit lists its invoices in the memo; surface them as clickable
+    // chips so you can see (and open) every invoice a single deposit paid. Shown only
+    // when the memo resolves to invoices the per-row Invoice field doesn't already cover.
+    const covered = showInv ? coveredInvoices(t.memo, invByNum) : [];
+    const coversLine = (covered.length && (!t.invoiceId || covered.length > 1))
+      ? el('div', { style: 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:6px' },
+          el('span', { class: 'txglbl' }, 'Covers'),
+          ...covered.map((inv) => el('a', {
+            href: `#/b/${biz}/invoices/${inv.id}`,
+            class: 'pill blue',
+            style: 'font-size:10px;padding:2px 7px;text-decoration:none',
+            title: `${inv.clientName || 'Invoice'} · ${fmtMoney(inv.totalCents || 0)}`,
+            onclick: (e) => e.stopPropagation(),
+          }, `#${inv.number}`)))
+      : null;
     // Clicks inside the details cell drive the inline fields — they must NOT also
     // trigger the row's "click to edit".
     const detailsCell = el('td', { class: 'txinline txdetails', onclick: (e) => e.stopPropagation() },
@@ -236,7 +270,8 @@ function drawTable(host, editable) {
           gcell('Vendor', vendCell),
           gcell('Account', catCell),
           showInv ? gcell('Invoice', invCell) : el('div', {}),
-          gcell('Memo', memoCell))));
+          gcell('Memo', memoCell)),
+        coversLine));
 
     const srcCell = el('td', {},
       el('span', { class: `pill ${isVoid ? 'gray' : sourceTag(t.source?.app).cls}` }, isVoid ? 'Void' : sourceTag(t.source?.app).label),
