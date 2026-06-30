@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.57', items: [
+    { icon: 'ads_click', t: 'Fixed picking a vendor/account (client app)', d: 'In the client Suggest screen, the vendor/account dropdown could refresh underneath you and close before your click registered, so a selection wouldn’t stick. The list now holds still while a dropdown is open, so picks always land.' },
+  ] },
   { v: '0.69.56', items: [
     { icon: 'cloud_done', t: 'Approvals save reliably (sync fix)', d: 'Fixed a timing race where approving a transaction a client had already suggested could be silently rejected by the server and left stuck in the waiting list (it would show as both posted and pending). Approvals now stick. The status badge also now shows “Unsynced” instead of “Synced” whenever something hasn’t saved, so you always know your work is safe.' },
     { icon: 'view_agenda', t: 'Cleaner Suggest layout (client app)', d: 'In the client Suggest screen, the Vendor / Account / Invoice fields no longer overlap, and the Note now has its own full-width row below them.' },

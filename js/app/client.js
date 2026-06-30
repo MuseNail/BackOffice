@@ -62,11 +62,23 @@ function route() {
 // ── Suggest screen ────────────────────────────────────────────────────────────
 const suggestView = (() => {
   let unsub = null;
+  let deferTimer = 0;
   let cf = { q: '', status: 'all', dir: 'all' };
   function render(root) {
     cf = { q: '', status: 'all', dir: 'all' };
     const body = el('div');
-    const draw = () => drawSuggest(body, cf);
+    // A store change rebuilds every row — which destroys a combobox the user has open
+    // mid-pick (its panel is portaled to <body>), so a click lands on a detached option
+    // and the selection is lost. Defer the rebuild until no dropdown is open.
+    const draw = () => {
+      if (document.querySelector('.cbx-panel')) {
+        if (!deferTimer) deferTimer = setInterval(() => {
+          if (!document.querySelector('.cbx-panel')) { clearInterval(deferTimer); deferTimer = 0; drawSuggest(body, cf); }
+        }, 250);
+        return;
+      }
+      drawSuggest(body, cf);
+    };
     // The search box + filters live ABOVE the body, built once, so typing/redraws never
     // lose focus (the body is the only thing re-rendered on a store change).
     const search = el('input', { class: 'field-input', type: 'search', placeholder: 'Search description, amount, or vendor…', style: 'max-width:300px;margin:0', value: cf.q, oninput: (e) => { cf.q = e.target.value; draw(); } });
@@ -83,7 +95,7 @@ const suggestView = (() => {
     unsub = subscribe(draw);
     draw();
   }
-  function unmount() { unsub?.(); unsub = null; }
+  function unmount() { unsub?.(); unsub = null; if (deferTimer) { clearInterval(deferTimer); deferTimer = 0; } }
   return { render, unmount };
 })();
 
