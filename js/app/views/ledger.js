@@ -359,6 +359,71 @@ function confirmDelete(t) {
 
 // Edit payee, memo, date; category (non-bank line) for non-reconciled simple txns.
 // Exported so other views (e.g. Reports drill-downs) can open the same editor.
+// A category split editor: a list of {account, amount} lines that must total getTotal()
+// cents. Used by editTxnModal so an existing transaction's single category can be split
+// across several accounts (the add-transaction modal keeps its own inline copy). `initial`
+// seeds the lines from the txn's current category line(s), in magnitude cents.
+function categorySplitEditor({ getTotal, catPred, initial }) {
+  const box = el('div');
+  const remind = el('div', { class: 'split-remind', hidden: true });
+  const lines = [];
+  const assigned = () => lines.reduce((s, l) => s + (parseMoney(l.amt.value) || 0), 0);
+  function recalc() {
+    const multi = lines.length > 1;
+    remind.hidden = !multi;
+    if (!multi) return;
+    const left = getTotal() - assigned();
+    const ok = left === 0 && getTotal() > 0;
+    remind.className = 'split-remind ' + (ok ? 'ok' : 'bad');
+    clear(remind).append(
+      el('span', {}, ok ? 'Balanced' : 'Remaining to assign'),
+      el('span', {}, ok ? fmtMoney(getTotal()) + ' ✓' : fmtMoney(left)));
+  }
+  const makeLine = (selVal, amtVal) => {
+    const sel = accountCombo({ filter: catPred, selected: selVal || '', minWidth: 0 });
+    sel.style.cssText = 'flex:2;min-width:0;margin:0';
+    const amt = el('input', { class: 'field-input', placeholder: '$', inputmode: 'decimal', style: 'flex:1;min-width:0;margin:0', value: amtVal || '' });
+    amt.addEventListener('input', recalc);
+    return { sel, amt };
+  };
+  const render = () => {
+    const multi = lines.length > 1;
+    clear(box);
+    lines.forEach((l, i) => {
+      const cells = [l.sel];
+      if (multi) cells.push(l.amt, el('button', { class: 'iconbtn', type: 'button', title: 'Remove', onclick: () => { lines.splice(i, 1); render(); recalc(); } }, '×'));
+      box.append(el('div', { style: 'display:flex;gap:7px;align-items:center;margin-bottom:6px' }, ...cells));
+    });
+    recalc();
+  };
+  const addBtn = el('button', { class: 'btn sm ghost', type: 'button', onclick: () => {
+    if (lines.length === 1 && !parseMoney(lines[0].amt.value)) lines[0].amt.value = getTotal() ? (getTotal() / 100).toFixed(2) : '';
+    const left = getTotal() - assigned();
+    lines.push(makeLine('', left > 0 ? (left / 100).toFixed(2) : ''));
+    render();
+  } }, '＋ Add split');
+  const seed = (initial && initial.length) ? initial : [{ accountId: '', amountCents: 0 }];
+  seed.forEach(c => lines.push(makeLine(c.accountId, seed.length > 1 ? (c.amountCents / 100).toFixed(2) : '')));
+  render();
+  // Validate + return { cats:[{accountId, amountCents}] } (magnitudes) or { error }.
+  function collect() {
+    const total = getTotal();
+    const cats = [];
+    for (const l of lines) {
+      if (!l.sel.value || l.sel.value === '__new__') return { error: 'Pick an account for each line' };
+      const amt = lines.length > 1 ? (parseMoney(l.amt.value) || 0) : total;
+      if (amt <= 0) return { error: 'Enter an amount for each split line' };
+      cats.push({ accountId: l.sel.value, amountCents: amt });
+    }
+    if (lines.length > 1) {
+      const sum = cats.reduce((s, c) => s + c.amountCents, 0);
+      if (sum !== total) return { error: `Splits add up to ${fmtMoney(sum)} — they must total ${fmtMoney(total)}` };
+    }
+    return { cats };
+  }
+  return { box, addBtn, remind, collect };
+}
+
 export function editTxnModal(t) {
   const isRecon = !!t.reconciledIn;
   const m = modal(isRecon ? 'Edit transaction (reconciled)' : 'Edit transaction');
@@ -379,8 +444,19 @@ export function editTxnModal(t) {
   // expense/income account never moves a reconciled balance. A transfer's "other side"
   // IS a bank account, so that one stays locked while reconciled.
   const catIsBank = catLine && bankish(byId.get(catLine.accountId));
+  // Ordinary (non-transfer) simple txns that aren't reconciled get a split editor so the
+  // single category can be divided across accounts. Transfers, journals, multi-line splits,
+  // and reconciled txns keep the single re-point (the reconciled bank line stays locked).
+  const canSplit = !isRecon && isSimple && !!bankLine && !!catLine && !catIsBank;
+  let split = null;
   let catSel = null;
-  if (catLine && (!isRecon || !catIsBank)) {
+  if (canSplit) {
+    split = categorySplitEditor({
+      getTotal: () => Math.abs(bankLine.amountCents),
+      catPred: (a) => !bankish(a),
+      initial: [{ accountId: catLine.accountId, amountCents: Math.abs(catLine.amountCents) }],
+    });
+  } else if (catLine && (!isRecon || !catIsBank)) {
     catSel = accountCombo({ filter: (a) => !bankish(a), selected: catLine.accountId });
     catSel.style.cssText = 'display:block;width:100%';
   }
@@ -400,8 +476,10 @@ export function editTxnModal(t) {
     el('label', { class: 'field-label' }, 'Date'), date,
     el('label', { class: 'field-label' }, 'Payee'), payee,
     el('label', { class: 'field-label' }, 'Memo / notes'), memo,
-    catSel ? el('label', { class: 'field-label' }, 'Account') : null,
-    catSel || null,
+    (split || catSel) ? el('label', { class: 'field-label' }, 'Account') : null,
+    split ? split.box : (catSel || null),
+    split ? split.addBtn : null,
+    split ? split.remind : null,
     el('label', { class: 'field-label' }, 'Vendor'), vendSel,
     invSel ? el('label', { class: 'field-label' }, 'Invoice (for margin)') : null,
     invSel || null,
@@ -414,10 +492,18 @@ export function editTxnModal(t) {
       el('button', { class: 'btn green', onclick: () => {
         const newDate = isRecon ? t.date : date.value;
         if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) { toast('Bad date', 'err'); return; }
-        if (catSel && catSel.value === '__new__') { toast('Pick an account', 'err'); return; }
-        const newLines = (catSel && catLine)
-          ? t.lines.map(l => l === catLine ? { ...l, accountId: catSel.value } : l)
-          : t.lines;
+        let newLines;
+        if (split) {
+          const res = split.collect();
+          if (res.error) { toast(res.error, 'err'); return; }
+          const catSign = bankLine.amountCents < 0 ? 1 : -1;
+          newLines = [bankLine, ...res.cats.map(c => ({ accountId: c.accountId, amountCents: catSign * c.amountCents }))];
+        } else {
+          if (catSel && catSel.value === '__new__') { toast('Pick an account', 'err'); return; }
+          newLines = (catSel && catLine)
+            ? t.lines.map(l => l === catLine ? { ...l, accountId: catSel.value } : l)
+            : t.lines;
+        }
         const updated = { ...t, date: newDate, payee: payee.value.trim(), memo: memo.value.trim(), lines: newLines, vendorId: vendSel.value || undefined, invoiceId: invSel ? (invSel.value || undefined) : t.invoiceId };
         const v = validateTxn(updated, ctx());
         if (!v.ok) { toast(v.error, 'err'); return; }
