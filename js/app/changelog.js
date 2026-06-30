@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.60', items: [
+    { icon: 'search', t: 'Search your invoices', d: 'The Invoices tab now has a search box above the list — type a client name, an invoice number, an amount, or a status (like “overdue”) to filter the list instantly. A live count shows how many match.' },
+    { icon: 'unfold_less', t: 'Imports tucked into buttons', d: 'The two Invoice2go import panels no longer sit open at the top of the tab pushing your invoice list down. They’re now two buttons — “Import from Invoice2go” and “Add line items (CSV)” — that open the same form in a pop-up only when you need it, so the tab opens straight to your invoices. Importing works exactly as before.' },
+  ] },
   { v: '0.69.59', items: [
     { icon: 'receipt_long', t: 'Deposits show the invoices they paid', d: 'When a deposit’s memo lists invoice numbers (e.g. “4037, 4036, 4040”), the ledger now shows each one as a clickable chip under that row — so you can see at a glance which invoices a single deposit covered, and tap one to open it. Only numbers that match a real invoice become chips.' },
   ] },

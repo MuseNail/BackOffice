@@ -81,6 +81,8 @@ let agingFilter = null;
 // list redraws (which fire on every sync) so it keeps its state and selection.
 let collectedRange = null;   // {from,to} — null = all time
 let collectedCtl = null;     // the shared dateRangeControl element (presets + calendar)
+// Free-text list filter (client / invoice # / amount / status). Reset each mount.
+let invoiceQuery = '';
 
 // Income collected in a period — ALL of it, from EVERY source (the Invoice2go
 // cashflow AND the QuickBooks history import that owns Oct 2025–Feb 2026), so the
@@ -104,6 +106,7 @@ export function render(root, detail) {
   if (detail) { renderInvoiceDetail(root, detail); return; }
   agingFilter = null;
   collectedRange = null; collectedCtl = null;
+  invoiceQuery = '';
   if (!usesInvoices()) {
     root.append(
       el('h2', {}, 'Invoices'),
@@ -121,17 +124,49 @@ export function render(root, detail) {
   if (editable) root.append(
     el('div', { style: 'margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap' },
       el('button', { class: 'btn sm', onclick: () => invoiceModal(null) }, '＋ New invoice'),
-      el('button', { class: 'btn sm', onclick: () => { location.hash = `#/b/${getActiveBiz()}/invoices/reconcile`; } }, 'Reconcile to bank →')),
-    postCard(), importCard());
-  const body = el('div');
-  root.append(body);
-  const draw = () => drawList(body);
+      el('button', { class: 'btn sm ghost', onclick: importBundleModal }, 'Import from Invoice2go'),
+      el('button', { class: 'btn sm ghost', onclick: importLineItemsModal }, '＋ Add line items (CSV)'),
+      el('button', { class: 'btn sm ghost', onclick: () => { location.hash = `#/b/${getActiveBiz()}/invoices/reconcile`; } }, 'Reconcile to bank →')));
+
+  // List area. KPIs + aging chips redraw on every sync; the search box lives in a
+  // PERSISTENT toolbar outside those boxes so a background sync can't steal focus while
+  // you type (the accounts/vendors/customers pattern). Only the table re-filters per keystroke.
+  const headBox = el('div');
+  const tableBox = el('div');
+  const count = el('span', { class: 'sub', style: 'margin:0;font-weight:600;white-space:nowrap' });
+  const search = el('input', {
+    class: 'field-input', type: 'search', value: invoiceQuery,
+    placeholder: 'Search by client, invoice #, amount, or status…',
+    style: 'max-width:320px;margin:0',
+    oninput: (e) => { invoiceQuery = e.target.value; drawInvoiceTable(tableBox, count); },
+  });
+  const toolbar = el('div', { style: 'display:flex;align-items:center;gap:10px;margin:0 0 9px;flex-wrap:wrap' }, search, count);
+  const draw = () => {
+    toolbar.style.display = entities('invoice').length ? 'flex' : 'none';
+    drawHead(headBox, draw);
+    drawInvoiceTable(tableBox, count);
+  };
+  root.append(headBox, toolbar, tableBox);
   unsub = subscribe(draw);
   draw();
   if (openNew && usesInvoices() && canEdit(getActiveBiz())) invoiceModal(null);
 }
 
-export function unmount() { unsub?.(); unsub = null; }
+export function unmount() { unsub?.(); unsub = null; invoiceQuery = ''; }
+
+// Both import flows open from a button into a modal — the forms used to sit permanently
+// open at the top of the tab, pushing the actual invoice list far down the screen. The
+// card content renders "bare" (no card chrome) so it sits flush inside the dialog.
+function importBundleModal() {
+  const m = modal('Import from Invoice2go');
+  const panel = m.body.parentElement;
+  if (panel) panel.style.width = '660px';   // the five account pickers need room to lay out
+  m.body.append(postCard({ bare: true }));
+}
+function importLineItemsModal() {
+  const m = modal('Add line items (Invoice2go CSV)');
+  m.body.append(importCard({ bare: true }));
+}
 
 // ── Invoice2go import: bundle (money) + CSV (line items) — neither clobbers the other ──
 // Ownership split, since entity.upsert is a full replace: the one-click API bundle
@@ -188,8 +223,8 @@ function mergeCsvInvoice(c, resolve, now) {
 // The one-click JSON brings every invoice and its money but no line items (the
 // list API omits them). This optional card layers line-item detail onto invoices
 // you already have — matched by number/id — and only ever fills line items.
-function importCard() {
-  const card = el('div', { class: 'card', style: 'max-width:640px;margin-bottom:16px' });
+function importCard({ bare = false } = {}) {
+  const card = bare ? el('div', { style: 'margin:0' }) : el('div', { class: 'card', style: 'max-width:640px;margin-bottom:16px' });
   const file = el('input', { type: 'file', accept: '.csv', class: 'field-input', style: 'max-width:320px' });
   const preview = el('div', { style: 'margin-top:10px' });
   const importBtn = el('button', { class: 'btn sm', disabled: true }, 'Add line items');
@@ -232,14 +267,14 @@ function importCard() {
     importBtn.disabled = true; pending = null; file.value = '';
   });
 
-  card.append(
-    el('div', { class: 'cardtitle' }, 'Add line-item detail (Invoice2go CSV)'),
+  card.append(...[
+    bare ? null : el('div', { class: 'cardtitle' }, 'Add line-item detail (Invoice2go CSV)'),
     el('p', { class: 'sub' }, 'Optional. The one-click import brings every invoice and its money, but not the itemized lines. Upload the Invoice2go invoice CSV whenever you like (monthly or quarterly is fine) to fill in line items on the invoices you already have — matched by number. It only adds line items; it never changes totals or payments.'),
     el('div', { style: 'display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap' },
       el('div', {}, el('label', { class: 'field-label' }, 'Invoice CSV'), file),
       importBtn),
     preview,
-  );
+  ].filter(Boolean));
   return card;
 }
 
@@ -249,8 +284,8 @@ function importCard() {
 // 1% instant-payout fee are exact (no estimation). Each payment's net lands in the
 // clearing account; bank deposits relieve it (when clearing nets to $0, every
 // payment is matched to a deposit). Idempotent — already-posted entries are skipped.
-function postCard() {
-  const card = el('div', { class: 'card', style: 'max-width:680px;margin-bottom:16px' });
+function postCard({ bare = false } = {}) {
+  const card = bare ? el('div', { style: 'margin:0' }) : el('div', { class: 'card', style: 'max-width:680px;margin-bottom:16px' });
   const draw = () => {
     const map = getState().meta?.i2gMapping || {};
     const byId = new Map(entities('account').map(a => [a.id, a]));
@@ -360,8 +395,8 @@ function postCard() {
     });
 
     const field = (label, node) => el('div', {}, el('label', { class: 'field-label' }, label), node);
-    clear(card).append(
-      el('div', { class: 'cardtitle' }, 'Import from Invoice2go (one file)'),
+    clear(card).append(...[
+      bare ? null : el('div', { class: 'cardtitle' }, 'Import from Invoice2go (one file)'),
       el('p', { class: 'sub' }, 'Upload the one-click Invoice2go export (invoice2go-export.json) — it brings in every invoice plus the real cashflow in one step. Each payment posts with its actual fees: the part you absorbed to COGS, the part the customer covered as contra-income, plus the 1% instant-payout fees, all tagged to their invoice. Income lands net in the clearing account; your bank deposits relieve it. Safe to re-run weekly — nothing duplicates.'),
       el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end' },
         field('Income account', incomeSel), field('Clearing account', clearingSel),
@@ -371,7 +406,7 @@ function postCard() {
         field('Start date (skip anything QuickBooks already has)', cutoffInput),
         el('div', { style: 'display:flex;gap:10px;align-items:center' }, file, importBtn)),
       preview,
-    );
+    ].filter(Boolean));
   };
   draw();
   return card;
@@ -547,13 +582,11 @@ function confirmDeleteInvoice(inv) {
 }
 
 // ── List + aging ──
-function drawList(body) {
-  const biz = getActiveBiz();
-  const invoices = entities('invoice').slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  if (!invoices.length) {
-    clear(body).append(el('p', { class: 'sub' }, 'No invoices yet. Import an Invoice2go CSV above to get started.'));
-    return;
-  }
+// The KPI strip + aging chips (redraw on every sync). Split from the table so the search
+// box can sit in a persistent toolbar between them — see render().
+function drawHead(headBox, redraw) {
+  const invoices = entities('invoice');
+  if (!invoices.length) { clear(headBox); return; }
   const totalOpen = invoices.reduce((s, i) => s + i.balanceCents, 0);
   const openCount = invoices.filter(i => i.balanceCents > 0).length;
 
@@ -567,7 +600,7 @@ function drawList(body) {
     el('div', { style: `font-size:1.4em;font-weight:800;${cls || ''}` }, val));
 
   // "Collected" KPI with its own date-range picker (presets + custom calendar).
-  if (!collectedCtl) collectedCtl = dateRangeControl({ initial: 'all', onChange: (r) => { collectedRange = r; drawList(body); } });
+  if (!collectedCtl) collectedCtl = dateRangeControl({ initial: 'all', onChange: (r) => { collectedRange = r; redraw(); } });
   const collected = collectedCents(collectedRange);
   const collectedCard = el('div', { class: 'card', style: 'flex:1;min-width:210px;padding:12px 16px' },
     el('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap' },
@@ -578,19 +611,56 @@ function drawList(body) {
   // Aging chips: tap one to filter the list to that bucket's open invoices.
   const chip = (label, cls, idx, amount) => {
     const on = agingFilter === idx;
-    const c = el('button', {
+    return el('button', {
       class: 'pill ' + cls,
       style: 'cursor:pointer;border:1.5px solid transparent;' + (on ? 'box-shadow:0 0 0 2px var(--brand) inset' : ''),
-      onclick: () => { agingFilter = on ? null : idx; drawList(body); },
+      onclick: () => { agingFilter = on ? null : idx; redraw(); },
     }, amount != null ? `${label} · ${fmtMoney(amount)}` : label);
-    return c;
   };
   const agingChips = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px' },
     el('span', { class: 'sub', style: 'margin:0 4px 0 0;font-weight:700' }, 'A/R aging'),
     chip('All open', 'gray', null),
     ...AGING_BUCKETS.map(([l], i) => chip(l, aging[i] > 0 ? 'amber' : 'gray', i, aging[i])));
 
-  const shown = agingFilter == null ? invoices : invoices.filter(inv => bucketOf(inv, t) === agingFilter);
+  clear(headBox).append(
+    el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px' },
+      kpi('Open balance', fmtMoney(totalOpen), 'color:var(--red)'),
+      kpi('Open invoices', String(openCount)),
+      collectedCard,
+      kpi('Invoices', String(invoices.length)),
+    ),
+    agingChips,
+  );
+}
+
+// Everything one search term is matched against: client, invoice #, status, source, and
+// each amount in a few forms ("1250", "1250.00", "$1,250.00") so typing any of them hits.
+function invHaystack(inv) {
+  const st = statusOf(inv);
+  const money = (c) => { c = c || 0; return `${(Math.abs(c) / 100).toFixed(2)} ${Math.round(Math.abs(c) / 100)} ${fmtMoney(c)}`; };
+  return [inv.number, '#' + (inv.number || ''), inv.clientName, inv.clientEmail, st.label, st.key, sourceOf(inv).label,
+    money(inv.totalCents), money(inv.paidCents), money(inv.balanceCents), inv.date].join(' ').toLowerCase();
+}
+
+// The invoice table — re-filtered by the active aging chip AND the search box. Each search
+// term must match (AND), so "harbor partial" or "overdue 880" both narrow as expected.
+function drawInvoiceTable(tableBox, count) {
+  const biz = getActiveBiz();
+  const invoices = entities('invoice').slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  if (!invoices.length) {
+    if (count) count.textContent = '';
+    clear(tableBox).append(el('p', { class: 'sub' }, 'No invoices yet. Use the “Import from Invoice2go” button above to get started.'));
+    return;
+  }
+  const t = todayIso();
+  let shown = agingFilter == null ? invoices : invoices.filter(inv => bucketOf(inv, t) === agingFilter);
+  const q = invoiceQuery.trim().toLowerCase();
+  if (q) {
+    const terms = q.split(/\s+/).filter(Boolean);
+    shown = shown.filter(inv => { const h = invHaystack(inv); return terms.every(tm => h.includes(tm)); });
+  }
+  if (count) count.textContent = `${shown.length} ${shown.length === 1 ? 'invoice' : 'invoices'}`;
+
   const rows = shown.map(inv => {
     const st = statusOf(inv);
     const src = sourceOf(inv);
@@ -608,20 +678,13 @@ function drawList(body) {
     return tr;
   });
 
-  clear(body).append(
-    el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px' },
-      kpi('Open balance', fmtMoney(totalOpen), 'color:var(--red)'),
-      kpi('Open invoices', String(openCount)),
-      collectedCard,
-      kpi('Invoices', String(invoices.length)),
-    ),
-    agingChips,
+  clear(tableBox).append(
     el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
       el('table', { class: 'data xl' },
         el('thead', {}, el('tr', {}, el('th', {}, 'Invoice'), el('th', {}, 'Invoice date'), el('th', {}, 'Client'), el('th', {}, 'Source'),
           el('th', { class: 'num' }, 'Total'), el('th', { class: 'num' }, 'Paid'), el('th', { class: 'num' }, 'Open'), el('th', {}, 'Status'))),
         el('tbody', {}, ...rows))),
-    agingFilter != null && !rows.length ? el('p', { class: 'sub', style: 'margin:12px 0 0' }, 'No open invoices in this aging bucket.') : null,
+    !rows.length ? el('p', { class: 'sub', style: 'margin:12px 0 0' }, q ? 'No invoices match your search.' : 'No open invoices in this aging bucket.') : null,
   );
 }
 
