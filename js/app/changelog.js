@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.54', items: [
+    { icon: 'text_fields', t: 'Consistent input fields', d: 'Text boxes, dropdowns, the inline ledger fields, and the date button now share the same rounded corners and show the same blue highlight when you tap into them — so forms read the same everywhere.' },
+  ] },
   { v: '0.69.53', items: [
     { icon: 'palette', t: 'Behind-the-scenes color cleanup', d: 'Internal tidy-up — the app’s colors now all come from one shared set of definitions. Nothing looks different; this just makes the upcoming consistency polish faster and safer.' },
   ] },
