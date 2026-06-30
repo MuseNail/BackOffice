@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.53', items: [
+    { icon: 'palette', t: 'Behind-the-scenes color cleanup', d: 'Internal tidy-up — the app’s colors now all come from one shared set of definitions. Nothing looks different; this just makes the upcoming consistency polish faster and safer.' },
+  ] },
   { v: '0.69.52', items: [
     { icon: 'settings', t: 'Excel-style tables — Settings (refresh complete)', d: 'The Settings tables (change history, rejected-writes log, Muse sync mapping, the QuickBooks balance compare, and closed months) now use the blue-header, gridlined look. That completes the spreadsheet-style table refresh across the whole app.' },
   ] },
