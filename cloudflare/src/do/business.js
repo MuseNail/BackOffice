@@ -321,7 +321,15 @@ export class BusinessDO {
       const existing = await this.state.storage.get(key);
       // Stale-write guard (Muse pattern): an older-stamped write never clobbers
       // a newer one. Unstamped writes apply (back-compat with the guard off).
-      if (existing?.updatedAt && op.value.updatedAt && op.value.updatedAt < existing.updatedAt) {
+      // EXCEPTION: a staged row advancing OUT of 'pending' (approve / skip / match) is a
+      // forward status transition, never a content race — and a preceding client /suggest
+      // write is stamped on the Cloudflare edge clock while the approve is stamped on the
+      // owner's browser clock, so a lagging browser clock would otherwise 409 a real approval
+      // as 'stale' (the row stays pending here while its txn posts). Staged rows carry no
+      // ledger lines, so letting a status-advance through is safe.
+      const stagedAdvance = op.kind === 'staged' && existing?.status === 'pending'
+        && op.value.status && op.value.status !== 'pending';
+      if (!stagedAdvance && existing?.updatedAt && op.value.updatedAt && op.value.updatedAt < existing.updatedAt) {
         return { rejected: true, reason: 'stale', storedUpdatedAt: existing.updatedAt };
       }
       // Reconciliation guard: if a txn is reconciled, its lines (amounts + accounts)

@@ -125,10 +125,10 @@ function drawSuggest(body, cf = { q: '', status: 'all', dir: 'all' }) {
   const field = (label, node) => el('div', { class: 'rvf' }, el('label', { class: 'field-label', style: 'margin:0 0 2px' }, label), node);
 
   clear(body).append(...pending.map(row => {
-    const venSel = combobox({ groups: [{ label: '', items: vendors.map(v => ({ value: v.id, label: v.name })) }], value: row.suggestedVendorId || '', text: row.suggestedVendorName || '', placeholder: 'Pick or type a new vendor…', minWidth: 180, freeText: true, emptyText: 'No match — your text is suggested as a NEW vendor' });
-    const acctSel = combobox({ groups, value: row.suggestedAccountId || '', text: row.suggestedAccountName || '', placeholder: 'Search or type a new account…', minWidth: 220, freeText: true, emptyText: 'No match — your text is suggested as a NEW account' });
-    const invSel = combobox({ groups: [{ label: '', items: [{ value: '', label: '— none —' }, ...invs.map(i => ({ value: i.id, label: `#${i.number || i.id} · ${(i.clientName || '').slice(0, 28)}` }))] }], value: row.suggestedInvoiceId || '', placeholder: 'Find invoice…', minWidth: 190 });
-    const note = el('textarea', { class: 'field-input', rows: '2', placeholder: 'Note for the owner…', style: 'margin:0;min-width:200px;resize:vertical' });
+    const venSel = combobox({ groups: [{ label: '', items: vendors.map(v => ({ value: v.id, label: v.name })) }], value: row.suggestedVendorId || '', text: row.suggestedVendorName || '', placeholder: 'Pick or type a new vendor…', minWidth: 0, freeText: true, emptyText: 'No match — your text is suggested as a NEW vendor' });
+    const acctSel = combobox({ groups, value: row.suggestedAccountId || '', text: row.suggestedAccountName || '', placeholder: 'Search or type a new account…', minWidth: 0, freeText: true, emptyText: 'No match — your text is suggested as a NEW account' });
+    const invSel = combobox({ groups: [{ label: '', items: [{ value: '', label: '— none —' }, ...invs.map(i => ({ value: i.id, label: `#${i.number || i.id} · ${(i.clientName || '').slice(0, 28)}` }))] }], value: row.suggestedInvoiceId || '', placeholder: 'Find invoice…', minWidth: 0 });
+    const note = el('textarea', { class: 'field-input', rows: '2', placeholder: 'Note for the owner…', style: 'margin:0;width:100%;min-width:0;resize:vertical' });
     note.value = row.clientNote || '';
     const chip = row.suggestedAt ? el('span', { class: 'pill green' }, 'Suggested ✓') : el('span', { class: 'pill gray' }, 'Needs your suggestion');
     const btn = el('button', { class: 'btn sm', onclick: async () => {
@@ -154,7 +154,9 @@ function drawSuggest(body, cf = { q: '', status: 'all', dir: 'all' }) {
             el('span', { class: 'revdate' }, row.date),
             el('span', { class: 'revdesc' }, row.desc || '')),
           el('div', { class: 'revfields' },
-            field('Vendor', venSel), field('Account', acctSel), field('Invoice', invSel), field('Note', note))),
+            field('Vendor', venSel), field('Account', acctSel), field('Invoice', invSel)),
+          el('div', { class: 'revnote' },
+            el('label', { class: 'field-label', style: 'margin:0 0 2px' }, 'Note'), note)),
         el('div', { class: 'revside' },
           el('div', { class: 'revside-top' }, chip, amtEl),
           el('div', { class: 'revside-actions' }, btn))));
@@ -162,7 +164,7 @@ function drawSuggest(body, cf = { q: '', status: 'all', dir: 'all' }) {
 }
 
 function boot() {
-  setStatusListener(s => { const pill = document.getElementById('syncpill'); if (pill) { pill.textContent = s === 'synced' ? 'Synced' : 'Offline'; pill.className = 'syncpill ' + s; } });
+  setStatusListener(s => { const pill = document.getElementById('syncpill'); if (pill) { pill.textContent = s === 'attention' ? 'Unsynced' : s === 'synced' ? 'Synced' : 'Offline'; pill.className = 'syncpill ' + (s === 'synced' ? 'synced' : s === 'attention' ? 'attention' : 'offline'); } });
   document.getElementById('clientlogout').addEventListener('click', async () => {
     try { await fetch(ORIGIN + '/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${getToken()}` } }); } catch { /* signing out anyway */ }
     clearSession(); location.hash = ''; location.reload();

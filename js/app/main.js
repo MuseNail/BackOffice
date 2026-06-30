@@ -252,8 +252,8 @@ function boot() {
   ver.onclick = () => showWhatsNew();   // checkAppVersion swaps this to a hard-reload when an update is waiting
   setStatusListener(s => {
     const pill = document.getElementById('syncpill');
-    pill.textContent = s === 'synced' ? 'Synced' : 'Offline';
-    pill.className = 'syncpill ' + s;
+    pill.textContent = s === 'attention' ? 'Unsynced' : s === 'synced' ? 'Synced' : 'Offline';
+    pill.className = 'syncpill ' + (s === 'synced' ? 'synced' : s === 'attention' ? 'attention' : 'offline');
   });
   document.querySelectorAll('#sidebar .navitem').forEach(n =>
     n.addEventListener('click', () => {

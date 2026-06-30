@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.56', items: [
+    { icon: 'cloud_done', t: 'Approvals save reliably (sync fix)', d: 'Fixed a timing race where approving a transaction a client had already suggested could be silently rejected by the server and left stuck in the waiting list (it would show as both posted and pending). Approvals now stick. The status badge also now shows “Unsynced” instead of “Synced” whenever something hasn’t saved, so you always know your work is safe.' },
+    { icon: 'view_agenda', t: 'Cleaner Suggest layout (client app)', d: 'In the client Suggest screen, the Vendor / Account / Invoice fields no longer overlap, and the Note now has its own full-width row below them.' },
+  ] },
   { v: '0.69.55', items: [
     { icon: 'call_split', t: 'Split a transaction when editing it', d: 'Open any transaction in the editor and you can now split it across several accounts — the Account section has a “＋ Add split” button that divides the amount and checks it balances to the total. Reconciled transactions and transfers keep their single account.' },
     { icon: 'palette', t: 'More behind-the-scenes color cleanup', d: 'Another internal pass routing the app’s grays, fills, and borders through one shared set of definitions. Nothing looks different.' },

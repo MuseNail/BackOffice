@@ -46,8 +46,12 @@ export function applyChange(op) {
     const list = (state.entities[op.kind] ||= []);
     const i = list.findIndex(e => e.id === op.value.id);
     if (i >= 0) {
-      // stale-write guard mirror: never let an older stamp clobber a newer one
-      if (list[i].updatedAt && op.value.updatedAt && op.value.updatedAt < list[i].updatedAt) return;
+      // stale-write guard mirror: never let an older stamp clobber a newer one — EXCEPT a
+      // staged row advancing out of 'pending' (approve/skip/match), a forward status
+      // transition not a content race (mirrors business.js so optimistic + replay agree).
+      const stagedAdvance = op.kind === 'staged' && list[i].status === 'pending'
+        && op.value.status && op.value.status !== 'pending';
+      if (!stagedAdvance && list[i].updatedAt && op.value.updatedAt && op.value.updatedAt < list[i].updatedAt) return;
       list[i] = op.value;
     } else list.push(op.value);
     bump(); return;

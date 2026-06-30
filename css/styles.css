@@ -25,6 +25,7 @@ body{margin:0;font-family:'Inter',Arial,sans-serif;background:var(--bg);color:va
 .syncpill{font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px}
 .syncpill.synced{color:var(--green);background:var(--green-soft)}
 .syncpill.offline{color:var(--amber);background:var(--amber-soft)}
+.syncpill.attention{color:var(--red);background:var(--red-soft)}
 .layout{display:flex;min-height:calc(100vh - 53px)}
 .side{width:200px;flex-shrink:0;padding:14px 10px;border-right:1px solid var(--line);background:#fff;position:sticky;top:53px;align-self:flex-start;height:calc(100vh - 53px);overflow-y:auto}
 /* Collapsible nav: a narrow icon rail that peeks open on hover, unless pinned open */
@@ -454,6 +455,12 @@ body.has-windows #view{max-width:none;padding:0;display:flex;flex-direction:colu
 .clienttab .ms{font-size:16px}
 .bo-client .main{padding:16px 18px}
 .client-note{display:flex;align-items:flex-start;gap:7px;margin-top:8px;background:var(--brand-soft);border:1px solid #c5d6f1;color:#1d4e8f;border-radius:9px;padding:8px 11px;font-size:12.5px;font-weight:500;line-height:1.4}
+/* Client Suggest rows: each field fills its column (no overflow), labels align at the top,
+   and the note gets its own full-width row under Vendor/Account/Invoice. */
+.bo-client .revfields{align-items:flex-start}
+.bo-client .revfields .rvf .cbx{width:100%;min-width:0}
+.revnote{margin-top:10px}
+.revnote .field-input{width:100%;max-width:none}
 
 /* ── Input controls — one radius + one focus ring (cosmetic consistency pass) ──
    Text inputs, the inline ledger field + its combobox face, selects, and the date

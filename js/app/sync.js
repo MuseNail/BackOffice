@@ -76,6 +76,9 @@ export async function dispatch(op) {
 function readOutbox() {
   try { return JSON.parse(localStorage.getItem(LS.outbox) || '[]'); } catch { return []; }
 }
+// The status pill must reflect server-rejected (dead-lettered) work so it can never falsely
+// read "Synced" while writes were dropped — `attention` surfaces them (see flushOutbox).
+function failedCount() { try { return JSON.parse(localStorage.getItem(LS.failed) || '[]').length; } catch { return 0; } }
 
 async function flushOutbox() {
   if (flushing) return;   // one flusher at a time so the FIFO head stays stable across concurrent triggers
@@ -89,9 +92,24 @@ async function flushOutbox() {
         const res = await api(`/b/${item.biz}/state`, { method: 'POST', body: JSON.stringify(item.op) });
         if (!res.ok) {
           if (res.status === 409) {
-            // Server rejected as stale/reconciled — save to dead-letter log so the user can inspect.
+            let body = {};
+            try { body = await res.json(); } catch { /* best-effort */ }
+            const reason = body.reason || 'rejected';
+            // Self-heal: a staged row advancing out of 'pending' (approve/skip/match) that the
+            // server 409'd as 'stale' is a clock-skew race (edge-clock /suggest stamp vs the
+            // browser-clock approve), not a real conflict. Re-stamp once just above the server's
+            // stored stamp and retry the head — the _healed flag bounds it to a single retry.
+            if (reason === 'stale' && item.op.op === 'entity.upsert' && item.op.kind === 'staged'
+                && item.op.value?.status && item.op.value.status !== 'pending'
+                && !item.op._healed && Number.isFinite(body.storedUpdatedAt)) {
+              item.op._healed = true;
+              item.op.value = { ...item.op.value, updatedAt: body.storedUpdatedAt + 1 };
+              applyChange(item.op);   // keep optimistic state in step with the re-stamp
+              const cur = readOutbox(); cur[0] = item; localStorage.setItem(LS.outbox, JSON.stringify(cur));
+              continue;               // retry the head with the healed stamp
+            }
+            // Otherwise dead-letter it so the user can inspect (Settings → Data recovery).
             try {
-              const reason = (await res.json()).reason || 'rejected';
               const log = JSON.parse(localStorage.getItem(LS.failed) || '[]');
               log.unshift({ biz: item.biz, op: item.op, reason, rejectedAt: Date.now() });
               localStorage.setItem(LS.failed, JSON.stringify(log.slice(0, 100)));
@@ -110,7 +128,7 @@ async function flushOutbox() {
       cur.shift();
       localStorage.setItem(LS.outbox, JSON.stringify(cur));
     }
-    onStatus('synced');
+    onStatus(failedCount() ? 'attention' : 'synced');
   } finally {
     flushing = false;
   }
@@ -134,7 +152,7 @@ function connectWS(bizId, isReconnect = false) {
     } catch { /* ignore */ }
   };
   ws.onopen = () => {
-    onStatus('synced');
+    onStatus(failedCount() ? 'attention' : 'synced');
     startHeartbeat();
     // After a reconnect we may have missed live broadcasts while disconnected — re-pull the
     // snapshot and flush anything queued offline so both sides converge.
