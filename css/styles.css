@@ -1,7 +1,7 @@
 /* ── Back Office — base styles (design language from mockups/backoffice-app.html) ── */
 :root{
-  --brand:#2456a6; --brand-dim:#1b4485; --brand-soft:#e8effb;
-  --bg:#f4f5f8; --card:#fff; --line:#e6e7ec; --ink:#1c1d22; --mut:#6b6e78;
+  --brand:#2456a6; --brand-dim:#1b4485; --brand-soft:#e8effb; --navy:#16223c;
+  --bg:#f4f5f8; --card:#fff; --line:#e6e7ec; --ink:#1c1d22; --mut:#6b6e78; --fill:#f1f3f7;
   --green:#1f8a4c; --green-soft:#e3f3e9; --red:#c43a3a; --red-soft:#fbe9e9;
   --amber:#9a6b00; --amber-soft:#fdf3d8;
 }
@@ -97,7 +97,7 @@ table.data tr[style*="cursor:pointer"]:hover td,table.data tr[style*="cursor: po
 .steplink{width:40px;height:2px;background:#e0e2e8;margin:0 12px}
 .field-label{display:block;font-weight:700;font-size:12px;margin-bottom:5px;color:#3c3f48}
 .wizbtns{display:flex;gap:9px;margin-top:14px}
-.btn.ghost{background:#f1f3f7;color:#3c3f48}
+.btn.ghost{background:var(--fill);color:#3c3f48}
 .btn.green{background:var(--green)}
 .btn[disabled]{opacity:.5;cursor:default}
 .indgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
@@ -119,9 +119,9 @@ table.data tr[style*="cursor:pointer"]:hover td,table.data tr[style*="cursor: po
 
 /* ── topbar user ── */
 .userchip{display:flex;align-items:center;gap:8px;font-weight:700;position:relative}
-.iconbtn{border:none;background:#f1f3f7;border-radius:8px;padding:6px 8px;cursor:pointer;color:#3c3f48}
+.iconbtn{border:none;background:var(--fill);border-radius:8px;padding:6px 8px;cursor:pointer;color:#3c3f48}
 .iconbtn:hover{background:#e4e7ee}
-#userchip-btn{display:flex;align-items:center;gap:6px;border:none;background:#f1f3f7;border-radius:999px;padding:6px 12px;cursor:pointer;color:#2a2d35;font:inherit;font-weight:700}
+#userchip-btn{display:flex;align-items:center;gap:6px;border:none;background:var(--fill);border-radius:999px;padding:6px 12px;cursor:pointer;color:#2a2d35;font:inherit;font-weight:700}
 #userchip-btn:hover{background:#e4e7ee}
 .usermenu{position:absolute;right:0;top:calc(100% + 6px);min-width:210px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.16);overflow:hidden;z-index:30;padding:6px 0}
 .usermenu[hidden]{display:none}
@@ -186,7 +186,7 @@ table.data.xl:not(.xl-grp) tbody tr:nth-child(even){background:#eef2f8}
 table.data.xl.xl-grp tbody tr.xlz td{background:#eef2f8}
 /* Chart-of-accounts section dividers read as a light band, not a zebra row. */
 table.data.xl td.coatype{background:var(--brand-soft);color:var(--brand-dim)}
-table.data.xl tfoot td{background:#16223c;color:#fff;border-color:#16223c;font-weight:700;font-size:12.5px}
+table.data.xl tfoot td{background:var(--navy);color:#fff;border-color:var(--navy);font-weight:700;font-size:12.5px}
 table.data.xl tfoot .acctamt{color:#fff}
 /* Sortable headers stay readable on the blue fill (the default blue active-state would vanish). */
 table.data.xl th.th-sort:hover{color:#dbe7fb}
@@ -204,7 +204,7 @@ table.data.xl-stmt th{background:var(--brand);color:#fff;font-weight:600;text-tr
 table.data.xl-stmt th.num{text-align:right}
 table.data.xl-stmt td{border:1px solid #e9ecf2;padding:6px 11px;font-size:12.5px}
 table.data.xl-stmt td.coatype{background:var(--brand-soft);color:var(--brand-dim)}
-table.data.xl-stmt tr.stmt-net td{background:#16223c;color:#fff;border-color:#16223c;font-weight:700}
+table.data.xl-stmt tr.stmt-net td{background:var(--navy);color:#fff;border-color:var(--navy);font-weight:700}
 table.data.xl-stmt tr.stmt-net .acctamt{color:#fff}
 
 /* ── combobox (type-to-search select) ── */
@@ -277,7 +277,7 @@ select.txi { background-position: right 7px center; padding-right: 24px; }
 .txi-lazy{display:block;width:100%}
 .txi-face{display:block;width:100%;min-width:130px;max-width:210px;padding:6px 22px 6px 8px;border:1.5px solid var(--line);border-radius:8px;font:inherit;font-size:12px;background:#fff;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative;color:inherit}
 .txi-face:hover{border-color:var(--brand)}
-.txi-face::after{content:"";position:absolute;right:9px;top:45%;width:6px;height:6px;border-right:2px solid #6b6e78;border-bottom:2px solid #6b6e78;transform:translateY(-50%) rotate(45deg)}
+.txi-face::after{content:"";position:absolute;right:9px;top:45%;width:6px;height:6px;border-right:2px solid var(--mut);border-bottom:2px solid var(--mut);transform:translateY(-50%) rotate(45deg)}
 .txi-cb{display:block;width:100%;min-width:130px;max-width:210px}
 .txi-cb .cbx-input{font-size:12px;padding:6px 8px;border:1.5px solid var(--line);border-radius:8px;margin:0}
 .txgrid .txi-lazy,.txgrid .txi-face,.txgrid .txi-cb{max-width:none;width:100%}
@@ -348,11 +348,11 @@ label.pct-toggle input{width:15px;height:15px;accent-color:var(--brand);cursor:p
 /* Global "+ New" create menu (top bar) */
 #createpop{left:0;right:auto;min-width:236px}
 .usermenu-grp{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#9a9ca3;padding:8px 14px 3px}
-.usermenu .kbd{margin-left:auto;font-size:10.5px;font-weight:700;color:#9a9ca3;background:#f1f3f7;border-radius:5px;padding:2px 7px}
+.usermenu .kbd{margin-left:auto;font-size:10.5px;font-weight:700;color:#9a9ca3;background:var(--fill);border-radius:5px;padding:2px 7px}
 
 /* Review — bulk-select sticky bar + row checkboxes */
-.review-bulkbar{position:sticky;top:53px;z-index:6;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#e8effb;border:1.5px solid #bcd2f0;border-radius:11px;padding:9px 13px;margin-bottom:12px;box-shadow:0 2px 8px rgba(20,30,55,.10)}
-.review-bulkbar b{color:#1b4485}
+.review-bulkbar{position:sticky;top:53px;z-index:6;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--brand-soft);border:1.5px solid #bcd2f0;border-radius:11px;padding:9px 13px;margin-bottom:12px;box-shadow:0 2px 8px rgba(20,30,55,.10)}
+.review-bulkbar b{color:var(--brand-dim)}
 .revchk{width:16px;height:16px;accent-color:var(--brand);cursor:pointer;flex:none}
 
 /* Rule builder — conditions + live preview */
@@ -453,7 +453,7 @@ body.has-windows #view{max-width:none;padding:0;display:flex;flex-direction:colu
 .clienttab.on{background:var(--brand);border-color:var(--brand);color:#fff}
 .clienttab .ms{font-size:16px}
 .bo-client .main{padding:16px 18px}
-.client-note{display:flex;align-items:flex-start;gap:7px;margin-top:8px;background:#e8effb;border:1px solid #c5d6f1;color:#1d4e8f;border-radius:9px;padding:8px 11px;font-size:12.5px;font-weight:500;line-height:1.4}
+.client-note{display:flex;align-items:flex-start;gap:7px;margin-top:8px;background:var(--brand-soft);border:1px solid #c5d6f1;color:#1d4e8f;border-radius:9px;padding:8px 11px;font-size:12.5px;font-weight:500;line-height:1.4}
 
 /* ── Phone layout (≤640px) ── */
 @media (max-width:640px){
