@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.55', items: [
+    { icon: 'call_split', t: 'Split a transaction when editing it', d: 'Open any transaction in the editor and you can now split it across several accounts — the Account section has a “＋ Add split” button that divides the amount and checks it balances to the total. Reconciled transactions and transfers keep their single account.' },
+    { icon: 'palette', t: 'More behind-the-scenes color cleanup', d: 'Another internal pass routing the app’s grays, fills, and borders through one shared set of definitions. Nothing looks different.' },
+  ] },
   { v: '0.69.54', items: [
     { icon: 'text_fields', t: 'Consistent input fields', d: 'Text boxes, dropdowns, the inline ledger fields, and the date button now share the same rounded corners and show the same blue highlight when you tap into them — so forms read the same everywhere.' },
   ] },
