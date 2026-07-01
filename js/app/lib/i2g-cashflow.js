@@ -103,14 +103,23 @@ export function buildCashflowImport(raw, { existingInvoices = [], mapping = {}, 
   const errors = [];
   if (!mapping.incomeId || !mapping.clearingId) errors.push('Pick the income and clearing accounts.');
 
-  // invoice match: by Invoice2go document id (UUID) first, then by number
-  const byNum = new Map(), byId = new Map();
+  // invoice match: by Invoice2go document id (UUID) first, then by number. BOTH of those
+  // change when an estimate is converted to an invoice (the payment keeps the estimate's
+  // doc id/number), which would leave the income untagged — so also index each invoice by
+  // its payment transaction ids. That id is stable across the conversion and is the same id
+  // the cashflow payment carries (p.id). Only index a txId that maps to ONE invoice, so an
+  // ambiguous one never mis-links.
+  const byNum = new Map(), byId = new Map(), byPayTxId = new Map();
   for (const inv of existingInvoices) {
     if (inv.number) byNum.set(String(inv.number).trim(), inv.id);
     if (inv.sourceId) byId.set(inv.sourceId, inv.id);
     if (inv.id) byId.set(inv.id, inv.id);
+    for (const pmt of (inv.payments || [])) {
+      const k = pmt && pmt.txId ? String(pmt.txId) : '';
+      if (k) byPayTxId.set(k, byPayTxId.has(k) && byPayTxId.get(k) !== inv.id ? null : inv.id); // null = ambiguous → ignore
+    }
   }
-  const resolveInv = (docId, docNum) => byId.get(docId) || byNum.get(String(docNum).trim()) || null;
+  const resolveInv = (docId, docNum, payId) => byId.get(docId) || byNum.get(String(docNum).trim()) || (payId ? byPayTxId.get(String(payId)) : null) || null;
   // 1:1 payout→payment by net amount, to tag a payout fee to that invoice
   const netToPayments = new Map();
   for (const p of payments) (netToPayments.get(p.net) || netToPayments.set(p.net, []).get(p.net)).push(p);
@@ -118,7 +127,7 @@ export function buildCashflowImport(raw, { existingInvoices = [], mapping = {}, 
   const txns = []; const unmatched = new Map(); let tagged = 0;
 
   for (const p of payments) {
-    const invId = resolveInv(p.docId, p.docNum);
+    const invId = resolveInv(p.docId, p.docNum, p.id);
     if (invId) tagged++; else { const u = unmatched.get(p.docNum) || { count: 0, cents: 0 }; u.count++; u.cents += p.gross; unmatched.set(p.docNum, u); }
     const lines = [{ accountId: mapping.incomeId, amountCents: -p.gross }, { accountId: mapping.clearingId, amountCents: p.net }];
     if (p.passed > 0) { if (mapping.feePassedId) lines.push({ accountId: mapping.feePassedId, amountCents: p.passed }); else errors.push('Pick the “passed to customer” (income) account.'); }
@@ -137,7 +146,7 @@ export function buildCashflowImport(raw, { existingInvoices = [], mapping = {}, 
   const payoutEntities = [];
   for (const po of payouts) {
     const hits = netToPayments.get(po.amount) || [];
-    const invId = hits.length === 1 ? resolveInv(hits[0].docId, hits[0].docNum) : null; // tag only when it's clearly one invoice
+    const invId = hits.length === 1 ? resolveInv(hits[0].docId, hits[0].docNum, hits[0].id) : null; // tag only when it's clearly one invoice
     payoutEntities.push({
       id: cashflowPayoutEntityId(po.id), date: po.date,
       amountCents: po.amount, feeCents: po.fee, netToBankCents: po.amount - po.fee,

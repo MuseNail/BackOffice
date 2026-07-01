@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.69.61', items: [
+    { icon: 'link', t: 'Link Invoice2go income to the right invoice', d: 'When a payment was made on an estimate that later became an invoice, its income got recorded but wasn’t attached to any invoice — so that invoice could look unpaid even though it wasn’t. Now the importer links these automatically by payment ID, and a new “Reconcile income” button on the Invoices tab (with a count badge) finds any that slipped through and links them in one click. Totals never change — it only connects each payment to its invoice.' },
+  ] },
   { v: '0.69.60', items: [
     { icon: 'search', t: 'Search your invoices', d: 'The Invoices tab now has a search box above the list — type a client name, an invoice number, an amount, or a status (like “overdue”) to filter the list instantly. A live count shows how many match.' },
     { icon: 'unfold_less', t: 'Imports tucked into buttons', d: 'The two Invoice2go import panels no longer sit open at the top of the tab pushing your invoice list down. They’re now two buttons — “Import from Invoice2go” and “Add line items (CSV)” — that open the same form in a pop-up only when you need it, so the tab opens straight to your invoices. Importing works exactly as before.' },

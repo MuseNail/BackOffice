@@ -121,12 +121,19 @@ export function render(root, detail) {
     el('h2', {}, 'Invoices'),
     el('p', { class: 'sub' }, 'Imported from Invoice2go. Each weekly export is the full history — re-importing only adds new invoices and applies new payments, never duplicates.'),
   );
-  if (editable) root.append(
-    el('div', { style: 'margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap' },
-      el('button', { class: 'btn sm', onclick: () => invoiceModal(null) }, '＋ New invoice'),
-      el('button', { class: 'btn sm ghost', onclick: importBundleModal }, 'Import from Invoice2go'),
-      el('button', { class: 'btn sm ghost', onclick: importLineItemsModal }, '＋ Add line items (CSV)'),
-      el('button', { class: 'btn sm ghost', onclick: () => { location.hash = `#/b/${getActiveBiz()}/invoices/reconcile`; } }, 'Reconcile to bank →')));
+  // Count badge on the Reconcile-income button (editable only); refreshed in draw().
+  let recBadge = null;
+  if (editable) {
+    recBadge = el('span', {});
+    root.append(
+      el('div', { style: 'margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap' },
+        el('button', { class: 'btn sm', onclick: () => invoiceModal(null) }, '＋ New invoice'),
+        el('button', { class: 'btn sm ghost', onclick: importBundleModal }, 'Import from Invoice2go'),
+        el('button', { class: 'btn sm ghost', onclick: importLineItemsModal }, '＋ Add line items (CSV)')),
+      el('div', { style: 'margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap' },
+        el('button', { class: 'btn sm ghost', onclick: reconcileIncomeModal }, 'Reconcile income', recBadge),
+        el('button', { class: 'btn sm ghost', onclick: () => { location.hash = `#/b/${getActiveBiz()}/invoices/reconcile`; } }, 'Reconcile to bank →')));
+  }
 
   // List area. KPIs + aging chips redraw on every sync; the search box lives in a
   // PERSISTENT toolbar outside those boxes so a background sync can't steal focus while
@@ -142,6 +149,11 @@ export function render(root, detail) {
   });
   const toolbar = el('div', { style: 'display:flex;align-items:center;gap:10px;margin:0 0 9px;flex-wrap:wrap' }, search, count);
   const draw = () => {
+    if (recBadge) {
+      const u = untaggedIncome(); const n = u.auto.length + u.review.length;
+      clear(recBadge);
+      if (n) recBadge.append(el('span', { class: 'pill amber', style: 'margin-left:5px;font-size:.85em' }, String(n)));
+    }
     toolbar.style.display = entities('invoice').length ? 'flex' : 'none';
     drawHead(headBox, draw);
     drawInvoiceTable(tableBox, count);
@@ -166,6 +178,80 @@ function importBundleModal() {
 function importLineItemsModal() {
   const m = modal('Add line items (Invoice2go CSV)');
   m.body.append(importCard({ bare: true }));
+}
+
+// ── Reconcile untagged Invoice2go income ──
+// Invoice2go income that was recognized but never linked to an invoice — usually because
+// the payment was made while the doc was still an ESTIMATE, so the doc number the importer
+// matches on changed when it became an invoice. The payment's transaction id does NOT
+// change, and it lives on both the cashflow txn (source.sourceId) and the invoice's payment
+// rows (payments[].txId), so we re-link by that. Returns { auto (1:1 id match), review }.
+function untaggedIncome() {
+  const incomeIds = new Set(entities('account').filter(a => a.type === 'income').map(a => a.id));
+  const incOf = t => (t.lines || []).filter(l => incomeIds.has(l.accountId)).reduce((a, l) => a - l.amountCents, 0);
+  const byPayTxId = new Map();
+  for (const i of entities('invoice')) for (const pmt of (i.payments || [])) {
+    const k = pmt && pmt.txId ? String(pmt.txId) : '';
+    if (k) (byPayTxId.get(k) || byPayTxId.set(k, []).get(k)).push(i);
+  }
+  const auto = [], review = [];
+  for (const t of entities('txn')) {
+    if (t.source?.app !== 'i2g-cashflow' || t.invoiceId) continue;
+    const amt = incOf(t); if (amt <= 0) continue;
+    const hit = byPayTxId.get(String(t.source?.sourceId || ''));
+    if (hit && hit.length === 1) auto.push({ txn: t, amt, inv: hit[0] });
+    else review.push({ txn: t, amt });
+  }
+  return { auto, review };
+}
+
+// One-click cleanup: link recognized-but-untagged Invoice2go income to its invoice by
+// payment id. Idempotent — safe to run after each weekly import; never changes amounts.
+function reconcileIncomeModal() {
+  const m = modal('Reconcile Invoice2go income');
+  const stat = (l, v) => el('div', { style: 'flex:1;background:var(--fill);border-radius:10px;padding:9px 12px' },
+    el('div', { class: 'sub', style: 'margin:0' }, l), el('div', { style: 'font-size:1.3em;font-weight:800' }, v));
+  const closeRow = () => el('div', { style: 'display:flex;justify-content:flex-end;margin-top:12px' }, el('button', { class: 'btn', onclick: m.close }, 'Close'));
+  const render = () => {
+    const { auto, review } = untaggedIncome();
+    clear(m.body);
+    if (!auto.length && !review.length) { m.body.append(el('p', { class: 'sub' }, 'All Invoice2go income is linked to an invoice. ✓'), closeRow()); return; }
+    const total = [...auto, ...review].reduce((a, x) => a + x.amt, 0);
+    m.body.append(
+      el('p', { class: 'sub' }, 'These payments were recognized as income but aren’t linked to an invoice — usually because they were paid while the document was still an estimate. Linking changes no totals; it only attaches each payment to its invoice.'),
+      el('div', { style: 'display:flex;gap:10px;margin:2px 0 12px' },
+        stat('Unlinked payments', String(auto.length + review.length)), stat('Amount', fmtMoney(total))));
+    if (auto.length) m.body.append(
+      el('div', { class: 'card', style: 'background:var(--green-soft);border-color:#b9e0c6;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px' },
+        el('div', {},
+          el('div', { style: 'font-weight:800;color:var(--green)' }, `${auto.length} can be linked automatically`),
+          el('div', { class: 'sub', style: 'margin:0' }, 'Matched to an invoice by payment ID — exact, no guessing.')),
+        el('button', { class: 'btn sm green', onclick: () => {
+          const vals = auto.map(a => ({ ...a.txn, invoiceId: a.inv.id, updatedAt: Date.now() }));
+          for (let i = 0; i < vals.length; i += 200) dispatch({ op: 'entity.bulkUpsert', kind: 'txn', values: vals.slice(i, i + 200) });
+          toast(`Linked ${vals.length} payment${vals.length === 1 ? '' : 's'} to ${vals.length === 1 ? 'its' : 'their'} invoice${vals.length === 1 ? '' : 's'}`);
+          render();
+        } }, `Link ${auto.length} payment${auto.length === 1 ? '' : 's'}`)));
+    if (review.length) {
+      const norm = s => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const invs = entities('invoice');
+      m.body.append(
+        el('div', { style: 'font-weight:800;margin:6px 0 6px' }, `${review.length} need your review`),
+        el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
+          el('table', { class: 'data xl' },
+            el('thead', {}, el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Client'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Why'))),
+            el('tbody', {}, ...review.slice(0, 200).map(r => {
+              const named = invs.filter(i => norm(i.clientName) && norm(i.clientName) === norm(r.txn.payee));
+              const why = named.length > 1 ? `${named.length} possible invoices` : named.length === 1 ? `verify #${named[0].number}` : 'no invoice in Back Office';
+              return el('tr', {},
+                el('td', {}, r.txn.date || '—'), el('td', {}, prettyDesc(r.txn.payee) || '—'),
+                el('td', { class: 'num' }, acctAmount(r.amt, { colored: false })),
+                el('td', {}, el('span', { class: 'pill ' + (named.length ? 'amber' : 'gray') }, why)));
+            })))));
+    }
+    m.body.append(el('p', { class: 'sub', style: 'margin-top:12px' }, 'Income totals are unaffected — this only links payments to their invoices.'), closeRow());
+  };
+  render();
 }
 
 // ── Invoice2go import: bundle (money) + CSV (line items) — neither clobbers the other ──
