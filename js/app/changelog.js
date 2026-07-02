@@ -6,6 +6,12 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.70.0', items: [
+    { icon: 'cloud_done', t: 'Client suggestions now reach you reliably', d: 'Fixed a timing bug where a client’s whole suggestion (account, vendor, invoice, and note) could be silently thrown away if your computer’s clock was slightly ahead of the server — the client app would say “sent” while nothing arrived in Review. Suggestions now always come through.' },
+    { icon: 'call_split', t: 'Clients can suggest a split', d: 'In the client app, a “Split” button lets a client divide one transaction across several accounts, with a live balance check (just like your Review split). It shows up in Review as “Client suggested a split” — tap “Approve split” to post it as-is, or “Review split” to open the split editor pre-filled with their accounts and amounts.' },
+    { icon: 'filter_list', t: 'Cleaner client Suggest screen', d: 'The client app now opens to “Needs you” (already-suggested transactions are tucked away), with a Needs you / Suggested / All switch, a progress bar, and a clear “Sent” confirmation on each row. Typed-in new vendors and accounts are held safely so they can’t get lost, and a failed send now says so instead of pretending it worked.' },
+    { icon: 'edit_note', t: 'Client notes and details carry through', d: 'A client’s note now pre-fills the Note field in Review so it posts with the transaction instead of only being displayed. If a client’s suggested account was made inactive, it shows with a one-click Reactivate instead of a blank field, and “Approve all” now keeps the vendor, invoice, and note too.' },
+  ] },
   { v: '0.69.61', items: [
     { icon: 'link', t: 'Link Invoice2go income to the right invoice', d: 'When a payment was made on an estimate that later became an invoice, its income got recorded but wasn’t attached to any invoice — so that invoice could look unpaid even though it wasn’t. Now the importer links these automatically by payment ID, and a new “Reconcile income” button on the Invoices tab (with a count badge) finds any that slipped through and links them in one click. Totals never change — it only connects each payment to its invoice.' },
   ] },

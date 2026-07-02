@@ -164,7 +164,8 @@ export function combobox({ groups = [], value = '', text = '', placeholder = 'â€
       if (t && t.toLowerCase() !== (labelFor(current) || '').toLowerCase()) {
         const exact = flat.find(x => (x.label || '').toLowerCase() === t.toLowerCase());
         if (exact) { current = exact.value; fireChange(); setDisplay(); return; }
-        if (current) { current = ''; fireChange(); }
+        current = '';
+        fireChange();   // fire even for a fresh typed-new proposal so a caller can capture .inputText into its own draft before any re-render loses it
         input.title = input.value;   // proposed new â€” leave the typed text in place
         return;
       }

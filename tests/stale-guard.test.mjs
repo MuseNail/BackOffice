@@ -45,9 +45,46 @@ test('the carve-out is TIGHT: a backward move (approved->pending) with an older 
 });
 
 test('a staged advance with a newer stamp applies normally', async () => {
-  const { bo, store } = makeDO({ 'staged:r4': { id: 'r4', status: 'pending', updatedAt: 1000 } });
+  const { bo, store } = makeDO({ 'staged:r4': { id: 'r4', status: 'pending', updatedAt: 2000 } });
   const res = await bo.apply({ op: 'entity.upsert', kind: 'staged',
-    value: { id: 'r4', status: 'approved', updatedAt: 2000 } });
+    value: { id: 'r4', status: 'approved', updatedAt: 3000 } });
   assert.ok(!res.rejected);
   assert.equal(store.get('staged:r4').status, 'approved');
+});
+
+// A client /suggest keeps the row 'pending', so the staged-advance carve-out does NOT
+// apply. It must still never be dropped as stale: the DO stamps it monotonically
+// (>= storedUpdatedAt+1) so an owner whose browser clock ran ahead of the edge can't
+// silently lose the whole suggestion (Account + Vendor + Invoice + Note together).
+async function suggest(bo, stagedId, payload) {
+  return bo.fetch(new Request('https://do/_suggest', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stagedId, ...payload }),
+  }));
+}
+
+test('a client suggestion is NOT dropped when the stored row\'s clock is ahead (monotonic stamp)', async () => {
+  const ahead = Date.now() + 9_000_000;   // stored stamp far ahead of edge-now
+  const { bo, store } = makeDO({ 'staged:s1': { id: 's1', status: 'pending', updatedAt: ahead } });
+  const res = await suggest(bo, 's1', { suggestedAccountId: 'a-1', suggestedVendorId: 'v-1', clientNote: 'ours' });
+  assert.equal(res.status, 200);
+  const row = store.get('staged:s1');
+  assert.equal(row.suggestedAccountId, 'a-1', 'the suggestion must persist, not be judged stale');
+  assert.equal(row.suggestedVendorId, 'v-1');
+  assert.equal(row.clientNote, 'ours');
+  assert.ok(row.updatedAt > ahead, `stamp must be monotonic (got ${row.updatedAt} vs stored ${ahead})`);
+  assert.equal(row.status, 'pending', 'a suggestion never advances the status');
+});
+
+test('a suggested split is stored only when it has 2+ real lines', async () => {
+  const { bo, store } = makeDO({ 'staged:s2': { id: 's2', status: 'pending', updatedAt: 1000 } });
+  await suggest(bo, 's2', { suggestedSplit: [
+    { accountId: 'a-1', amountCents: 12000 },
+    { accountId: 'a-2', amountCents: 5240 },
+  ] });
+  assert.equal(store.get('staged:s2').suggestedSplit.length, 2);
+
+  const { bo: bo2, store: store2 } = makeDO({ 'staged:s3': { id: 's3', status: 'pending', updatedAt: 1000 } });
+  await suggest(bo2, 's3', { suggestedSplit: [{ accountId: 'a-1', amountCents: 100 }] });   // only one line
+  assert.deepEqual(store2.get('staged:s3').suggestedSplit, [], 'a single-line split is not a split');
 });

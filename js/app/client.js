@@ -7,9 +7,10 @@ import { ORIGIN } from './config.js';
 import { getToken, getActiveBiz, setActiveBiz, getUser, getBusinesses, clearSession } from './session.js';
 import { openBusiness, setStatusListener, api } from './sync.js';
 import { initLock, sessionResumable } from './lock.js';
-import { entities, subscribe } from './store.js';
+import { entities, subscribe, usesInvoices } from './store.js';
 import { el, clear, toast, fmtMoney } from './ui.js';
 import { combobox } from './combobox.js';
+import { parseMoney } from './lib/money.js';
 import { accountLabel } from './lib/coa-templates.js';
 import * as login from './views/login.js';
 import * as invoices from './views/invoices.js';
@@ -60,44 +61,71 @@ function route() {
 }
 
 // ── Suggest screen ────────────────────────────────────────────────────────────
+// Per-row DRAFT state kept across redraws so an in-progress pick, a typed-in NEW
+// vendor/account name, or a split is never wiped when the store changes underneath the
+// list (that silent wipe was the old "my suggestion didn't go through" bug). A draft is
+// seeded from the row's current suggested* fields the first time the row is opened.
+const drafts = new Map();
+const editing = new Set();   // already-suggested rows the client re-opened to edit
+function draftFor(row) {
+  let d = drafts.get(row.id);
+  if (!d) {
+    const sp = Array.isArray(row.suggestedSplit) ? row.suggestedSplit : [];
+    d = {
+      vendorId: row.suggestedVendorId || '', vendorName: row.suggestedVendorName || '',
+      accountId: row.suggestedAccountId || '', accountName: row.suggestedAccountName || '',
+      invoiceId: row.suggestedInvoiceId || '', note: row.clientNote || '',
+      splitMode: sp.length >= 2,
+      split: sp.length >= 2 ? sp.map(l => ({ accountId: l.accountId || '', accountName: l.accountName || '', amt: ((l.amountCents || 0) / 100).toFixed(2) }))
+                            : [{ accountId: '', accountName: '', amt: '' }, { accountId: '', accountName: '', amt: '' }],
+      sent: null,   // null | 'ok' | 'err'
+    };
+    drafts.set(row.id, d);
+  }
+  return d;
+}
+
+let suggestCtrl = null, suggestSearch = null;
+
 const suggestView = (() => {
   let unsub = null;
   let deferTimer = 0;
-  let cf = { q: '', status: 'all', dir: 'all' };
+  let cf = { q: '', view: 'needs', dir: 'all' };
   function render(root) {
-    cf = { q: '', status: 'all', dir: 'all' };
+    cf = { q: '', view: 'needs', dir: 'all' };
+    drafts.clear(); editing.clear();
     const body = el('div');
-    // A store change rebuilds every row — which destroys a combobox the user has open
-    // mid-pick (its panel is portaled to <body>), so a click lands on a detached option
-    // and the selection is lost. Defer the rebuild until no dropdown is open.
+    // A store change rebuilds the list. Never rebuild while the client is mid-edit — an
+    // open dropdown (its panel is portaled to <body>) or a focused field would lose the
+    // in-progress pick/keystroke. Defer the redraw until they're done, then run it once.
     let dirty = false;
+    const busy = () => document.querySelector('.cbx-panel') || (body.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName || ''));
     const draw = () => {
-      if (document.querySelector('.cbx-panel')) {
+      if (busy()) {
         dirty = true;
         if (!deferTimer) deferTimer = setInterval(() => {
-          if (!document.querySelector('.cbx-panel')) { clearInterval(deferTimer); deferTimer = 0; if (dirty) { dirty = false; drawSuggest(body, cf); } }
+          if (!busy()) { clearInterval(deferTimer); deferTimer = 0; if (dirty) { dirty = false; drawSuggest(body, cf, draw); } }
         }, 250);
         return;
       }
-      dirty = false; drawSuggest(body, cf);
+      dirty = false; drawSuggest(body, cf, draw);
     };
-    // The search box + filters live ABOVE the body, built once, so typing/redraws never
-    // lose focus (the body is the only thing re-rendered on a store change).
-    const search = el('input', { class: 'field-input', type: 'search', placeholder: 'Search description, amount, or vendor…', style: 'max-width:300px;margin:0', value: cf.q, oninput: (e) => { cf.q = e.target.value; draw(); } });
-    const sel = (key, opts) => el('select', { class: 'field-input', style: 'margin:0;width:auto;min-width:130px', onchange: (e) => { cf[key] = e.target.value; draw(); } },
-      ...opts.map(([v, l]) => el('option', { value: v, selected: cf[key] === v }, l)));
+    // The search box lives ABOVE the body, built once, so typing/redraws never lose focus.
+    suggestSearch = el('input', { class: 'field-input', type: 'search', placeholder: 'Search description, amount, or vendor…', style: 'max-width:300px;margin:0', value: cf.q, oninput: (e) => { cf.q = e.target.value; draw(); } });
+    suggestCtrl = el('div');   // progress + segmented view (rebuilt each draw for live counts)
     root.append(
-      el('h2', {}, 'Suggest categories'),
-      el('p', { class: 'sub' }, 'Pick a vendor and account for each waiting transaction and leave a note for the owner. These are suggestions — the owner reviews and approves; nothing here posts to the books. If a vendor isn’t listed, leave it blank and mention it in the note.'),
-      el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px' },
-        search,
-        sel('status', [['all', 'Any status'], ['needs', 'Needs suggestion'], ['suggested', 'Suggested']]),
-        sel('dir', [['all', 'Money in & out'], ['in', 'Money in'], ['out', 'Money out']])),
+      el('h2', {}, 'Suggest'),
+      el('p', { class: 'sub' }, 'Tell the owner what each waiting transaction is — a vendor, an account (or a split across accounts), and a note. These are suggestions; the owner reviews and approves. Nothing here posts to the books.'),
+      suggestCtrl,
+      el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px' },
+        suggestSearch,
+        el('select', { class: 'field-input', style: 'margin:0;width:auto;min-width:130px', onchange: (e) => { cf.dir = e.target.value; draw(); } },
+          ...[['all', 'Money in & out'], ['in', 'Money in'], ['out', 'Money out']].map(([v, l]) => el('option', { value: v, selected: cf.dir === v }, l)))),
       body);
     unsub = subscribe(draw);
     draw();
   }
-  function unmount() { unsub?.(); unsub = null; if (deferTimer) { clearInterval(deferTimer); deferTimer = 0; } }
+  function unmount() { unsub?.(); unsub = null; if (deferTimer) { clearInterval(deferTimer); deferTimer = 0; } suggestCtrl = null; suggestSearch = null; }
   return { render, unmount };
 })();
 
@@ -119,62 +147,163 @@ function suggestMatches(s, q, vendorsById) {
   return false;
 }
 
-function drawSuggest(body, cf = { q: '', status: 'all', dir: 'all' }) {
-  const biz = getActiveBiz();
+// A proposed split → the payload lines (positive cents; an id wins over a typed name).
+function splitPayload(row, d) {
+  return d.split
+    .map(l => ({ accountId: l.accountId || '', accountName: l.accountId ? '' : (l.accountName || '').trim(), amountCents: parseMoney(l.amt) || 0 }))
+    .filter(l => (l.accountId || l.accountName) && l.amountCents > 0);
+}
+function splitOk(row, d) {
+  const p = splitPayload(row, d);
+  return p.length >= 2 && p.reduce((s, l) => s + l.amountCents, 0) === Math.abs(row.amountCents);
+}
+
+function drawSuggest(body, cf, draw) {
   const allPending = entities('staged').filter(s => s.status === 'pending' && !s.syncApp);
+  const needsN = allPending.filter(s => !s.suggestedAt).length;
+  const doneN = allPending.length - needsN;
+  if (suggestCtrl) {
+    const seg = (v, label, n) => el('button', { class: 'seg-btn' + (cf.view === v ? ' on' : ''), onclick: () => { cf.view = v; draw(); } }, label, el('span', { class: 'seg-cnt' }, String(n)));
+    const pct = allPending.length ? Math.round(doneN / allPending.length * 100) : 0;
+    clear(suggestCtrl).append(
+      el('div', { style: 'display:flex;align-items:center;gap:10px;margin:0 0 10px' },
+        el('div', { class: 'sugg-bar', style: 'flex:1;max-width:280px' }, el('div', { class: 'sugg-bar-fill', style: `width:${pct}%` })),
+        el('span', { class: 'sub', style: 'margin:0;font-weight:600' }, `${doneN} of ${allPending.length} done`)),
+      el('div', { class: 'seg' }, seg('needs', 'Needs you', needsN), seg('done', 'Suggested', doneN), seg('all', 'All', allPending.length)));
+  }
   if (!allPending.length) { clear(body).append(el('p', { class: 'sub' }, 'Nothing waiting right now — when the owner imports transactions they’ll appear here.')); return; }
   const vendorsById = new Map(entities('vendor').map(v => [v.id, v]));
   const q = (cf.q || '').trim().toLowerCase();
-  const pending = allPending.filter(s => {
+  const rows = allPending.filter(s => {
+    if (cf.view === 'needs' && s.suggestedAt && !editing.has(s.id)) return false;
+    if (cf.view === 'done' && !s.suggestedAt) return false;
     if (cf.dir === 'in' && !(s.amountCents > 0)) return false;
     if (cf.dir === 'out' && !(s.amountCents < 0)) return false;
-    if (cf.status === 'suggested' && !s.suggestedAt) return false;
-    if (cf.status === 'needs' && s.suggestedAt) return false;
     return suggestMatches(s, q, vendorsById);
   }).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  if (!pending.length) { clear(body).append(el('p', { class: 'sub' }, 'No transactions match your search or filters.')); return; }
+  if (!rows.length) { clear(body).append(el('p', { class: 'sub' }, cf.view === 'needs' ? 'All caught up — every waiting transaction has a suggestion. Switch to “All” to review them.' : 'No transactions match your search or filters.')); return; }
   const vendors = entities('vendor').slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   const invs = entities('invoice').slice().sort((a, b) => String(b.number || '').localeCompare(String(a.number || '')));
+  const showInvoices = usesInvoices();
+  clear(body).append(...rows.map(row => (row.suggestedAt && !editing.has(row.id))
+    ? suggestRowDone(row, draw)
+    : suggestRowFull(row, { vendors, invs, showInvoices, draw })));
+}
+
+// A collapsed, already-suggested row: a one-line summary of what the client proposed,
+// with Edit to re-open the full editor.
+function suggestRowDone(row, draw) {
+  const byId = new Map(entities('account').map(a => [a.id, a]));
+  let summary;
+  if (row.suggestedSplit && row.suggestedSplit.length >= 2) summary = `Split across ${row.suggestedSplit.length} accounts`;
+  else {
+    const acct = row.suggestedAccountId ? (byId.get(row.suggestedAccountId)?.name || 'account') : (row.suggestedAccountName || '');
+    const vend = row.suggestedVendorId ? (entities('vendor').find(v => v.id === row.suggestedVendorId)?.name || '') : (row.suggestedVendorName || '');
+    summary = acct ? `You suggested ${acct}` : (vend ? `Vendor: ${vend}` : (row.clientNote ? 'Note left for the owner' : 'Suggested'));
+  }
+  const amtEl = el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 }));
+  return el('div', { class: 'revrow sugg-done' },
+    el('div', { style: 'display:flex;align-items:center;gap:9px' },
+      el('span', { class: 'sugg-dot ok' }),
+      el('span', { class: 'revdate' }, row.date),
+      el('span', { class: 'revdesc', style: 'flex:1' }, row.desc || ''),
+      amtEl),
+    el('div', { style: 'display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap' },
+      el('span', { class: 'pill green' }, '✓ Suggested'),
+      el('span', { class: 'sub', style: 'margin:0' }, summary),
+      el('button', { class: 'btn sm ghost', style: 'margin-left:auto', onclick: () => { editing.add(row.id); drafts.delete(row.id); draw(); } }, 'Edit')));
+}
+
+// The full editor for a row that still needs the client (or one they re-opened to edit).
+function suggestRowFull(row, { vendors, invs, showInvoices, draw }) {
+  const d = draftFor(row);
   const groups = acctGroups();
   const field = (label, node) => el('div', { class: 'rvf' }, el('label', { class: 'field-label', style: 'margin:0 0 2px' }, label), node);
 
-  clear(body).append(...pending.map(row => {
-    const venSel = combobox({ groups: [{ label: '', items: vendors.map(v => ({ value: v.id, label: v.name })) }], value: row.suggestedVendorId || '', text: row.suggestedVendorName || '', placeholder: 'Pick or type a new vendor…', minWidth: 0, freeText: true, emptyText: 'No match — your text is suggested as a NEW vendor' });
-    const acctSel = combobox({ groups, value: row.suggestedAccountId || '', text: row.suggestedAccountName || '', placeholder: 'Search or type a new account…', minWidth: 0, freeText: true, emptyText: 'No match — your text is suggested as a NEW account' });
-    const invSel = combobox({ groups: [{ label: '', items: [{ value: '', label: '— none —' }, ...invs.map(i => ({ value: i.id, label: `#${i.number || i.id} · ${(i.clientName || '').slice(0, 28)}` }))] }], value: row.suggestedInvoiceId || '', placeholder: 'Find invoice…', minWidth: 0 });
-    const note = el('textarea', { class: 'field-input', rows: '2', placeholder: 'Note for the owner…', style: 'margin:0;width:100%;min-width:0;resize:vertical' });
-    note.value = row.clientNote || '';
-    const chip = row.suggestedAt ? el('span', { class: 'pill green' }, 'Suggested ✓') : el('span', { class: 'pill gray' }, 'Needs your suggestion');
-    const btn = el('button', { class: 'btn sm', onclick: async () => {
-      btn.disabled = true; btn.textContent = 'Saving…';
-      try {
-        // No selected id but text in the box → a proposed NEW vendor/account for the owner to add.
-        const suggestedVendorName = venSel.value ? '' : venSel.inputText;
-        const suggestedAccountName = acctSel.value ? '' : acctSel.inputText;
-        const res = await api(`/b/${biz}/suggest`, { method: 'POST', body: JSON.stringify({
-          stagedId: row.id, suggestedAccountId: acctSel.value, suggestedVendorId: venSel.value, suggestedInvoiceId: invSel.value,
-          suggestedVendorName, suggestedAccountName, clientNote: note.value.trim(),
-        }) });
-        if (!res.ok) throw new Error('failed');
-        toast('Suggestion sent to the owner');
-      } catch { toast('Couldn’t save — try again', 'err'); btn.disabled = false; btn.textContent = 'Suggest'; }
-    } }, 'Suggest');
+  const btn = el('button', { class: 'btn sm' }, 'Suggest');
 
-    const amtEl = el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 }));
-    return el('div', { class: 'revrow' },
-      el('div', { class: 'revbody' },
-        el('div', { class: 'revmain' },
-          el('div', { class: 'revtop' },
-            el('span', { class: 'revdate' }, row.date),
-            el('span', { class: 'revdesc' }, row.desc || '')),
-          el('div', { class: 'revfields' },
-            field('Vendor', venSel), field('Account', acctSel), field('Invoice', invSel)),
-          el('div', { class: 'revnote' },
-            el('label', { class: 'field-label', style: 'margin:0 0 2px' }, 'Note'), note)),
-        el('div', { class: 'revside' },
-          el('div', { class: 'revside-top' }, chip, amtEl),
-          el('div', { class: 'revside-actions' }, btn))));
+  const venSel = combobox({ groups: [{ label: '', items: vendors.map(v => ({ value: v.id, label: v.name })) }], value: d.vendorId || '', text: d.vendorId ? '' : d.vendorName, placeholder: 'Pick or type a new vendor…', minWidth: 0, freeText: true, emptyText: 'No match — suggested as a NEW vendor' });
+  venSel.addEventListener('change', () => { d.vendorId = venSel.value; d.vendorName = venSel.value ? '' : venSel.inputText; });
+
+  let acctField = null;
+  if (!d.splitMode) {
+    const acctSel = combobox({ groups, value: d.accountId || '', text: d.accountId ? '' : d.accountName, placeholder: 'Search or type a new account…', minWidth: 0, freeText: true, emptyText: 'No match — suggested as a NEW account' });
+    acctSel.addEventListener('change', () => { d.accountId = acctSel.value; d.accountName = acctSel.value ? '' : acctSel.inputText; });
+    acctField = field('Account', acctSel);
+  }
+
+  const invSel = showInvoices ? combobox({ groups: [{ label: '', items: [{ value: '', label: '— none —' }, ...invs.map(i => ({ value: i.id, label: `#${i.number || i.id} · ${(i.clientName || '').slice(0, 28)}` }))] }], value: d.invoiceId || '', placeholder: 'Find invoice…', minWidth: 0 }) : null;
+  if (invSel) invSel.addEventListener('change', () => { d.invoiceId = invSel.value; });
+
+  const note = el('textarea', { class: 'field-input', rows: '2', placeholder: 'Note for the owner…', style: 'margin:0;width:100%;min-width:0;resize:vertical' });
+  note.value = d.note || '';
+  note.addEventListener('input', () => { d.note = note.value; });
+
+  const splitNode = d.splitMode ? splitBlock(row, d, groups, btn) : null;
+  const splitToggle = el('button', { class: 'sugg-splittog' + (d.splitMode ? ' on' : ''), type: 'button', title: 'Split this across several accounts',
+    onclick: () => { d.splitMode = !d.splitMode; if (d.splitMode && d.split.length < 2) d.split = [{ accountId: '', accountName: '', amt: '' }, { accountId: '', accountName: '', amt: '' }]; draw(); } },
+    el('span', { class: 'ms', style: 'font-size:15px' }, 'call_split'), d.splitMode ? 'Split on' : 'Split');
+
+  const errBox = el('div', { class: 'sugg-sent err', hidden: d.sent !== 'err' }, el('span', { class: 'ms', style: 'font-size:15px' }, 'error'), el('span', {}, 'Couldn’t send. Check your connection and try again.'));
+
+  if (d.sent === 'ok') { btn.textContent = 'Sent ✓'; btn.classList.add('green'); btn.disabled = true; }
+  else if (d.splitMode) btn.disabled = !splitOk(row, d);
+  btn.onclick = async () => {
+    if (d.splitMode && !splitOk(row, d)) { toast('The split needs to add up first', 'err'); return; }
+    btn.disabled = true; const label = btn.textContent; btn.textContent = 'Sending…';
+    try {
+      const biz = getActiveBiz();
+      const payload = { stagedId: row.id, clientNote: (d.note || '').trim(), suggestedVendorId: d.vendorId || '', suggestedVendorName: d.vendorId ? '' : (d.vendorName || '').trim(), suggestedInvoiceId: d.invoiceId || '' };
+      if (d.splitMode) { payload.suggestedSplit = splitPayload(row, d); payload.suggestedAccountId = ''; payload.suggestedAccountName = ''; }
+      else { payload.suggestedAccountId = d.accountId || ''; payload.suggestedAccountName = d.accountId ? '' : (d.accountName || '').trim(); payload.suggestedSplit = []; }
+      const res = await api(`/b/${biz}/suggest`, { method: 'POST', body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error('failed');
+      d.sent = 'ok'; editing.delete(row.id); toast('Suggestion sent to the owner'); draw();
+    } catch { d.sent = 'err'; btn.disabled = false; btn.textContent = label; errBox.hidden = false; toast('Couldn’t send — check your connection and try again', 'err'); }
+  };
+
+  const dot = el('span', { class: 'sugg-dot ' + (row.suggestedAt ? 'ok' : 'needs') });
+  const amtEl = el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 }));
+  return el('div', { class: 'revrow' },
+    el('div', { class: 'revmain' },
+      el('div', { class: 'revtop' }, dot, el('span', { class: 'revdate' }, row.date), el('span', { class: 'revdesc', style: 'flex:1' }, row.desc || ''), amtEl),
+      el('div', { class: 'revfields' }, field('Vendor', venSel), acctField, invSel ? field('Invoice', invSel) : null),
+      splitNode,
+      el('div', { class: 'revnote' }, el('label', { class: 'field-label', style: 'margin:0 0 2px' }, 'Note'), note),
+      errBox,
+      el('div', { class: 'sugg-foot' }, splitToggle, el('span', { style: 'flex:1' }), btn)));
+}
+
+// The in-row split editor: 2+ account lines that must add up to the charge before the
+// row can be suggested. Mirrors the owner's Review split (same balance check).
+function splitBlock(row, d, groups, btn) {
+  const total = Math.abs(row.amountCents);
+  const linesBox = el('div');
+  const bal = el('div', { class: 'split-remind' });
+  const updateBal = () => {
+    const assigned = d.split.reduce((s, l) => s + (parseMoney(l.amt) || 0), 0);
+    const left = total - assigned;
+    const ok = splitOk(row, d);
+    bal.className = 'split-remind ' + (ok ? 'ok' : 'bad');
+    clear(bal).append(
+      el('span', {}, ok ? 'Balanced' : (left < 0 ? 'Over by' : 'Remaining to assign')),
+      el('span', {}, ok ? fmtMoney(total) + ' ✓' : fmtMoney(Math.abs(left))));
+    if (btn && d.sent !== 'ok') btn.disabled = !ok;
+  };
+  const renderLines = () => clear(linesBox).append(...d.split.map((l) => {
+    const sel = combobox({ groups, value: l.accountId || '', text: l.accountId ? '' : l.accountName, placeholder: 'Account…', minWidth: 0, freeText: true, emptyText: 'New account — the owner adds it' });
+    sel.style.cssText = 'flex:1;min-width:0';
+    sel.addEventListener('change', () => { l.accountId = sel.value; l.accountName = sel.value ? '' : sel.inputText; updateBal(); });
+    const amt = el('input', { class: 'field-input', inputmode: 'decimal', placeholder: '$', style: 'width:92px;text-align:right;margin:0', value: l.amt || '' });
+    amt.addEventListener('input', () => { l.amt = amt.value; updateBal(); });
+    const rm = el('button', { class: 'sugg-rm', type: 'button', title: 'Remove line', onclick: () => { if (d.split.length > 2) { const i = d.split.indexOf(l); if (i >= 0) d.split.splice(i, 1); renderLines(); updateBal(); } } }, '×');
+    return el('div', { class: 'sugg-splitrow' }, sel, amt, rm);
   }));
+  const add = el('button', { class: 'btn sm ghost', type: 'button', onclick: () => { d.split.push({ accountId: '', accountName: '', amt: '' }); renderLines(); updateBal(); } }, '＋ Add account');
+  renderLines(); updateBal();
+  return el('div', { class: 'sugg-split' },
+    el('div', { class: 'field-label', style: 'margin:0 0 4px' }, 'Split across accounts'),
+    linesBox, add, bal);
 }
 
 function boot() {

@@ -101,6 +101,7 @@ export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); 
 // A row is "ready" if it has a resolved category — a valid rule/history suggestion,
 // an AI suggestion, or a manual pick (lastCategory). Drives the needs/ready filter.
 function rowReady(row, matchCtx, accountsById) {
+  if (row.suggestedSplit && row.suggestedSplit.length >= 2) return true;   // a proposed split is ready to review
   if (lastCategory.get(row.id)) return true;
   const sug = suggestFor(row, matchCtx);
   if (sug && accountsById.has(sug.accountId) && accountsById.get(sug.accountId).active !== false) return true;
@@ -219,7 +220,46 @@ function drawBody(body, editable) {
   // a 2-line layout: date · description (wraps) · amount · suggestion on top, then
   // category / vendor / invoice / note / actions below, divided by dashed rules.
   const field = (label, node) => el('div', { class: 'rvf' }, el('label', { class: 'field-label', style: 'margin:0 0 2px' }, label), node);
+  // A client proposed a SPLIT across several accounts (2+ lines that add up to the
+  // charge). It gets its own card: a read-only breakdown plus "Review split" (opens the
+  // split editor pre-filled) and, when every line is a real active account and the amounts
+  // balance, one-tap "Approve split". Rendered instead of the single-account row.
+  const splitSuggestionCard = (row) => {
+    const lines = row.suggestedSplit || [];
+    const total = lines.reduce((s, l) => s + (l.amountCents || 0), 0);
+    const balanced = total === Math.abs(row.amountCents);
+    const resolved = lines.map(l => {
+      const a = l.accountId ? accountsById.get(l.accountId) : null;
+      return { line: l, ok: !!(a && a.active !== false), name: l.accountName || a?.name || '(removed account)', reason: l.accountName ? 'new account' : (a ? 'inactive' : 'removed') };
+    });
+    const canApprove = balanced && resolved.every(r => r.ok);
+    const breakdown = el('div', { class: 'split-breakdown' },
+      ...resolved.map(r => el('div', { class: 'split-brow' },
+        el('span', {}, r.name, r.ok ? null : el('span', { class: 'split-warn' }, ` · ${r.reason}`)),
+        el('span', { class: 'num' }, fmtMoney(row.amountCents < 0 ? -r.line.amountCents : r.line.amountCents)))),
+      el('div', { class: 'split-brow split-btotal' },
+        el('span', {}, balanced ? 'Total' : 'Doesn’t add up yet'),
+        el('span', { class: 'num' }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 }))));
+    const actions = editable ? [
+      el('button', { class: 'btn sm', title: 'Open the split editor pre-filled with the client’s lines', onclick: () => splitModal(row, accountsById, { seed: lines }) }, '⊟ Review split'),
+      el('button', { class: 'btn sm green', disabled: !canApprove, title: canApprove ? 'Post the split exactly as suggested' : 'Some lines need an account, or the amounts don’t add up — use Review split', onclick: () => approveSuggestedSplit(row) }, 'Approve split'),
+      el('button', { class: 'btn sm ghost', onclick: () => skipRow(row) }, 'Skip'),
+    ] : [];
+    const amtEl = el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 }));
+    return el('div', { class: 'revrow' },
+      el('div', { class: 'revbody' },
+        el('div', { class: 'revmain' },
+          el('div', { class: 'revtop' },
+            el('span', { class: 'revdate' }, row.date),
+            el('span', { class: 'revdesc' }, prettyDesc(row.desc))),
+          row.clientNote ? el('div', { class: 'client-note' }, el('span', { class: 'ms', style: 'font-size:15px' }, 'chat'), el('span', {}, row.clientNote)) : null,
+          breakdown),
+        el('div', { class: 'revside' },
+          el('div', { class: 'revside-top' }, el('span', { class: 'pill blue', title: 'Your client proposed splitting this across accounts' }, '💬 Client suggested a split'), amtEl),
+          editable ? el('div', { class: 'revside-actions' }, ...actions) : null)));
+  };
   const rowCard = (row) => {
+    if (row.suggestedSplit && row.suggestedSplit.length >= 2) return splitSuggestionCard(row);
     const aiSug = aiSuggestions.get(row.id);
     let sug = suggestFor(row, matchCtx);
     if (sug && (!accountsById.has(sug.accountId) || accountsById.get(sug.accountId).active === false)) sug = null;
@@ -249,9 +289,18 @@ function drawBody(body, editable) {
     // The vendor is created on Approve (find-or-create); the account is one tap to add.
     if (!vendPreselect && row.suggestedVendorName) vendPrefillText = row.suggestedVendorName;
     const acctPrefill = !preselect ? (row.suggestedAccountName || '') : '';
+    // A client-suggested account/vendor that's no longer in the pickable list shows BLANK
+    // in the combobox — surface it explicitly (chips below) so the suggestion isn't lost.
+    const sAcctId = row.suggestedAccountId;
+    const acctInactive = sAcctId && !lastCategory.has(row.id) && accountsById.has(sAcctId) && accountsById.get(sAcctId).active === false;
+    const acctRemoved = sAcctId && !lastCategory.has(row.id) && !accountsById.has(sAcctId);
+    const vendRemoved = row.suggestedVendorId && !lastVendor.has(row.id) && !matchCtx.vendors.some(v => v.id === row.suggestedVendorId);
+    const invHidden = !showInvoices && row.suggestedInvoiceId;
+    // The client's note pre-fills the (editable) Note field so it carries onto the txn.
+    const noteFromClient = !lastMemo.has(row.id) && !(row.memo || '').trim() && !!(row.clientNote || '').trim();
     const sel = categorySelect(row, categories, accountsById, preselect,
       (account) => { lastCategory.set(row.id, account.id); drawBody(body, editable); }, acctPrefill);
-    const memoIn = el('input', { class: 'field-input', placeholder: 'Add a note…', style: 'margin:0;min-width:150px', value: lastMemo.has(row.id) ? lastMemo.get(row.id) : (row.memo || '') });
+    const memoIn = el('input', { class: 'field-input', placeholder: 'Add a note…', style: 'margin:0;min-width:150px', value: lastMemo.has(row.id) ? lastMemo.get(row.id) : (row.memo || row.clientNote || '') });
     bindSuggest(memoIn, 'memo');
     memoIn.addEventListener('input', () => lastMemo.set(row.id, memoIn.value));
     const vendSel = vendorSelect(vendorsList, vendPreselect,
@@ -310,8 +359,9 @@ function drawBody(body, editable) {
               onchange: (e) => { if (selectedBank !== row.bankacctId) { selected.clear(); selectedBank = row.bankacctId; } e.target.checked ? selected.add(row.id) : selected.delete(row.id); drawBody(body, editable); } }) : null,
             el('span', { class: 'revdate' }, row.date),
             el('span', { class: 'revdesc' }, prettyDesc(row.desc))),
-          // The client's note to you (message, not the memo) — surfaced so you don't miss it.
-          row.clientNote ? el('div', { class: 'client-note' }, el('span', { class: 'ms', style: 'font-size:15px' }, 'chat'), el('span', {}, row.clientNote)) : null,
+          // The client's note — shown here only when it isn't already pre-filled into the
+          // editable Note field below (so it's never hidden and never duplicated).
+          (row.clientNote && !noteFromClient) ? el('div', { class: 'client-note' }, el('span', { class: 'ms', style: 'font-size:15px' }, 'chat'), el('span', {}, row.clientNote)) : null,
           // The client proposed a new ACCOUNT that doesn't exist — one-click add (vendors
           // are created automatically on Approve, so they need no button).
           editable && acctPrefill ? el('div', { class: 'client-note', style: 'background:#eef7ee;border-color:#cbe6cb;color:#1f7a4d' },
@@ -319,11 +369,29 @@ function drawBody(body, editable) {
             el('span', {}, 'Client suggests a new account: '), el('b', {}, acctPrefill),
             el('button', { class: 'btn sm', style: 'margin-left:8px', onclick: () =>
               quickAddAccountModal((account) => { lastCategory.set(row.id, account.id); drawBody(body, editable); }, 'expense', acctPrefill) }, 'Add')) : null,
+          // A client-suggested account that's now inactive → offer one-click Reactivate so
+          // the suggestion doesn't just vanish as a blank field.
+          editable && acctInactive ? el('div', { class: 'client-note client-warn' },
+            el('span', { class: 'ms', style: 'font-size:15px' }, 'warning'),
+            el('span', {}, 'Client suggested '), el('b', {}, accountsById.get(sAcctId).name), el('span', {}, ' — that account is inactive.'),
+            el('button', { class: 'btn sm', style: 'margin-left:8px', onclick: () => {
+              dispatch({ op: 'entity.upsert', kind: 'account', value: { ...accountsById.get(sAcctId), active: true, updatedAt: Date.now() } });
+              lastCategory.set(row.id, sAcctId); drawBody(body, editable);
+            } }, 'Reactivate')) : null,
+          editable && acctRemoved ? el('div', { class: 'client-note client-warn' },
+            el('span', { class: 'ms', style: 'font-size:15px' }, 'warning'),
+            el('span', {}, 'The account your client suggested was removed — pick one below.')) : null,
+          editable && vendRemoved ? el('div', { class: 'client-note client-warn' },
+            el('span', { class: 'ms', style: 'font-size:15px' }, 'warning'),
+            el('span', {}, 'The vendor your client suggested was removed — pick one below.')) : null,
+          editable && invHidden ? el('div', { class: 'client-note client-warn' },
+            el('span', { class: 'ms', style: 'font-size:15px' }, 'warning'),
+            el('span', {}, 'Your client suggested an invoice, but invoices are off for this business.')) : null,
           editable ? el('div', { class: 'revfields' },
             field('Vendor', vendSel),
             field('Account', sel),
             invSel ? field('Invoice', invSel) : null,
-            field('Note', memoIn)) : null),
+            field(noteFromClient ? el('span', {}, 'Note ', el('span', { style: 'color:var(--brand);font-weight:600' }, '· from client')) : 'Note', memoIn)) : null),
         el('div', { class: 'revside' },
           el('div', { class: 'revside-top' }, chip, amtEl),
           editable ? el('div', { class: 'revside-actions' }, ...actions) : null)));
@@ -537,7 +605,7 @@ function approveRow(row, categoryId, sug, { quiet = false, memo = '', vendorId =
     id: 't-' + row.id,
     date: row.date,
     payee: row.desc,
-    memo: isTransfer ? 'Transfer between accounts' : (memo || row.memo || ''),
+    memo: isTransfer ? 'Transfer between accounts' : (memo || row.memo || row.clientNote || ''),
     amountCents: Math.abs(row.amountCents),
     direction: row.amountCents < 0 ? 'out' : 'in',
     bankAccountId: bankacct.accountId,
@@ -572,6 +640,48 @@ function approveRow(row, categoryId, sug, { quiet = false, memo = '', vendorId =
     if (vend) dispatch({ op: 'entity.upsert', kind: 'vendor', value: { ...vend, used: (vend.used || 0) + 1 } });
   }
   if (!quiet) toast('Posted to the ledger');
+}
+
+// Post a client-suggested split exactly as proposed — the one-tap path from the
+// split-suggestion card, used only when every line is a real active account and the
+// amounts already balance (otherwise the owner goes through splitModal to fix it).
+// Builds the same balanced txn shape as splitModal: bank line + opposite-signed lines.
+function approveSuggestedSplit(row) {
+  const bankacct = entities('bankacct').find(b => b.id === row.bankacctId);
+  if (!bankacct) { toast('Bank account missing', 'err'); return; }
+  const lines = row.suggestedSplit || [];
+  const accountsById = new Map(entities('account').map(a => [a.id, a]));
+  if (lines.length < 2 || !lines.every(l => l.accountId && accountsById.get(l.accountId) && accountsById.get(l.accountId).active !== false)) {
+    toast('Some lines need an account — use Review split', 'err'); return;
+  }
+  const total = Math.abs(row.amountCents);
+  if (lines.reduce((s, l) => s + (l.amountCents || 0), 0) !== total) { toast(`The split must add up to ${fmtMoney(total)} — use Review split`, 'err'); return; }
+  const isExpense = row.amountCents < 0;
+  const txnLines = [{ accountId: bankacct.accountId, amountCents: row.amountCents }];
+  lines.forEach(l => txnLines.push({ accountId: l.accountId, amountCents: isExpense ? l.amountCents : -l.amountCents }));
+  const txn = {
+    id: 't-' + row.id, date: row.date, payee: row.desc, memo: lastMemo.get(row.id) || row.memo || row.clientNote || '',
+    lines: txnLines, status: 'posted', source: { app: row.source?.app || 'csv', importId: row.importId, sourceId: row.id },
+  };
+  const v = validateTxn(txn, postCtx());
+  if (!v.ok) { toast(v.error, 'err'); return; }
+  dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
+  dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'approved', txnId: txn.id, categoryId: lines[0].accountId } });
+  logAudit('post', { summary: `Approved split ${row.date} · ${row.desc || '—'} across ${lines.length} accounts`, kind: 'txn', entityId: txn.id, amountCents: row.amountCents });
+  toast(`Posted — split across ${lines.length} accounts`);
+}
+
+// Effective vendor/invoice/note overrides for a row so the bulk / Approve-all paths carry
+// the same client-suggested details single-approve does (single-approve reads them from
+// the live fields; bulk has no fields, so resolve them from the row here).
+function approveOverridesFor(row) {
+  const vId = lastVendor.get(row.id) || row.suggestedVendorId || '';
+  return {
+    vendorId: vId,
+    vendorName: vId ? '' : (row.suggestedVendorName || ''),
+    invoiceId: usesInvoices() ? (lastInvoice.get(row.id) || row.suggestedInvoiceId || '') : '',
+    memo: lastMemo.get(row.id) || row.memo || row.clientNote || '',
+  };
 }
 
 function matchCounterpart(row, transferAccountId, txnId) {
@@ -633,7 +743,7 @@ function confirmApproveAll(items, accountsById, body, editable) {
         m.close();
         toast('⏳ Approving…');
         setTimeout(() => {
-          for (const { row, accountId, sug } of items) { lastCategory.delete(row.id); lastInvoice.delete(row.id); lastMemo.delete(row.id); approveRow(row, accountId, sug, { quiet: true }); }
+          for (const { row, accountId, sug } of items) { const ov = approveOverridesFor(row); lastCategory.delete(row.id); lastVendor.delete(row.id); lastInvoice.delete(row.id); lastMemo.delete(row.id); approveRow(row, accountId, sug, { quiet: true, ...ov }); }
           toast(`${items.length} approved`);
         }, 30);
       } }, `Approve all ${items.length}`)));
@@ -652,8 +762,9 @@ function bulkApprove(byCat, body, editable) {
     for (const id of ids) {
       const c = byCat.get(id);
       if (!c) continue;
-      lastCategory.delete(c.row.id); lastInvoice.delete(c.row.id); lastMemo.delete(c.row.id);
-      approveRow(c.row, c.accountId, c.sug, { quiet: true, vendorId: lastVendor.get(c.row.id) || '' });
+      const ov = approveOverridesFor(c.row);
+      lastCategory.delete(c.row.id); lastVendor.delete(c.row.id); lastInvoice.delete(c.row.id); lastMemo.delete(c.row.id);
+      approveRow(c.row, c.accountId, c.sug, { quiet: true, ...ov });
       selected.delete(id); done++;
     }
     if (!selected.size) selectedBank = null;
@@ -761,7 +872,7 @@ function feeSplitModal(row, accountsById) {
 // Split a Review row across several category accounts: the bank side stays as imported,
 // and the amount is distributed over 2+ lines that must add up to it. Posts one balanced
 // txn (like the % Fee split) and marks the staged row approved.
-function splitModal(row, accountsById) {
+function splitModal(row, accountsById, opts = {}) {
   const bankacct = entities('bankacct').find(b => b.id === row.bankacctId);
   if (!bankacct) { toast('Bank account missing', 'err'); return; }
   const m = modal('Split transaction');
@@ -781,8 +892,8 @@ function splitModal(row, accountsById) {
     post.disabled = !(ok && lines.every(l => l.sel.value));
   };
   const renderLines = () => clear(linesBox).append(...lines.map(l => l.el));
-  const makeLine = (amtVal) => {
-    const sel = accountCombo({ filter: (a) => !bankish(a), minWidth: 0 });
+  const makeLine = (amtVal, selId) => {
+    const sel = accountCombo({ filter: (a) => !bankish(a), minWidth: 0, selected: selId || '' });
     sel.style.cssText = 'flex:2;min-width:0;margin:0';
     sel.addEventListener('change', recalc);
     const amt = el('input', { class: 'field-input', inputmode: 'decimal', placeholder: '$', style: 'flex:1;min-width:0;margin:0', value: amtVal || '' });
@@ -797,8 +908,20 @@ function splitModal(row, accountsById) {
     lines.push(makeLine(left > 0 ? (left / 100).toFixed(2) : ''));
     renderLines(); recalc();
   } }, '＋ Add split line');
-  lines.push(makeLine((total / 100).toFixed(2)));
-  lines.push(makeLine(''));
+  // Seeded from a client's suggested split (Review split) → one line per proposed line,
+  // pre-selecting a real active account and its amount. A proposed NEW account (no id, or
+  // now inactive) can't be pre-selected — the owner types it in (listed in the hint below).
+  const seed = Array.isArray(opts.seed) ? opts.seed : null;
+  const seedNewNames = seed ? seed.filter(l => !(l.accountId && accountsById.get(l.accountId)?.active !== false)).map(l => l.accountName).filter(Boolean) : [];
+  if (seed && seed.length) {
+    for (const l of seed) {
+      const id = l.accountId && accountsById.get(l.accountId)?.active !== false ? l.accountId : '';
+      lines.push(makeLine(((l.amountCents || 0) / 100).toFixed(2), id));
+    }
+  } else {
+    lines.push(makeLine((total / 100).toFixed(2)));
+    lines.push(makeLine(''));
+  }
   renderLines();
 
   const post = el('button', { class: 'btn green', onclick: () => {
@@ -810,7 +933,7 @@ function splitModal(row, accountsById) {
     const txnLines = [{ accountId: bankacct.accountId, amountCents: row.amountCents }];
     lines.forEach((l, i) => txnLines.push({ accountId: l.sel.value, amountCents: isExpense ? cents[i] : -cents[i] }));
     const txn = {
-      id: 't-' + row.id, date: row.date, payee: row.desc, memo: lastMemo.get(row.id) || row.memo || '',
+      id: 't-' + row.id, date: row.date, payee: row.desc, memo: lastMemo.get(row.id) || row.memo || row.clientNote || '',
       lines: txnLines, status: 'posted', source: { app: row.source?.app || 'csv', importId: row.importId, sourceId: row.id },
     };
     const v = validateTxn(txn, postCtx());
@@ -825,6 +948,7 @@ function splitModal(row, accountsById) {
 
   m.body.append(
     el('p', { class: 'sub' }, `${row.date} · ${row.desc || '—'} · ${fmtMoney(row.amountCents, { sign: row.amountCents > 0 })}. Split it across the accounts below — the amounts must add up to ${fmtMoney(total)}.`),
+    seedNewNames.length ? el('p', { class: 'sub', style: 'color:var(--brand)' }, `Your client proposed new account${seedNewNames.length > 1 ? 's' : ''}: ${seedNewNames.join(', ')} — type ${seedNewNames.length > 1 ? 'them' : 'it'} into a line to add.`) : null,
     linesBox, addLine, remind,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'), post));

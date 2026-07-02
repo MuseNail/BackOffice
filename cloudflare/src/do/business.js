@@ -122,12 +122,23 @@ export class BusinessDO {
     // Writes ONLY the suggestion fields onto the staged entity — never amounts, status,
     // dates, etc. — so a low-privilege client can propose without altering the books.
     if (path === '/_suggest' && req.method === 'POST') {
-      const { stagedId, suggestedAccountId, suggestedVendorId, suggestedInvoiceId, suggestedVendorName, suggestedAccountName, clientNote, userId } = await req.json();
+      const { stagedId, suggestedAccountId, suggestedVendorId, suggestedInvoiceId, suggestedVendorName, suggestedAccountName, suggestedSplit, clientNote, userId } = await req.json();
       if (!stagedId) return json({ error: 'bad' }, 400);
       const existing = await this.state.storage.get(`staged:${stagedId}`);
       if (!existing) return json({ error: 'not found' }, 404);
       if (existing.status !== 'pending') return json({ error: 'not pending' }, 409);
       const now = Date.now();
+      // A proposed split across several accounts: up to 20 lines of
+      // { accountId? | accountName?, amountCents:+int }. Kept only when it has 2+ real
+      // lines; otherwise a single-account suggestion (above) stands. The owner confirms
+      // and posts it — this only records the proposal, never touches the ledger.
+      const split = Array.isArray(suggestedSplit)
+        ? suggestedSplit.slice(0, 20).map(l => ({
+            accountId: l && l.accountId ? String(l.accountId) : '',
+            accountName: l && !l.accountId && l.accountName ? String(l.accountName).slice(0, 120) : '',
+            amountCents: (l && Number.isInteger(l.amountCents) && l.amountCents > 0) ? l.amountCents : 0,
+          })).filter(l => (l.accountId || l.accountName) && l.amountCents > 0)
+        : [];
       const merged = {
         ...existing,
         suggestedAccountId: suggestedAccountId || '',
@@ -137,10 +148,16 @@ export class BusinessDO {
         // one-click adds it when accepting. Cleared (id wins) when a real one is picked.
         suggestedVendorName: suggestedVendorId ? '' : String(suggestedVendorName || '').slice(0, 120),
         suggestedAccountName: suggestedAccountId ? '' : String(suggestedAccountName || '').slice(0, 120),
+        suggestedSplit: split.length >= 2 ? split : [],
         clientNote: String(clientNote || '').slice(0, 1000),
         suggestedBy: userId || '',
         suggestedAt: now,
-        updatedAt: now,
+        // Monotonic stamp: a suggestion only ADDS suggested* fields (never amounts, status,
+        // or dates), so it must never lose the stale-write guard to a clock skew. Stamping at
+        // least storedUpdatedAt+1 keeps it ≥ the stored row on every device — otherwise an
+        // owner whose browser clock runs ahead of the edge would silently drop the whole
+        // suggestion (Account+Vendor+Invoice+Note) at the DO and on every mirror.
+        updatedAt: Math.max(now, (existing.updatedAt || 0) + 1),
         updatedBy: userId || 'client',
       };
       const res = await this.apply({ op: 'entity.upsert', kind: 'staged', value: merged, device: '' });
