@@ -69,27 +69,40 @@ let opened = ''; // in-memory — getActiveBiz() persists across reloads, but th
                  // store does not; a fresh page must always re-open the business
 let workspaceMode = false; // true while the MDI windowed workspace is mounted
 
-// A loud, persistent banner whenever work is unsynced or the app is offline — so a dropped
-// connection is impossible to work past (the small corner pill was too easy to miss, which is
-// how approvals piled up unsaved). "Sync now" forces a reconnect + flush. It clears itself
-// the moment everything is synced.
-function renderSyncBanner(state, pending, failed) {
-  const show = state !== 'synced' && (pending || failed || state === 'offline');
-  let bar = document.getElementById('sync-banner');
-  if (!show) { bar?.remove(); return; }
-  if (!bar) { bar = document.createElement('div'); bar.id = 'sync-banner'; document.body.appendChild(bar); }
-  const n = pending + failed;
-  bar.className = 'sync-banner ' + (state === 'offline' ? 'offline' : 'attention');
-  const msg = state === 'offline'
-    ? `You’re offline — ${n} change${n === 1 ? '' : 's'} waiting to sync. They’ll save automatically when you reconnect.`
-    : (failed && !pending)
-      ? `${failed} change${failed === 1 ? '' : 's'} couldn’t be saved — open Settings → Data recovery to review.`
-      : `${n} change${n === 1 ? '' : 's'} haven’t synced yet.`;
-  const icon = document.createElement('span'); icon.className = 'ms'; icon.textContent = state === 'offline' ? 'cloud_off' : 'sync_problem';
-  const text = document.createElement('span'); text.style.flex = '1'; text.textContent = msg;
-  const btn = document.createElement('button'); btn.className = 'sync-banner-btn'; btn.textContent = 'Sync now';
-  btn.onclick = () => { btn.disabled = true; btn.textContent = 'Syncing…'; Promise.resolve(syncNow()).finally(() => setTimeout(() => { btn.disabled = false; btn.textContent = 'Sync now'; }, 800)); };
-  bar.replaceChildren(icon, text, btn);
+// The bottom sync indicator — positive by default, loud only when something's actually wrong:
+//  • a write reaches the server → a brief green "Saved" confirmation (answers "did it save?");
+//  • offline / refused writes → a persistent red-or-amber bar with "Sync now";
+//  • work merely in-flight → debounced ~2s, so a normal post (which syncs in well under a
+//    second) never flashes a warning — it just confirms "Saved".
+let syncBannerTimer = null, syncSavedTimer = null;
+function renderSyncBanner(state, pending, failed, justSaved) {
+  const bar = () => { let b = document.getElementById('sync-banner'); if (!b) { b = document.createElement('div'); b.id = 'sync-banner'; document.body.appendChild(b); } return b; };
+  const hide = () => document.getElementById('sync-banner')?.remove();
+  const ic = (name) => { const s = document.createElement('span'); s.className = 'ms'; s.textContent = name; return s; };
+  const tx = (str, flex) => { const s = document.createElement('span'); if (flex) s.style.flex = '1'; s.textContent = str; return s; };
+  const syncBtn = () => { const b = document.createElement('button'); b.className = 'sync-banner-btn'; b.textContent = 'Sync now'; b.onclick = () => { b.disabled = true; b.textContent = 'Syncing…'; Promise.resolve(syncNow()).finally(() => setTimeout(() => { b.disabled = false; b.textContent = 'Sync now'; }, 800)); }; return b; };
+  clearTimeout(syncSavedTimer);
+  // A real problem shows promptly: offline, or writes the server refused (the failed log).
+  if (state === 'offline' || failed) {
+    clearTimeout(syncBannerTimer); syncBannerTimer = null;
+    const b = bar(), n = pending + failed;
+    b.className = 'sync-banner ' + (state === 'offline' ? 'offline' : 'attention');
+    b.replaceChildren(ic(state === 'offline' ? 'cloud_off' : 'sync_problem'),
+      tx(state === 'offline'
+        ? `You’re offline — ${n} change${n === 1 ? '' : 's'} waiting to sync. They’ll save automatically when you reconnect.`
+        : `${failed} change${failed === 1 ? '' : 's'} couldn’t be saved — tap Sync now to retry.`, true),
+      syncBtn());
+    return;
+  }
+  // Work queued but nothing refused → debounce; a normal post syncs first and this never shows.
+  if (pending) {
+    if (!syncBannerTimer) syncBannerTimer = setTimeout(() => { syncBannerTimer = null; const b = bar(); b.className = 'sync-banner attention'; b.replaceChildren(ic('sync_problem'), tx('Still saving your changes…', true), syncBtn()); }, 2200);
+    return;
+  }
+  // Nothing pending or failed. If a save just completed, flash a brief green "Saved".
+  clearTimeout(syncBannerTimer); syncBannerTimer = null;
+  if (justSaved) { const b = bar(); b.className = 'sync-banner saved'; b.replaceChildren(ic('cloud_done'), tx('Saved')); syncSavedTimer = setTimeout(hide, 1600); }
+  else hide();
 }
 
 function route() {
@@ -280,7 +293,7 @@ function boot() {
       pill.textContent = s === 'synced' ? 'Synced' : s === 'offline' ? (n ? `Offline · ${n}` : 'Offline') : `Unsynced · ${n}`;
       pill.className = 'syncpill ' + (s === 'synced' ? 'synced' : s === 'attention' ? 'attention' : 'offline');
     }
-    renderSyncBanner(s, pending, failed);
+    renderSyncBanner(s, pending, failed, info?.justSaved);
   });
   document.querySelectorAll('#sidebar .navitem').forEach(n =>
     n.addEventListener('click', () => {

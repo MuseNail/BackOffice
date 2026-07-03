@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.70.4', items: [
+    { icon: 'cloud_done', t: '“Saved” confirmation, and no more flashing sync warning', d: 'When a transaction or change actually reaches the server, a small green “Saved” pill briefly appears at the bottom — so you know it stuck, not just that it was entered. The orange/red bar now only shows for a real problem (you’re offline, a write was refused, or something’s been stuck more than a couple seconds), instead of flashing on every routine save. And “Sync now” now also retries anything that was previously refused, so a stuck batch is one tap to clear.' },
+  ] },
   { v: '0.70.3', items: [
     { icon: 'edit', t: 'Client suggestions no longer send a partial name', d: 'In the client app, typing a brand-new vendor or account name and pressing “Suggest” while the box was still active could drop the last letter or two — e.g. “person” arrived in your Review as “perso”. The app now reads exactly what’s in the box the moment you send, so the full name always comes through (split lines too).' },
   ] },

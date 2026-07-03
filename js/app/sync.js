@@ -90,15 +90,30 @@ function failedCount() { try { return JSON.parse(localStorage.getItem(LS.failed)
 // Compute + broadcast the sync status from the ACTUAL queue state, so the pill can never
 // read "Synced" while writes are still queued (unsynced) or dead-lettered. `forced` pins
 // 'offline' (network down) regardless of the counts. Listeners get the counts for a banner.
-function emitStatus(forced) {
+function emitStatus(forced, justSaved) {
   const pending = readOutbox().length, failed = failedCount();
   const state = forced || ((pending || failed) ? 'attention' : 'synced');
-  onStatus(state, { pending, failed });
+  onStatus(state, { pending, failed, justSaved: !!justSaved });
 }
 export function pendingCount() { return readOutbox().length; }
 export function failedOpsCount() { return failedCount(); }
-// Manual "Sync now" (banner button): reconnect + flush the current business's queue.
-export function syncNow() { const b = wsBiz || getActiveBiz(); if (b) { connectWS(b, true); return flushOutbox(); } }
+// Manual "Sync now" (banner button): also RETRY the dead-letter log — move refused writes back
+// into the queue so a rejected batch (e.g. a read-only session) or a brief offline moment is
+// one tap to recover; flush alone only re-sends the outbox. Anything still bad just returns to
+// the failed log (user-initiated, so no loop). Then reconnect + flush the current business.
+export function syncNow() {
+  const b = wsBiz || getActiveBiz();
+  try {
+    const failed = JSON.parse(localStorage.getItem(LS.failed) || '[]');
+    if (failed.length) {
+      const ob = readOutbox();
+      const requeued = failed.slice().reverse().map(f => { const op = { ...f.op }; delete op._healed; return { biz: f.biz || b, op }; });
+      localStorage.setItem(LS.outbox, JSON.stringify(ob.concat(requeued)));
+      localStorage.setItem(LS.failed, '[]');
+    }
+  } catch { /* best-effort */ }
+  if (b) { connectWS(b, true); return flushOutbox(); }
+}
 
 // Move a write the server refused (or an unroutable one) to the dead-letter log so it's
 // preserved + recoverable (Settings → Data recovery) instead of silently dropped OR left
@@ -114,6 +129,7 @@ function deadLetter(item, reason) {
 async function flushOutbox() {
   if (flushing) return;   // one flusher at a time so the FIFO head stays stable across concurrent triggers
   flushing = true;
+  let sent = 0;           // count of server-accepted writes this run → drives the "Saved" confirmation
   try {
     while (true) {
       const outbox = readOutbox();
@@ -163,13 +179,14 @@ async function flushOutbox() {
           deadLetter(item, `http ${res.status}`);
         }
       }
+      if (res.ok) sent++;   // the server accepted this write — it's durably saved
       // Re-read before dropping the head: a concurrent dispatch may have appended to the tail
       // while this POST was in flight, and we must not clobber it by writing back a stale array.
       const cur = readOutbox();
       cur.shift();
       localStorage.setItem(LS.outbox, JSON.stringify(cur));
     }
-    emitStatus();
+    emitStatus(undefined, sent > 0);   // sent>0 → a brief "Saved" confirmation
   } finally {
     flushing = false;
   }

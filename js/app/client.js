@@ -320,22 +320,35 @@ function splitBlock(row, d, groups, btn) {
     linesBox, add, bal);
 }
 
-// A loud, persistent banner whenever a suggestion hasn't synced or the app is offline — so
-// you never keep working unaware that nothing's saving. "Sync now" forces a reconnect + flush.
-function renderSyncBanner(state, pending, failed) {
-  const show = state !== 'synced' && (pending || failed || state === 'offline');
-  let bar = document.getElementById('sync-banner');
-  if (!show) { bar?.remove(); return; }
-  if (!bar) { bar = document.createElement('div'); bar.id = 'sync-banner'; document.body.appendChild(bar); }
-  const n = pending + failed;
-  bar.className = 'sync-banner ' + (state === 'offline' ? 'offline' : 'attention');
-  const msg = state === 'offline'
-    ? `You’re offline — ${n} change${n === 1 ? '' : 's'} waiting to sync. They’ll save when you reconnect.`
-    : `${n} change${n === 1 ? '' : 's'} haven’t synced yet.`;
-  const icon = el('span', { class: 'ms' }, state === 'offline' ? 'cloud_off' : 'sync_problem');
-  const text = el('span', { style: 'flex:1' }, msg);
-  const btn = el('button', { class: 'sync-banner-btn', onclick: () => { btn.disabled = true; btn.textContent = 'Syncing…'; Promise.resolve(syncNow()).finally(() => setTimeout(() => { btn.disabled = false; btn.textContent = 'Sync now'; }, 800)); } }, 'Sync now');
-  clear(bar).append(icon, text, btn);
+// The bottom sync indicator — a brief green "Saved" when a write reaches the server, a
+// persistent bar only when offline or a write was refused, and in-flight work debounced ~2s
+// so a routine save never flashes a warning.
+let syncBannerTimer = null, syncSavedTimer = null;
+function renderSyncBanner(state, pending, failed, justSaved) {
+  const bar = () => { let b = document.getElementById('sync-banner'); if (!b) { b = document.createElement('div'); b.id = 'sync-banner'; document.body.appendChild(b); } return b; };
+  const hide = () => document.getElementById('sync-banner')?.remove();
+  const ic = (name) => el('span', { class: 'ms' }, name);
+  const tx = (str, flex) => el('span', flex ? { style: 'flex:1' } : {}, str);
+  const syncBtn = () => el('button', { class: 'sync-banner-btn', onclick: (e) => { const b = e.target; b.disabled = true; b.textContent = 'Syncing…'; Promise.resolve(syncNow()).finally(() => setTimeout(() => { b.disabled = false; b.textContent = 'Sync now'; }, 800)); } }, 'Sync now');
+  clearTimeout(syncSavedTimer);
+  if (state === 'offline' || failed) {
+    clearTimeout(syncBannerTimer); syncBannerTimer = null;
+    const b = bar(), n = pending + failed;
+    b.className = 'sync-banner ' + (state === 'offline' ? 'offline' : 'attention');
+    clear(b).append(ic(state === 'offline' ? 'cloud_off' : 'sync_problem'),
+      tx(state === 'offline'
+        ? `You’re offline — ${n} change${n === 1 ? '' : 's'} waiting to sync. They’ll save when you reconnect.`
+        : `${failed} change${failed === 1 ? '' : 's'} couldn’t be saved — tap Sync now to retry.`, true),
+      syncBtn());
+    return;
+  }
+  if (pending) {
+    if (!syncBannerTimer) syncBannerTimer = setTimeout(() => { syncBannerTimer = null; const b = bar(); b.className = 'sync-banner attention'; clear(b).append(ic('sync_problem'), tx('Still saving your changes…', true), syncBtn()); }, 2200);
+    return;
+  }
+  clearTimeout(syncBannerTimer); syncBannerTimer = null;
+  if (justSaved) { const b = bar(); b.className = 'sync-banner saved'; clear(b).append(ic('cloud_done'), tx('Saved')); syncSavedTimer = setTimeout(hide, 1600); }
+  else hide();
 }
 
 function boot() {
@@ -346,7 +359,7 @@ function boot() {
       pill.textContent = s === 'synced' ? 'Synced' : s === 'offline' ? (n ? `Offline · ${n}` : 'Offline') : `Unsynced · ${n}`;
       pill.className = 'syncpill ' + (s === 'synced' ? 'synced' : s === 'attention' ? 'attention' : 'offline');
     }
-    renderSyncBanner(s, pending, failed);
+    renderSyncBanner(s, pending, failed, info?.justSaved);
   });
   document.getElementById('clientlogout').addEventListener('click', async () => {
     try { await fetch(ORIGIN + '/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${getToken()}` } }); } catch { /* signing out anyway */ }
