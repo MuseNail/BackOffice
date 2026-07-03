@@ -176,6 +176,11 @@ export function combobox({ groups = [], value = '', text = '', placeholder = 'â€
     const changed = v !== current;
     current = v;
     pendingText = '';
+    // Sync the box to the chosen label BEFORE closing. A deliberate pick is final, but
+    // closePanel()'s freeText branch reconciles whatever text is in the box â€” and after
+    // filtering, the box still holds the partial filter ("perso"), not the picked label.
+    // Without this it would treat the pick as a typed-new proposal and throw it away.
+    setDisplay();
     closePanel();
     if (changed) fireChange();
   }

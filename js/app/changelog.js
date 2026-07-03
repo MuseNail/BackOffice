@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.70.7', items: [
+    { icon: 'checklist', t: 'Type-to-search then pick now actually sticks', d: 'In any Vendor or Account box, if you typed a few letters to filter the list and then clicked (or pressed Enter on) a match, your pick was being thrown away — leaving just the letters you typed as if it were a brand-new name. Now the selection sticks the moment you choose it, whether you scrolled to it or typed to find it. Typing a genuinely new name that isn’t on the list still works exactly as before.' },
+  ] },
   { v: '0.70.6', items: [
     { icon: 'bug_report', t: 'The app now tells you when something quietly breaks', d: 'Back Office now captures errors automatically — even ones that don’t interrupt you — so a problem you didn’t happen to notice isn’t lost. Open Settings → Diagnostics to see them (newest first, with how many times each happened and the technical details). Turn on “Bug alerts” there to get a push notification the moment something new or serious fails (like a write the server turned down) — deduped so one glitch can’t spam you. This only adds a safety net; it never changes your books.' },
   ] },
