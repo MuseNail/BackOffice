@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.70.8', items: [
+    { icon: 'check_circle', t: 'Client Suggest no longer shows a false "Couldn’t send"', d: 'In the client app, sending a suggestion could show "Couldn’t send. Check your connection" even though the suggestion actually reached the owner. The cause was internal: after a successful send, refreshing the list could hiccup and get mistaken for a failed send. Sending and screen-refreshing are now separated — a successful suggestion always reports success, and if a send genuinely fails you’ll now see the real reason (and it’s logged to Settings → Diagnostics) instead of a generic connection message.' },
+  ] },
   { v: '0.70.7', items: [
     { icon: 'checklist', t: 'Type-to-search then pick now actually sticks', d: 'In any Vendor or Account box, if you typed a few letters to filter the list and then clicked (or pressed Enter on) a match, your pick was being thrown away — leaving just the letters you typed as if it were a brand-new name. Now the selection sticks the moment you choose it, whether you scrolled to it or typed to find it. Typing a genuinely new name that isn’t on the list still works exactly as before.' },
   ] },

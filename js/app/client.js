@@ -256,6 +256,11 @@ function suggestRowFull(row, { vendors, invs, showInvoices, draw }) {
   btn.onclick = async () => {
     if (d.splitMode && !splitOk(row, d)) { toast('The split needs to add up first', 'err'); return; }
     btn.disabled = true; const label = btn.textContent; btn.textContent = 'Sending…';
+    // Guard ONLY the network send. The follow-up re-render must NOT be inside this try:
+    // the suggestion already reached the server (200), so a hiccup redrawing the list can't
+    // be allowed to roll the UI back to "Couldn't send" — that false error (shown even though
+    // the owner received the suggestion) is exactly the bug this fixes.
+    let ok = false, reason = '';
     try {
       const biz = getActiveBiz();
       // Sync the draft from the LIVE fields at click time. A freeText combobox only writes its
@@ -270,9 +275,22 @@ function suggestRowFull(row, { vendors, invs, showInvoices, draw }) {
       if (d.splitMode) { payload.suggestedSplit = splitPayload(row, d); payload.suggestedAccountId = ''; payload.suggestedAccountName = ''; }
       else { payload.suggestedAccountId = d.accountId || ''; payload.suggestedAccountName = d.accountId ? '' : (d.accountName || '').trim(); payload.suggestedSplit = []; }
       const res = await api(`/b/${biz}/suggest`, { method: 'POST', body: JSON.stringify(payload) });
-      if (!res.ok) throw new Error('failed');
-      d.sent = 'ok'; editing.delete(row.id); toast('Suggestion sent to the owner'); draw();
-    } catch { d.sent = 'err'; btn.disabled = false; btn.textContent = label; errBox.hidden = false; toast('Couldn’t send — check your connection and try again', 'err'); }
+      ok = res.ok;
+      if (!ok) { reason = `the server refused it (${res.status})`; const j = await res.json().catch(() => null); if (j && j.error) reason = `${j.error} (${res.status})`; }
+    } catch (e) { reason = `couldn’t reach the server${e && e.message ? ` — ${e.message}` : ''}`; }
+    if (ok) {
+      d.sent = 'ok'; editing.delete(row.id);
+      btn.textContent = 'Sent ✓'; btn.classList.add('green'); btn.disabled = true;
+      toast('Suggestion sent to the owner');
+      // Redraw OUTSIDE the send guard. If a redraw ever throws, surface it to the console +
+      // the global error reporter (Settings → Diagnostics) — never as a fake "couldn't send".
+      try { draw(); } catch (e) { setTimeout(() => { throw e; }, 0); }
+    } else {
+      d.sent = 'err'; btn.disabled = false; btn.textContent = label;
+      clear(errBox).append(el('span', { class: 'ms', style: 'font-size:15px' }, 'error'), el('span', {}, 'Couldn’t send — ' + reason + '. Please try again.'));
+      errBox.hidden = false;
+      toast('Couldn’t send — ' + reason, 'err');
+    }
   };
 
   const dot = el('span', { class: 'sugg-dot ' + (row.suggestedAt ? 'ok' : 'needs') });
