@@ -5,7 +5,7 @@
 // /suggest endpoint. Loaded from client.html (body.bo-client). No import, no posting.
 import { ORIGIN } from './config.js';
 import { getToken, getActiveBiz, setActiveBiz, getUser, getBusinesses, clearSession } from './session.js';
-import { openBusiness, setStatusListener, api } from './sync.js';
+import { openBusiness, setStatusListener, api, syncNow } from './sync.js';
 import { initLock, sessionResumable } from './lock.js';
 import { entities, subscribe, usesInvoices } from './store.js';
 import { el, clear, toast, fmtMoney } from './ui.js';
@@ -306,8 +306,34 @@ function splitBlock(row, d, groups, btn) {
     linesBox, add, bal);
 }
 
+// A loud, persistent banner whenever a suggestion hasn't synced or the app is offline — so
+// you never keep working unaware that nothing's saving. "Sync now" forces a reconnect + flush.
+function renderSyncBanner(state, pending, failed) {
+  const show = state !== 'synced' && (pending || failed || state === 'offline');
+  let bar = document.getElementById('sync-banner');
+  if (!show) { bar?.remove(); return; }
+  if (!bar) { bar = document.createElement('div'); bar.id = 'sync-banner'; document.body.appendChild(bar); }
+  const n = pending + failed;
+  bar.className = 'sync-banner ' + (state === 'offline' ? 'offline' : 'attention');
+  const msg = state === 'offline'
+    ? `You’re offline — ${n} change${n === 1 ? '' : 's'} waiting to sync. They’ll save when you reconnect.`
+    : `${n} change${n === 1 ? '' : 's'} haven’t synced yet.`;
+  const icon = el('span', { class: 'ms' }, state === 'offline' ? 'cloud_off' : 'sync_problem');
+  const text = el('span', { style: 'flex:1' }, msg);
+  const btn = el('button', { class: 'sync-banner-btn', onclick: () => { btn.disabled = true; btn.textContent = 'Syncing…'; Promise.resolve(syncNow()).finally(() => setTimeout(() => { btn.disabled = false; btn.textContent = 'Sync now'; }, 800)); } }, 'Sync now');
+  clear(bar).append(icon, text, btn);
+}
+
 function boot() {
-  setStatusListener(s => { const pill = document.getElementById('syncpill'); if (pill) { pill.textContent = s === 'attention' ? 'Unsynced' : s === 'synced' ? 'Synced' : 'Offline'; pill.className = 'syncpill ' + (s === 'synced' ? 'synced' : s === 'attention' ? 'attention' : 'offline'); } });
+  setStatusListener((s, info) => {
+    const pending = info?.pending || 0, failed = info?.failed || 0, n = pending + failed;
+    const pill = document.getElementById('syncpill');
+    if (pill) {
+      pill.textContent = s === 'synced' ? 'Synced' : s === 'offline' ? (n ? `Offline · ${n}` : 'Offline') : `Unsynced · ${n}`;
+      pill.className = 'syncpill ' + (s === 'synced' ? 'synced' : s === 'attention' ? 'attention' : 'offline');
+    }
+    renderSyncBanner(s, pending, failed);
+  });
   document.getElementById('clientlogout').addEventListener('click', async () => {
     try { await fetch(ORIGIN + '/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${getToken()}` } }); } catch { /* signing out anyway */ }
     clearSession(); location.hash = ''; location.reload();

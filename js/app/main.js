@@ -5,7 +5,7 @@
 //   #/b/<id>/<view>
 import { APP_VERSION, ORIGIN } from './config.js';
 import { getToken, getActiveBiz, setActiveBiz, getUser, getBusinesses, clearSession } from './session.js';
-import { openBusiness, setStatusListener } from './sync.js';
+import { openBusiness, setStatusListener, syncNow } from './sync.js';
 import { initLock, sessionResumable } from './lock.js';
 import { resumePlaidOAuth } from './plaid-connect.js';
 import * as login from './views/login.js';
@@ -68,6 +68,29 @@ let current = null;
 let opened = ''; // in-memory — getActiveBiz() persists across reloads, but the
                  // store does not; a fresh page must always re-open the business
 let workspaceMode = false; // true while the MDI windowed workspace is mounted
+
+// A loud, persistent banner whenever work is unsynced or the app is offline — so a dropped
+// connection is impossible to work past (the small corner pill was too easy to miss, which is
+// how approvals piled up unsaved). "Sync now" forces a reconnect + flush. It clears itself
+// the moment everything is synced.
+function renderSyncBanner(state, pending, failed) {
+  const show = state !== 'synced' && (pending || failed || state === 'offline');
+  let bar = document.getElementById('sync-banner');
+  if (!show) { bar?.remove(); return; }
+  if (!bar) { bar = document.createElement('div'); bar.id = 'sync-banner'; document.body.appendChild(bar); }
+  const n = pending + failed;
+  bar.className = 'sync-banner ' + (state === 'offline' ? 'offline' : 'attention');
+  const msg = state === 'offline'
+    ? `You’re offline — ${n} change${n === 1 ? '' : 's'} waiting to sync. They’ll save automatically when you reconnect.`
+    : (failed && !pending)
+      ? `${failed} change${failed === 1 ? '' : 's'} couldn’t be saved — open Settings → Data recovery to review.`
+      : `${n} change${n === 1 ? '' : 's'} haven’t synced yet.`;
+  const icon = document.createElement('span'); icon.className = 'ms'; icon.textContent = state === 'offline' ? 'cloud_off' : 'sync_problem';
+  const text = document.createElement('span'); text.style.flex = '1'; text.textContent = msg;
+  const btn = document.createElement('button'); btn.className = 'sync-banner-btn'; btn.textContent = 'Sync now';
+  btn.onclick = () => { btn.disabled = true; btn.textContent = 'Syncing…'; Promise.resolve(syncNow()).finally(() => setTimeout(() => { btn.disabled = false; btn.textContent = 'Sync now'; }, 800)); };
+  bar.replaceChildren(icon, text, btn);
+}
 
 function route() {
   const hash = location.hash || '#/';
@@ -250,10 +273,14 @@ function boot() {
   ver.textContent = 'v' + APP_VERSION;
   ver.title = 'Back Office v' + APP_VERSION + ' — what’s new';
   ver.onclick = () => showWhatsNew();   // checkAppVersion swaps this to a hard-reload when an update is waiting
-  setStatusListener(s => {
+  setStatusListener((s, info) => {
+    const pending = info?.pending || 0, failed = info?.failed || 0, n = pending + failed;
     const pill = document.getElementById('syncpill');
-    pill.textContent = s === 'attention' ? 'Unsynced' : s === 'synced' ? 'Synced' : 'Offline';
-    pill.className = 'syncpill ' + (s === 'synced' ? 'synced' : s === 'attention' ? 'attention' : 'offline');
+    if (pill) {
+      pill.textContent = s === 'synced' ? 'Synced' : s === 'offline' ? (n ? `Offline · ${n}` : 'Offline') : `Unsynced · ${n}`;
+      pill.className = 'syncpill ' + (s === 'synced' ? 'synced' : s === 'attention' ? 'attention' : 'offline');
+    }
+    renderSyncBanner(s, pending, failed);
   });
   document.querySelectorAll('#sidebar .navitem').forEach(n =>
     n.addEventListener('click', () => {

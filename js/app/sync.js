@@ -64,14 +64,20 @@ function replayOutboxLocal(biz) {
 
 // The single write path: optimistic local apply → outbox → WS (HTTP fallback).
 export async function dispatch(op) {
-  const biz = getActiveBiz();
+  // Route by the IN-MEMORY opened business (set by connectWS), falling back to the stored
+  // marker. An idle sign-out clears the localStorage marker (bo_active_biz); a write queued
+  // with an empty biz can't be routed — it used to POST to /b//state, fail, and JAM the whole
+  // FIFO outbox while the pill still read "Synced". wsBiz survives the sign-out, so this is
+  // the reliable source; the flusher below also re-routes any legacy business-less item.
+  const biz = wsBiz || getActiveBiz();
   op.device = deviceId();
   if (op.op === 'entity.upsert') { op.value.updatedAt = Date.now(); op.value.updatedBy = op.device; }
   applyChange(op);
   const outbox = readOutbox();
   outbox.push({ biz, op });
   localStorage.setItem(LS.outbox, JSON.stringify(outbox));
-  await flushOutbox(biz);
+  emitStatus();   // reflect the just-queued item immediately — the pill reads "unsynced" until it sends
+  await flushOutbox();
 }
 
 function readOutbox() {
@@ -81,6 +87,30 @@ function readOutbox() {
 // read "Synced" while writes were dropped — `attention` surfaces them (see flushOutbox).
 function failedCount() { try { return JSON.parse(localStorage.getItem(LS.failed) || '[]').length; } catch { return 0; } }
 
+// Compute + broadcast the sync status from the ACTUAL queue state, so the pill can never
+// read "Synced" while writes are still queued (unsynced) or dead-lettered. `forced` pins
+// 'offline' (network down) regardless of the counts. Listeners get the counts for a banner.
+function emitStatus(forced) {
+  const pending = readOutbox().length, failed = failedCount();
+  const state = forced || ((pending || failed) ? 'attention' : 'synced');
+  onStatus(state, { pending, failed });
+}
+export function pendingCount() { return readOutbox().length; }
+export function failedOpsCount() { return failedCount(); }
+// Manual "Sync now" (banner button): reconnect + flush the current business's queue.
+export function syncNow() { const b = wsBiz || getActiveBiz(); if (b) { connectWS(b, true); return flushOutbox(); } }
+
+// Move a write the server refused (or an unroutable one) to the dead-letter log so it's
+// preserved + recoverable (Settings → Data recovery) instead of silently dropped OR left
+// to jam the queue forever.
+function deadLetter(item, reason) {
+  try {
+    const log = JSON.parse(localStorage.getItem(LS.failed) || '[]');
+    log.unshift({ biz: item.biz, op: item.op, reason, rejectedAt: Date.now() });
+    localStorage.setItem(LS.failed, JSON.stringify(log.slice(0, 100)));
+  } catch { /* best-effort */ }
+}
+
 async function flushOutbox() {
   if (flushing) return;   // one flusher at a time so the FIFO head stays stable across concurrent triggers
   flushing = true;
@@ -89,39 +119,49 @@ async function flushOutbox() {
       const outbox = readOutbox();
       if (!outbox.length) break;
       const item = outbox[0];
+      // A business-less item (queued while the active-business marker was cleared, e.g. after
+      // an idle sign-out) is unroutable. Re-route it to the current business so it can never
+      // jam the queue; if there's genuinely no business context, dead-letter it and move on.
+      if (!item.biz) {
+        const b = wsBiz || getActiveBiz();
+        if (b) { item.biz = b; const c = readOutbox(); c[0] = item; localStorage.setItem(LS.outbox, JSON.stringify(c)); }
+        else { deadLetter(item, 'no-business'); const c = readOutbox(); c.shift(); localStorage.setItem(LS.outbox, JSON.stringify(c)); continue; }
+      }
+      let res;
       try {
-        const res = await api(`/b/${item.biz}/state`, { method: 'POST', body: JSON.stringify(item.op) });
-        if (!res.ok) {
-          if (res.status === 409) {
-            let body = {};
-            try { body = await res.json(); } catch { /* best-effort */ }
-            const reason = body.reason || 'rejected';
-            // Self-heal: a staged row advancing out of 'pending' (approve/skip/match) that the
-            // server 409'd as 'stale' is a clock-skew race (edge-clock /suggest stamp vs the
-            // browser-clock approve), not a real conflict. Re-stamp once just above the server's
-            // stored stamp and retry the head — the _healed flag bounds it to a single retry.
-            if (reason === 'stale' && item.op.op === 'entity.upsert' && item.op.kind === 'staged'
-                && item.op.value?.status && item.op.value.status !== 'pending'
-                && !item.op._healed && Number.isFinite(body.storedUpdatedAt)) {
-              item.op._healed = true;
-              item.op.value = { ...item.op.value, updatedAt: body.storedUpdatedAt + 1 };
-              applyChange(item.op);   // keep optimistic state in step with the re-stamp
-              const cur = readOutbox(); cur[0] = item; localStorage.setItem(LS.outbox, JSON.stringify(cur));
-              continue;               // retry the head with the healed stamp
-            }
-            // Otherwise dead-letter it so the user can inspect (Settings → Data recovery).
-            try {
-              const log = JSON.parse(localStorage.getItem(LS.failed) || '[]');
-              log.unshift({ biz: item.biz, op: item.op, reason, rejectedAt: Date.now() });
-              localStorage.setItem(LS.failed, JSON.stringify(log.slice(0, 100)));
-            } catch { /* best-effort */ }
-          } else {
-            throw new Error('send failed');
-          }
-        }
+        res = await api(`/b/${item.biz}/state`, { method: 'POST', body: JSON.stringify(item.op) });
       } catch {
-        onStatus('offline');
-        return; // keep the outbox; retry on next dispatch/reconnect
+        emitStatus('offline');
+        return; // genuine network failure — keep the queue, retry on next dispatch/reconnect
+      }
+      if (!res.ok) {
+        if (res.status === 409) {
+          let body = {};
+          try { body = await res.json(); } catch { /* best-effort */ }
+          const reason = body.reason || 'rejected';
+          // Self-heal: a staged row advancing out of 'pending' (approve/skip/match) that the
+          // server 409'd as 'stale' is a clock-skew race (edge-clock /suggest stamp vs the
+          // browser-clock approve), not a real conflict. Re-stamp once just above the server's
+          // stored stamp and retry the head — the _healed flag bounds it to a single retry.
+          if (reason === 'stale' && item.op.op === 'entity.upsert' && item.op.kind === 'staged'
+              && item.op.value?.status && item.op.value.status !== 'pending'
+              && !item.op._healed && Number.isFinite(body.storedUpdatedAt)) {
+            item.op._healed = true;
+            item.op.value = { ...item.op.value, updatedAt: body.storedUpdatedAt + 1 };
+            applyChange(item.op);   // keep optimistic state in step with the re-stamp
+            const cur = readOutbox(); cur[0] = item; localStorage.setItem(LS.outbox, JSON.stringify(cur));
+            continue;               // retry the head with the healed stamp
+          }
+          deadLetter(item, reason);   // real conflict — preserve it for recovery, don't jam
+        } else if (res.status >= 500) {
+          emitStatus('offline');      // transient server error — keep + retry, never discard good work
+          return;
+        } else {
+          // A 4xx (bad/unroutable request — e.g. the old empty-business POST) will never
+          // succeed on retry, so dead-letter it and keep going. This is the fix for the jam:
+          // one bad item can no longer freeze every write queued behind it.
+          deadLetter(item, `http ${res.status}`);
+        }
       }
       // Re-read before dropping the head: a concurrent dispatch may have appended to the tail
       // while this POST was in flight, and we must not clobber it by writing back a stale array.
@@ -129,7 +169,7 @@ async function flushOutbox() {
       cur.shift();
       localStorage.setItem(LS.outbox, JSON.stringify(cur));
     }
-    onStatus(failedCount() ? 'attention' : 'synced');
+    emitStatus();
   } finally {
     flushing = false;
   }
@@ -155,7 +195,7 @@ function connectWS(bizId, isReconnect = false) {
   };
   ws.onopen = () => {
     lastPong = Date.now();
-    onStatus(failedCount() ? 'attention' : 'synced');
+    emitStatus();   // reflects queued (unsynced) work too — never a false "Synced" over a stuck queue
     startHeartbeat();
     // After a reconnect we may have missed live broadcasts while disconnected — re-pull the
     // snapshot and flush anything queued offline so both sides converge.
@@ -163,7 +203,7 @@ function connectWS(bizId, isReconnect = false) {
   };
   ws.onclose = () => {
     stopHeartbeat();
-    onStatus('offline');
+    emitStatus('offline');
     if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(() => { if (wsBiz === bizId) connectWS(bizId, true); }, 4000);
   };

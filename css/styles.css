@@ -491,6 +491,15 @@ body.has-windows #view{max-width:none;padding:0;display:flex;flex-direction:colu
 .sugg-sent{display:flex;align-items:center;gap:7px;margin-top:9px;border-radius:9px;padding:8px 11px;font-size:12.5px;font-weight:500}
 .sugg-sent.err{background:#fdecea;border:1px solid #f2cec9;color:#b3352b}
 
+/* ── Loud offline / unsynced banner (fixed bottom) — impossible to work past ── */
+.sync-banner{position:fixed;left:0;right:0;bottom:0;z-index:2000;display:flex;align-items:center;gap:12px;padding:10px 16px;font-size:13px;font-weight:600;color:#fff;box-shadow:0 -2px 10px rgba(20,30,55,.18)}
+.sync-banner.offline{background:#b3352b}
+.sync-banner.attention{background:#8a5a12}
+.sync-banner .ms{font-size:20px}
+.sync-banner-btn{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.55);color:#fff;border-radius:8px;padding:6px 14px;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap}
+.sync-banner-btn:hover{background:rgba(255,255,255,.28)}
+.sync-banner-btn:disabled{opacity:.6;cursor:default}
+
 /* ── Input controls — one radius + one focus ring (cosmetic consistency pass) ──
    Text inputs, the inline ledger field + its combobox face, selects, and the date
    button all land on a single 9px radius; the form/select fields pick up the same

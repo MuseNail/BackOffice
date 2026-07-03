@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.70.1', items: [
+    { icon: 'cloud_off', t: 'Offline work no longer gets stuck (and you’ll know when you’re offline)', d: 'Fixed a bug where work done right after the app auto-signed-out could get queued without a business attached, which jammed the whole sync queue — so nothing after it saved, even though the little status pill still said “Synced.” Now every change is routed reliably, one bad item can never freeze the queue, and a big banner appears at the bottom of the screen whenever you’re offline or have changes waiting — with a “Sync now” button. The corner pill also shows a count (e.g. “Unsynced · 3”) so it can’t quietly say “Synced” while work is waiting.' },
+  ] },
   { v: '0.70.0', items: [
     { icon: 'cloud_done', t: 'Client suggestions now reach you reliably', d: 'Fixed a timing bug where a client’s whole suggestion (account, vendor, invoice, and note) could be silently thrown away if your computer’s clock was slightly ahead of the server — the client app would say “sent” while nothing arrived in Review. Suggestions now always come through.' },
     { icon: 'call_split', t: 'Clients can suggest a split', d: 'In the client app, a “Split” button lets a client divide one transaction across several accounts, with a live balance check (just like your Review split). It shows up in Review as “Client suggested a split” — tap “Approve split” to post it as-is, or “Review split” to open the split editor pre-filled with their accounts and amounts.' },
