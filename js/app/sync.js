@@ -2,6 +2,7 @@
 import { ORIGIN, LS } from './config.js';
 import { getToken, deviceId, getActiveBiz, clearSession } from './session.js';
 import { setSnapshot, applyChange } from './store.js';
+import { reportError } from './reporter.js';   // log rejected writes to Diagnostics
 
 let ws = null;
 let wsBiz = '';
@@ -124,6 +125,8 @@ function deadLetter(item, reason) {
     log.unshift({ biz: item.biz, op: item.op, reason, rejectedAt: Date.now() });
     localStorage.setItem(LS.failed, JSON.stringify(log.slice(0, 100)));
   } catch { /* best-effort */ }
+  // A rejected write is data-loss-adjacent — surface it in Diagnostics + alert the owner.
+  try { reportError('sync.rejected-write', ((item.op?.op || 'write') + ' ' + (item.op?.kind || '')).trim() + ' rejected: ' + reason, { serious: true }); } catch (e) {}
 }
 
 async function flushOutbox() {

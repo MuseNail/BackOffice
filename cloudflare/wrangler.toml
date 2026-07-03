@@ -26,6 +26,10 @@ PLAID_CLIENT_ID = "6a2eb9669d3c7c000eacc5e0"
 PLAID_ENV = "production"   # live bank data — needs the PRODUCTION secret + the redirect URI registered in the Plaid dashboard
 PLAID_REDIRECT_URI = "https://musenail.github.io/BackOffice/"
 # PLAID_WEBHOOK_URL — add when wiring webhook/cron auto-sync.
+# Web Push (bug alerts). VAPID_PUBLIC_KEY is non-secret (also shipped in the client
+# config); the matching VAPID_PRIVATE_KEY is a secret set via `wrangler secret put`.
+VAPID_PUBLIC_KEY = "BF_ah8pKpJHCTJo60vj2IEqki0ObMkwCm_qeWu0FrkSNxdhuYRz_33IUq0ggtlWoJUYI9pHiigZWforpqeCWFTo"
+VAPID_SUBJECT = "mailto:info@musenailandspa.com"
 
 [durable_objects]
 bindings = [

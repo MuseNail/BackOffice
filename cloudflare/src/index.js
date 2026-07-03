@@ -67,12 +67,25 @@ export default {
       return withCors(await handleSyncInbound(req, env));
     }
 
+    // Automatic error reports — POST is auth-EXEMPT so a broken auth path can still be
+    // reported. Stored in a system DO instance ('__system__'), isolated from every real
+    // business + the registry. (GET /report + /report/clear require a session, below.)
+    if (p === '/report' && req.method === 'POST') {
+      return withCors(await env.BUSINESS_DO.get(env.BUSINESS_DO.idFromName('__system__')).fetch(req));
+    }
+
     // Everything else requires a session. WS upgrades can't set headers from
     // the browser, so the websocket route may carry the token as ?token=.
     const token = (req.headers.get('Authorization') || '').replace(/^Bearer /, '') ||
       (p.endsWith('/ws') ? url.searchParams.get('token') : null);
     const sess = await resolveSession(token, env);
     if (!sess) return json({ error: 'unauthorized' }, 401);
+
+    // Diagnostics read (GET /report, /report/clear) + Web Push opt-in (/push/subscribe,
+    // /push/unsubscribe) — session required; forwarded to the same system DO instance.
+    if (p === '/report' || p === '/report/clear' || p.startsWith('/push/')) {
+      return withCors(await env.BUSINESS_DO.get(env.BUSINESS_DO.idFromName('__system__')).fetch(req));
+    }
 
     if (p.startsWith('/registry/')) {
       if (p.startsWith('/registry/_')) return json({ error: 'not found' }, 404); // internal only

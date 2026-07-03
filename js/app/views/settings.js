@@ -13,6 +13,7 @@ import { parseIifAccounts } from '../lib/qb-iif-import.js';
 import { qbSyncSnapshot, qbSyncDiff, qbSyncCounts } from '../lib/qb-sync.js';
 import { buildQbImport } from '../lib/qb-history-import.js';
 import { ORIGIN, LS } from '../config.js';
+import { drawErrorLog, drawBugAlerts } from '../diagnostics.js';
 
 const ROLES = ['owner', 'manager', 'bookkeeper', 'client', 'viewer'];
 const ROLE_HELP = { owner: 'everything', manager: 'everything but deleting the business', bookkeeper: 'edit the books', client: 'suggest categories + notes, view reports/invoices (client app)', viewer: 'read-only' };
@@ -28,6 +29,7 @@ export const SETTINGS_NAV = [
   { key: 'set_integrations', title: 'Integrations', icon: 'hub', desc: 'Connections to other apps (Muse salon sync).' },
   { key: 'set_books', title: 'Close the books', icon: 'lock', desc: 'Lock finished months so they can’t be changed.' },
   { key: 'set_data', title: 'Data & maintenance', icon: 'shield', desc: 'Activity log and recovery of rejected writes.' },
+  { key: 'set_diagnostics', title: 'Diagnostics', icon: 'bug_report', desc: 'Automatic error log and bug-alert notifications.' },
 ];
 
 // Cards per section, and whether each is store-driven (re-run on every store change) or
@@ -39,6 +41,7 @@ const SECTION_CARDS = {
   set_integrations: [{ draw: drawMuseCard, live: true, onlyIf: usesMuseSync }],
   set_books: [{ draw: drawLocksCard, live: true }],
   set_data: [{ draw: drawAuditCard, live: false }, { draw: drawFailedOps, live: true }],
+  set_diagnostics: [{ draw: drawErrorLog, live: false }, { draw: drawBugAlerts, live: false }],
 };
 
 export function render(root) {
@@ -97,6 +100,7 @@ export const setQb = sectionView('set_qb');
 export const setIntegrations = sectionView('set_integrations');
 export const setBooks = sectionView('set_books');
 export const setData = sectionView('set_data');
+export const setDiagnostics = sectionView('set_diagnostics');
 
 // ── Rejected writes (dead-letter log) ──
 // sync.js records writes the server turned down (409 stale/blocked) to the

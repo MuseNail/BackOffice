@@ -2,6 +2,8 @@
 // Entities live as individual storage keys `<kind>:<id>` (kinds: user, account,
 // txn, bankacct, import, staged, vendor, customer, item, purchase, recon, lock, i2gpayout, audit).
 // `meta` is the business profile. `seq` is a monotonic mutation counter.
+// (The '__system__' instance also holds Web Push subs + the error-report ring buffer.)
+import { sendPush, pushKeyHash } from '../push.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -278,6 +280,91 @@ export class BusinessDO {
       const batch = await this.state.storage.list({ prefix: 'audit:', reverse: true, limit });
       return json({ entries: [...batch.values()] });
     }
+
+    // ── System-instance routes (only ever hit on idFromName('__system__')) ─────────
+    // Web Push subscriptions + the automatic error-report ring buffer. Keys 'push:*' /
+    // 'report:*' / 'reprl:*' / 'reppush:*' are NOT ENTITY_KINDS, so they never reach any
+    // client snapshot; and this instance is never a real business, so it's fully isolated.
+    if (path === '/push/subscribe' && req.method === 'POST') {
+      const body = await req.json().catch(() => ({}));
+      const { techId, subscription } = body;
+      if (!techId || !subscription || !subscription.endpoint) return json({ error: 'techId + subscription required' }, 400);
+      await this.state.storage.put('push:' + techId + ':' + (await pushKeyHash(subscription.endpoint)), subscription);
+      return json({ ok: true });
+    }
+    if (path === '/push/unsubscribe' && req.method === 'POST') {
+      const body = await req.json().catch(() => ({}));
+      if (body.techId && body.endpoint) await this.state.storage.delete('push:' + body.techId + ':' + (await pushKeyHash(body.endpoint)));
+      return json({ ok: true });
+    }
+    if (path === '/report' && req.method === 'POST') {
+      const body = await req.json().catch(() => ({}));
+      // per-IP throttle: cap reports/minute so a runaway client can't flood the log
+      const ip = req.headers.get('CF-Connecting-IP') || 'local';
+      const minute = Math.floor(Date.now() / 60000);
+      const rl = (await this.state.storage.get('reprl:' + ip)) || { min: 0, n: 0 };
+      if (rl.min === minute && rl.n >= 40) return json({ ok: true, throttled: true });
+      await this.state.storage.put('reprl:' + ip, { min: minute, n: rl.min === minute ? rl.n + 1 : 1 });
+
+      const now = Date.now();
+      const fp = String(body.fingerprint || body.message || 'unknown').slice(0, 200);
+      const serious = !!body.serious;
+      const stored = await this.state.storage.get('report:errors');
+      const list = Array.isArray(stored) ? stored : [];
+      let entry = list.find(e => e && e.fingerprint === fp);
+      const isNew = !entry;
+      if (entry) {
+        entry.count = (entry.count || 1) + 1;
+        entry.lastAt = now;
+        if (serious) entry.serious = true;
+      } else {
+        entry = {
+          fingerprint: fp,
+          app: String(body.app || 'backoffice').slice(0, 20),
+          context: String(body.context || '').slice(0, 120),
+          message: String(body.message || '').slice(0, 500),
+          stack: String(body.stack || '').slice(0, 4000),
+          version: String(body.version || '').slice(0, 20),
+          view: String(body.view || '').slice(0, 80),
+          user: String(body.user || '').slice(0, 60),
+          device: String(body.device || '').slice(0, 60),
+          biz: String(body.biz || '').slice(0, 60),
+          ua: String(body.ua || '').slice(0, 200),
+          online: body.online !== false,
+          breadcrumbs: Array.isArray(body.breadcrumbs) ? body.breadcrumbs.slice(-20).map(b => String(b).slice(0, 140)) : [],
+          serious, count: 1, firstAt: now, lastAt: now,
+        };
+        list.push(entry);
+        if (list.length > 200) list.splice(0, list.length - 200);
+      }
+      await this.state.storage.put('report:errors', list);
+
+      // Throttled owner alert: new fingerprint OR serious, at most once/hour per fingerprint.
+      try {
+        if (isNew || serious) {
+          const pk = 'reppush:' + fp;
+          const last = (await this.state.storage.get(pk)) || 0;
+          if (now - last > 3600000) {
+            await this.state.storage.put(pk, now);
+            await sendPush(this.state.storage, this.env, 'errors', {
+              title: serious ? '⚠️ Back Office — a failure was logged' : 'Back Office — a problem was logged',
+              body: (String(body.context ? body.context + ': ' : '') + String(body.message || 'Unknown error')).slice(0, 180),
+              tag: 'bo-error',
+            }).catch(() => {});
+          }
+        }
+      } catch { /* never fail the client on a push problem */ }
+      return json({ ok: true });
+    }
+    if (path === '/report' && req.method === 'GET') {
+      const stored = await this.state.storage.get('report:errors');
+      return json({ errors: (Array.isArray(stored) ? stored : []).slice().reverse() });   // newest first
+    }
+    if (path === '/report/clear' && req.method === 'POST') {
+      await this.state.storage.put('report:errors', []);
+      return json({ ok: true });
+    }
+
     return json({ error: 'not found' }, 404);
   }
 

@@ -1,6 +1,6 @@
 // ── Back Office service worker — precache + offline fallback ──
 // CACHE_NAME must always match APP_VERSION (js/app/config.js) and version.json.
-const CACHE_NAME = 'backoffice-v0.70.5';
+const CACHE_NAME = 'backoffice-v0.70.6';
 const PRECACHE = [
   './js/app/pickers.js',
   './js/app/rule-editor.js',
@@ -49,6 +49,8 @@ const PRECACHE = [
   './js/app/config.js',
   './js/app/store.js',
   './js/app/sync.js',
+  './js/app/reporter.js',
+  './js/app/diagnostics.js',
   './js/app/session.js',
   './js/app/lock.js',
   './js/app/ui.js',
@@ -86,5 +88,27 @@ self.addEventListener('fetch', (e) => {
         return res;
       })
       .catch(() => caches.match(e.request))
+  );
+});
+
+// ── Web Push (bug alerts) ────────────────────────────────────────────────────
+// Encrypted {title, body, tag} payloads from the Worker's /report handler. Shown as a
+// notification; tapping it focuses (or opens) the Back Office app.
+self.addEventListener('push', (e) => {
+  let payload = {};
+  try { if (e.data) payload = e.data.json(); } catch (err) { return; }
+  e.waitUntil(self.registration.showNotification(payload.title || 'Back Office', {
+    body: payload.body || '',
+    tag: payload.tag || 'bo-error',
+    renotify: true,
+  }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) { if ('focus' in c) return c.focus(); }
+      if (self.clients.openWindow) return self.clients.openWindow('./');
+    })
   );
 });

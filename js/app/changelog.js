@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.70.6', items: [
+    { icon: 'bug_report', t: 'The app now tells you when something quietly breaks', d: 'Back Office now captures errors automatically — even ones that don’t interrupt you — so a problem you didn’t happen to notice isn’t lost. Open Settings → Diagnostics to see them (newest first, with how many times each happened and the technical details). Turn on “Bug alerts” there to get a push notification the moment something new or serious fails (like a write the server turned down) — deduped so one glitch can’t spam you. This only adds a safety net; it never changes your books.' },
+  ] },
   { v: '0.70.5', items: [
     { icon: 'view_column', t: 'Fields stop overlapping when a window is narrow', d: 'When you dragged the Review window narrow, its Vendor / Account / Invoice / Note boxes used to squeeze together until they overlapped and became unusable. They now wrap onto their own lines as the window shrinks — four across on a wide window, then two, then one — so they stay readable at any size. Windows also have a sensible minimum width now (Review and the Muse-sync Settings window are a little wider) so you can’t accidentally drag one small enough to break its contents, and the Muse-sync mapping table scrolls sideways instead of getting clipped.' },
   ] },

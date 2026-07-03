@@ -33,6 +33,7 @@ import { showWhatsNew, maybeShowWhatsNew } from './changelog.js';
 import { stub } from './views/stubs.js';
 import { mountGlobalSearch } from './search.js';
 import { initAmountCalc } from './calc.js';
+import { initReporter } from './reporter.js';   // automatic error reporting (installs global handlers)
 
 const VIEWS = {
   dashboard,
@@ -58,6 +59,7 @@ const VIEWS = {
   set_integrations: settings.setIntegrations,
   set_books: settings.setBooks,
   set_data: settings.setData,
+  set_diagnostics: settings.setDiagnostics,
 };
 // Window title + icon for views that have no sidebar item (the settings sub-windows).
 const EXTRA_META = Object.fromEntries(settings.SETTINGS_NAV.map(s => [s.key, { title: s.title, icon: s.icon }]));
@@ -286,6 +288,7 @@ async function hardReload() {
 }
 
 function boot() {
+  initReporter();   // arm error capture ASAP (installs window error/unhandledrejection handlers)
   const ver = document.getElementById('ver');
   ver.textContent = 'v' + APP_VERSION;
   ver.title = 'Back Office v' + APP_VERSION + ' — what’s new';
