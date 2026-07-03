@@ -150,7 +150,12 @@ function suggestMatches(s, q, vendorsById) {
 // A proposed split → the payload lines (positive cents; an id wins over a typed name).
 function splitPayload(row, d) {
   return d.split
-    .map(l => ({ accountId: l.accountId || '', accountName: l.accountId ? '' : (l.accountName || '').trim(), amountCents: parseMoney(l.amt) || 0 }))
+    .map(l => {
+      // Prefer the LIVE combobox (l._sel) so a still-focused account line isn't sent truncated.
+      const id = l._sel ? (l._sel.value || '') : (l.accountId || '');
+      const name = id ? '' : (l._sel ? (l._sel.inputText || '').trim() : (l.accountName || '').trim());
+      return { accountId: id, accountName: name, amountCents: parseMoney(l.amt) || 0 };
+    })
     .filter(l => (l.accountId || l.accountName) && l.amountCents > 0);
 }
 function splitOk(row, d) {
@@ -225,9 +230,9 @@ function suggestRowFull(row, { vendors, invs, showInvoices, draw }) {
   const venSel = combobox({ groups: [{ label: '', items: vendors.map(v => ({ value: v.id, label: v.name })) }], value: d.vendorId || '', text: d.vendorId ? '' : d.vendorName, placeholder: 'Pick or type a new vendor…', minWidth: 0, freeText: true, emptyText: 'No match — suggested as a NEW vendor' });
   venSel.addEventListener('change', () => { d.vendorId = venSel.value; d.vendorName = venSel.value ? '' : venSel.inputText; });
 
-  let acctField = null;
+  let acctField = null, acctSel = null;
   if (!d.splitMode) {
-    const acctSel = combobox({ groups, value: d.accountId || '', text: d.accountId ? '' : d.accountName, placeholder: 'Search or type a new account…', minWidth: 0, freeText: true, emptyText: 'No match — suggested as a NEW account' });
+    acctSel = combobox({ groups, value: d.accountId || '', text: d.accountId ? '' : d.accountName, placeholder: 'Search or type a new account…', minWidth: 0, freeText: true, emptyText: 'No match — suggested as a NEW account' });
     acctSel.addEventListener('change', () => { d.accountId = acctSel.value; d.accountName = acctSel.value ? '' : acctSel.inputText; });
     acctField = field('Account', acctSel);
   }
@@ -253,6 +258,14 @@ function suggestRowFull(row, { vendors, invs, showInvoices, draw }) {
     btn.disabled = true; const label = btn.textContent; btn.textContent = 'Sending…';
     try {
       const biz = getActiveBiz();
+      // Sync the draft from the LIVE fields at click time. A freeText combobox only writes its
+      // typed text to the draft when it CLOSES, so clicking Suggest while a field is still
+      // focused would otherwise send a stale/partial name — that's how "person" arrived as
+      // "perso". Reading .inputText/.value here captures exactly what's in the box.
+      d.vendorId = venSel.value || ''; d.vendorName = d.vendorId ? '' : (venSel.inputText || '').trim();
+      if (acctSel) { d.accountId = acctSel.value || ''; d.accountName = d.accountId ? '' : (acctSel.inputText || '').trim(); }
+      if (invSel) d.invoiceId = invSel.value || '';
+      d.note = note.value || '';
       const payload = { stagedId: row.id, clientNote: (d.note || '').trim(), suggestedVendorId: d.vendorId || '', suggestedVendorName: d.vendorId ? '' : (d.vendorName || '').trim(), suggestedInvoiceId: d.invoiceId || '' };
       if (d.splitMode) { payload.suggestedSplit = splitPayload(row, d); payload.suggestedAccountId = ''; payload.suggestedAccountName = ''; }
       else { payload.suggestedAccountId = d.accountId || ''; payload.suggestedAccountName = d.accountId ? '' : (d.accountName || '').trim(); payload.suggestedSplit = []; }
@@ -292,6 +305,7 @@ function splitBlock(row, d, groups, btn) {
   };
   const renderLines = () => clear(linesBox).append(...d.split.map((l) => {
     const sel = combobox({ groups, value: l.accountId || '', text: l.accountId ? '' : l.accountName, placeholder: 'Account…', minWidth: 0, freeText: true, emptyText: 'New account — the owner adds it' });
+    l._sel = sel;   // keep a handle so splitPayload can read the LIVE typed text at send time
     sel.style.cssText = 'flex:1;min-width:0';
     sel.addEventListener('change', () => { l.accountId = sel.value; l.accountName = sel.value ? '' : sel.inputText; updateBal(); });
     const amt = el('input', { class: 'field-input', inputmode: 'decimal', placeholder: '$', style: 'width:92px;text-align:right;margin:0', value: l.amt || '' });

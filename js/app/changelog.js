@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.70.3', items: [
+    { icon: 'edit', t: 'Client suggestions no longer send a partial name', d: 'In the client app, typing a brand-new vendor or account name and pressing “Suggest” while the box was still active could drop the last letter or two — e.g. “person” arrived in your Review as “perso”. The app now reads exactly what’s in the box the moment you send, so the full name always comes through (split lines too).' },
+  ] },
   { v: '0.70.2', items: [
     { icon: 'check_box_outline_blank', t: 'Easier-to-see field outlines', d: 'Every fillable box — text fields, dropdowns, the inline ledger cells, date buttons, and search boxes — now has a darker, more visible outline so it’s easy to tell where you can type. The blue highlight when you click into a field is unchanged.' },
   ] },
