@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.70.9', items: [
+    { icon: 'visibility_off', t: 'The stuck red “Couldn’t send” box is gone', d: 'A styling bug left the red “Couldn’t send. Check your connection” box showing on EVERY transaction in the client app, all the time — even before you did anything, and even though your suggestions were actually sending fine. It was never a real error. The box is now correctly hidden and only appears if a suggestion genuinely fails to send.' },
+  ] },
   { v: '0.70.8', items: [
     { icon: 'check_circle', t: 'Client Suggest no longer shows a false "Couldn’t send"', d: 'In the client app, sending a suggestion could show "Couldn’t send. Check your connection" even though the suggestion actually reached the owner. The cause was internal: after a successful send, refreshing the list could hiccup and get mistaken for a failed send. Sending and screen-refreshing are now separated — a successful suggestion always reports success, and if a send genuinely fails you’ll now see the real reason (and it’s logged to Settings → Diagnostics) instead of a generic connection message.' },
   ] },

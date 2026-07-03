@@ -502,6 +502,9 @@ body.has-windows #view{max-width:none;padding:0;display:flex;flex-direction:colu
 .sugg-splitrow .cbx{flex:1;min-width:0}
 .sugg-rm{border:none;background:transparent;color:var(--mut);font-size:18px;line-height:1;cursor:pointer;padding:0 4px}
 .sugg-sent{display:flex;align-items:center;gap:7px;margin-top:9px;border-radius:9px;padding:8px 11px;font-size:12.5px;font-weight:500}
+/* `display:flex` above overrides the UA `[hidden]{display:none}`, so without this the
+   error box shows on EVERY row even when hidden. Higher specificity restores hiding. */
+.sugg-sent[hidden]{display:none}
 .sugg-sent.err{background:#fdecea;border:1px solid #f2cec9;color:#b3352b}
 
 /* ── Loud offline / unsynced banner (fixed bottom) — impossible to work past ── */
