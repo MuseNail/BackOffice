@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.70.10', items: [
+    { icon: 'fact_check', t: 'Invoice2go reconcile no longer flags Oct’25–Feb’26 payouts', d: 'The "Reconcile Invoice2go to the bank" screen was listing every payout from before your app start date (Oct 2025–Feb 2026) as "no matching bank deposit." Those months are reconciled in QuickBooks, and the bank deposits for that period were correctly left out — but the payouts weren’t, so they could never match and showed as false exceptions. The payout list is now scoped to the same app-owned period (your import start date onward) as the deposits, so only real, current exceptions appear.' },
+  ] },
   { v: '0.70.9', items: [
     { icon: 'visibility_off', t: 'The stuck red “Couldn’t send” box is gone', d: 'A styling bug left the red “Couldn’t send. Check your connection” box showing on EVERY transaction in the client app, all the time — even before you did anything, and even though your suggestions were actually sending fine. It was never a real error. The box is now correctly hidden and only appears if a suggestion genuinely fails to send.' },
   ] },

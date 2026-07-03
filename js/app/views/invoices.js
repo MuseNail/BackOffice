@@ -875,7 +875,11 @@ function renderReconcile(root) {
     const staged = entities('staged').filter(s => s.bankacctId === bankId && s.status === 'pending' && (s.amountCents || 0) > 0 && (s.date || '') >= cutoff)
       .map(s => ({ id: s.id, date: s.date, amountCents: s.amountCents, kind: 'new', payee: s.desc || '—' }));
     const deposits = [...posted, ...staged];
-    const payouts = entities('i2gpayout');
+    // Scope payouts to the SAME app-owned period as the deposits above. Pre-cutoff payouts
+    // (Oct'25–Feb'26) belong to the QuickBooks-reconciled period; their bank deposits are
+    // intentionally excluded here, so without this filter they could never match and every
+    // one showed as a false "no matching bank deposit".
+    const payouts = entities('i2gpayout').filter(p => (p.date || '') >= cutoff);
     const { matches, unmatchedPayouts, unmatchedDeposits } = reconcilePayouts(payouts, deposits);
     const sumP = arr => arr.reduce((s, x) => s + (x.netToBankCents || 0), 0);
     const sumD = arr => arr.reduce((s, x) => s + (x.amountCents || 0), 0);
