@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.70.11', items: [
+    { icon: 'arrow_back', t: '“← Back” links now work from drill-down screens', d: 'Going back from a detail screen to its list — like “← Invoices” on the Reconcile Invoice2go screen, or backing out of a single invoice — did nothing, because the window didn’t refresh when returning to the base list. Back links now take you where they say.' },
+  ] },
   { v: '0.70.10', items: [
     { icon: 'fact_check', t: 'Invoice2go reconcile no longer flags Oct’25–Feb’26 payouts', d: 'The "Reconcile Invoice2go to the bank" screen was listing every payout from before your app start date (Oct 2025–Feb 2026) as "no matching bank deposit." Those months are reconciled in QuickBooks, and the bank deposits for that period were correctly left out — but the payouts weren’t, so they could never match and showed as false exceptions. The payout list is now scoped to the same app-owned period (your import start date onward) as the deposits, so only real, current exceptions appear.' },
   ] },

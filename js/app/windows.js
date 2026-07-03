@@ -49,7 +49,12 @@ export function openView(name, detail, force = false) {
   if (w) {
     if (w.min) restore(w);
     focus(w);
-    if (force || (detail != null && detail !== w.detail)) renderBody(w, detail);
+    // Re-render whenever the detail CHANGES, including back to the base view (detail null):
+    // navigating from a drill-down (e.g. …/invoices/reconcile) back to …/invoices passes a
+    // null detail, and the old `detail != null` guard skipped that, so a "← back" link left
+    // the window stuck on the drill-down. Normalize null/undefined so a pure focus call
+    // (same base view) still doesn't needlessly re-render.
+    if (force || (detail || null) !== (w.detail || null)) renderBody(w, detail);
     return;
   }
   const meta = resolver?.(name);
