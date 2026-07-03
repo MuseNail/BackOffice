@@ -156,6 +156,10 @@ function leaveWorkspace() {
   if (workspaceMode) { windows.destroy(); document.body.classList.remove('has-windows'); workspaceMode = false; }
   else { current?.unmount?.(); }
 }
+// Per-window minimum resize width. Windows that render a fillable field row inside their
+// body need a wider floor so the fields can't be crushed; everything else uses the default.
+const WIN_MINW = { review: 440, set_integrations: 560 };
+
 // Title + Material icon for a view, read from its sidebar item (single source of truth).
 function viewMeta(name) {
   const nav = document.querySelector(`#sidebar .navitem[data-v="${name}"]`);
@@ -166,7 +170,7 @@ function viewMeta(name) {
   } else if (EXTRA_META[name]) {
     title = EXTRA_META[name].title; icon = EXTRA_META[name].icon;
   }
-  return { view: VIEWS[name] || VIEWS.dashboard, title, icon };
+  return { view: VIEWS[name] || VIEWS.dashboard, title, icon, minW: WIN_MINW[name] || 360 };
 }
 function setNavActive(name) {
   const active = navKeyFor(name);

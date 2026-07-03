@@ -252,9 +252,10 @@ function drawMuseCard(card, biz) {
       'The salon app pushes its finalized daily numbers here; they wait on the Review screen and post only when you approve them. ',
       'Set where each row type lands: the balancing account is the other side of the entry, the category is what Review pre-picks. ',
       `Muse pushes to ${ORIGIN}/sync/inbound for business “${biz}” using the SYNC_TOKEN secret (set on this Worker and in Muse's Back Office sync card).`),
-    el('table', { class: 'data xl' },
-      el('thead', {}, el('tr', {}, el('th', {}, 'Salon row'), el('th', {}, 'Balancing account'), el('th', {}, 'Suggested category'))),
-      el('tbody', {}, ...rows)),
+    el('div', { style: 'overflow-x:auto' },
+      el('table', { class: 'data xl' },
+        el('thead', {}, el('tr', {}, el('th', {}, 'Salon row'), el('th', {}, 'Balancing account'), el('th', {}, 'Suggested category'))),
+        el('tbody', {}, ...rows))),
     el('div', { style: 'margin-top:10px' },
       el('button', { class: 'btn sm', onclick: () => {
         const balancing = {}, category = {};

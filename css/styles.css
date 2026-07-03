@@ -54,7 +54,7 @@ h2{font-size:19px;margin:0 0 2px}
 /* Pinned toolbar (New button / filters) — stays put below the top bar while a list scrolls */
 .sticky-toolbar{position:sticky;top:53px;z-index:4;background:var(--bg);padding:8px 0 10px;margin-bottom:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 /* ── Review row cards: all fields inline, 2-line, dashed column dividers ── */
-.revrow{border:1px solid var(--line-2);border-radius:10px;box-shadow:0 2px 8px rgba(20,30,55,.15);background:#fff;padding:10px 12px;margin-bottom:8px}
+.revrow{border:1px solid var(--line-2);border-radius:10px;box-shadow:0 2px 8px rgba(20,30,55,.15);background:#fff;padding:10px 12px;margin-bottom:8px;container-type:inline-size}
 /* Two-column row: LEFT block (description + fields) grows; RIGHT rail (chip+amount on
    top, actions below) is content-width. The fields fill the left block, so the wrapped
    description ends exactly where the Note column ends — and the amount stays far right. */
@@ -67,12 +67,24 @@ h2{font-size:19px;margin:0 0 2px}
 .revside-top{display:flex;align-items:center;gap:10px;white-space:nowrap}
 .revside-top .revamt{min-width:90px;text-align:right;font-weight:800;font-variant-numeric:tabular-nums}
 .revside-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
-.revfields{display:flex;align-items:flex-end;gap:0;margin-top:9px;border-top:1px dashed var(--line);padding-top:9px}
-.revfields .rvf{flex:1 1 0;min-width:0;padding:0 12px;border-right:1px dashed #c7cedb}
-.revfields .rvf:first-child{padding-left:0}
-.revfields .rvf:last-child{border-right:0;padding-right:0}
+/* Field row reflows on the window's OWN width (grid auto-fit + a min() guard so a track
+   never overflows), so it can't overlap inside a narrow MDI window: 4/3 fields collapse
+   to 2 and then 1 with no viewport dependency. Below, container queries fine-tune it. */
+.revfields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(132px,100%),1fr));align-items:end;gap:8px 16px;margin-top:9px;border-top:1px dashed var(--line);padding-top:9px}
+.revfields .rvf{min-width:0}
 .revfields .rvf .cbx{width:100%}
-.revfields .rvf .field-input{max-width:none}
+.revfields .rvf .cbx-input{width:100%;min-width:0;box-sizing:border-box}
+.revfields .rvf .field-input{max-width:none;min-width:0}
+/* When the review row itself is narrow (small MDI window OR phone), stack the right rail
+   (chip/amount + action buttons) below the fields so nothing is squeezed. */
+@container (max-width:520px){
+  .revbody{flex-direction:column;gap:10px}
+  .revside{align-items:stretch;width:100%}
+  .revside-top{justify-content:space-between}
+  .revside-actions{justify-content:flex-start;flex-wrap:wrap}
+}
+/* Very narrow: force the fields to a single column (full-width stack). */
+@container (max-width:400px){ .revfields{grid-template-columns:1fr} }
 .kpi-card{transition:border-color .12s,box-shadow .12s,transform .12s}
 .kpi-card:hover{border-color:var(--brand);box-shadow:0 2px 10px rgba(36,86,166,.12);transform:translateY(-1px)}
 .kpi-more{font-size:11px;font-weight:700;color:var(--brand);margin-top:8px;opacity:0;transition:opacity .12s}
@@ -420,7 +432,7 @@ body.has-windows #view{max-width:none;padding:0;display:flex;flex-direction:colu
    the hover-peek sidebar, and modals/popups always render above the windows. */
 .mdi-workspace{position:relative;flex:1;overflow:hidden;background:var(--fill);isolation:isolate}
 .mdi-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:14px;pointer-events:none}
-.mdi-win{position:absolute;display:flex;flex-direction:column;background:#fff;border:1px solid #c9cedd;border-radius:12px;box-shadow:0 10px 30px rgba(20,30,55,.18);overflow:hidden;min-width:300px;min-height:200px}
+.mdi-win{position:absolute;display:flex;flex-direction:column;background:#fff;border:1px solid #c9cedd;border-radius:12px;box-shadow:0 10px 30px rgba(20,30,55,.18);overflow:hidden;min-width:340px;min-height:200px}
 .mdi-win.focused{border-color:var(--brand);box-shadow:0 16px 42px rgba(20,30,55,.30)}
 .mdi-win.maxd{border-radius:0}
 .mdi-bar{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--fill);border-bottom:1px solid var(--line);cursor:move;user-select:none;touch-action:none;flex:none}
@@ -519,17 +531,8 @@ body.has-windows #view{max-width:none;padding:0;display:flex;flex-direction:colu
   /* iOS zooms into any focused field whose text is under 16px — bump form controls so it doesn't. */
   input,textarea,select,.field-input,.login-input,.txi{font-size:16px}
 
-  /* Review / client-Suggest rows: stack instead of the desktop two-column layout so the
-     description, fields, amount, and buttons each get the full width. */
-  .revbody{flex-direction:column;gap:10px}
-  .revfields{flex-direction:column;gap:0;margin-top:8px}
-  .revfields .rvf{border-right:0;border-bottom:1px dashed #c7cedb;padding:8px 0;width:100%}
-  .revfields .rvf:first-child{padding-top:0}
-  .revfields .rvf:last-child{border-bottom:0;padding-bottom:0}
-  .revfields .rvf .field-input{max-width:none}
-  .revside{align-items:stretch;width:100%}
-  .revside-top{justify-content:space-between}
-  .revside-actions{justify-content:flex-start;flex-wrap:wrap}
+  /* Review / client-Suggest rows stack via the container query on .revrow (fires on phones
+     and narrow MDI windows alike); on a phone also let the action buttons fill the width. */
   .revside-actions .btn{flex:1 1 auto;justify-content:center}
 
   /* Slimmer page gutters so content isn't pinched on a narrow screen. */

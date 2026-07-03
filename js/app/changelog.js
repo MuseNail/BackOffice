@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.70.5', items: [
+    { icon: 'view_column', t: 'Fields stop overlapping when a window is narrow', d: 'When you dragged the Review window narrow, its Vendor / Account / Invoice / Note boxes used to squeeze together until they overlapped and became unusable. They now wrap onto their own lines as the window shrinks — four across on a wide window, then two, then one — so they stay readable at any size. Windows also have a sensible minimum width now (Review and the Muse-sync Settings window are a little wider) so you can’t accidentally drag one small enough to break its contents, and the Muse-sync mapping table scrolls sideways instead of getting clipped.' },
+  ] },
   { v: '0.70.4', items: [
     { icon: 'cloud_done', t: '“Saved” confirmation, and no more flashing sync warning', d: 'When a transaction or change actually reaches the server, a small green “Saved” pill briefly appears at the bottom — so you know it stuck, not just that it was entered. The orange/red bar now only shows for a real problem (you’re offline, a write was refused, or something’s been stuck more than a couple seconds), instead of flashing on every routine save. And “Sync now” now also retries anything that was previously refused, so a stuck batch is one tap to clear.' },
   ] },

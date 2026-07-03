@@ -63,7 +63,10 @@ export function openView(name, detail, force = false) {
 
 function makeWindow(name, detail, meta) {
   const W = workspace.clientWidth || 900, H = workspace.clientHeight || 560;
-  const w = Math.min(980, Math.max(360, W - 40));
+  // Per-window minimum width (from the view meta) so field-bearing windows (Review, the
+  // Muse-sync Settings) can't be dragged narrow enough to crush their fields. Default 360.
+  const minW = Math.max(340, meta.minW || 360);
+  const w = Math.min(980, Math.max(minW, W - 40));
   const h = Math.min(600, Math.max(260, H - 56));
   const off = (cascade++ % 6) * 28;
   let x = Math.min(16 + off, Math.max(0, W - w));
@@ -78,7 +81,7 @@ function makeWindow(name, detail, meta) {
   const bar = el('div', { class: 'mdi-bar' }, ticon, title, el('span', { class: 'mdi-spacer' }), bMin, bMax, bClose);
   const node = el('div', { class: 'mdi-win', style: `left:${x}px;top:${y}px;width:${w}px;height:${h}px` }, bar, body);
 
-  const state = { name, detail, el: node, body, bar, bMax, view: meta.view, title: meta.title || name, icon: meta.icon || 'tab', max: false, min: false, prev: null };
+  const state = { name, detail, el: node, body, bar, bMax, view: meta.view, title: meta.title || name, icon: meta.icon || 'tab', minW, max: false, min: false, prev: null };
   node.addEventListener('pointerdown', () => focus(state), true);
   bMin.addEventListener('click', (e) => { e.stopPropagation(); minimize(state); });
   bMax.addEventListener('click', (e) => { e.stopPropagation(); toggleMax(state); });
@@ -199,7 +202,7 @@ function wireResize(w, handle, dir) {
   });
   handle.addEventListener('pointermove', (e) => {
     if (!on) return;
-    const W = workspace.clientWidth, H = workspace.clientHeight, MINW = 300, MINH = 180;
+    const W = workspace.clientWidth, H = workspace.clientHeight, MINW = w.minW || 360, MINH = 180;
     const dx = e.clientX - sx, dy = e.clientY - sy;
     let nx = x0, ny = y0, nw = w0, nh = h0;
     if (dir.includes('e')) nw = Math.max(MINW, Math.min(W - x0, w0 + dx));
