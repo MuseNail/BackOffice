@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.70.2', items: [
+    { icon: 'check_box_outline_blank', t: 'Easier-to-see field outlines', d: 'Every fillable box — text fields, dropdowns, the inline ledger cells, date buttons, and search boxes — now has a darker, more visible outline so it’s easy to tell where you can type. The blue highlight when you click into a field is unchanged.' },
+  ] },
   { v: '0.70.1', items: [
     { icon: 'cloud_off', t: 'Offline work no longer gets stuck (and you’ll know when you’re offline)', d: 'Fixed a bug where work done right after the app auto-signed-out could get queued without a business attached, which jammed the whole sync queue — so nothing after it saved, even though the little status pill still said “Synced.” Now every change is routed reliably, one bad item can never freeze the queue, and a big banner appears at the bottom of the screen whenever you’re offline or have changes waiting — with a “Sync now” button. The corner pill also shows a count (e.g. “Unsynced · 3”) so it can’t quietly say “Synced” while work is waiting.' },
   ] },
