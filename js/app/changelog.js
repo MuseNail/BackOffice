@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.71.2', items: [
+    { icon: 'event', t: 'AI invoice matching now weighs dates', d: 'The “✨ Suggest matches with AI” matcher now sees each invoice’s date and paid date, not just the client and amount — so it won’t suggest an invoice that’s months away from when the payment happened. Date closeness is a strong signal now: a many-months gap lowers confidence or drops the match even when the name fits (with a little slack for payments made while the document was still an estimate).' },
+  ] },
   { v: '0.71.1', items: [
     { icon: 'table_view', t: 'Reconcile income table reads cleaner', d: 'On the “Reconcile Invoice2go income” screen, a picked invoice now shows its number first (e.g. “#4208 · Teena Ambrose”) instead of scrolling off to the amount, the dialog is wider so the columns aren’t cramped, and the client and amount columns are better proportioned.' },
   ] },

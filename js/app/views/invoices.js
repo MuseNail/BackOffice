@@ -239,7 +239,7 @@ function reconcileIncomeModal() {
     try {
       const invs = entities('invoice');
       const payments = rowsCtx.slice(0, 40).map(c => ({ id: c.txn.id, date: c.txn.date, payee: c.txn.payee, amountCents: c.amt }));
-      const invoices = invs.map(i => ({ id: i.id, number: i.number, clientName: i.clientName, totalCents: i.totalCents }));
+      const invoices = invs.map(i => ({ id: i.id, number: i.number, clientName: i.clientName, totalCents: i.totalCents, date: i.date, datePaid: i.datePaid }));
       const res = await api(`/b/${getActiveBiz()}/ai/match-invoices`, { method: 'POST', body: JSON.stringify({ payments, invoices }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {

@@ -178,7 +178,14 @@ const MATCH_SCHEMA = {
   additionalProperties: false,
 };
 
-const MATCH_SYSTEM = `You match customer PAYMENTS to the OPEN INVOICE they most likely paid. For each payment you get an id, a date, an amount, and a description (usually the payer's name, often noisy — e.g. "Zelle payment from PALANIAPPAN KARUPPAN BACm3036p7sr" means the payer is "Palaniappan Karuppan"). You also get the business's invoices, each with an id, number, client name, and total. For each payment pick the single invoiceId whose CLIENT NAME best matches the payer in the description. Use the amount as a secondary signal: a payment may equal the invoice total, or be a PARTIAL payment / one of several installments toward a larger invoice — so an amount smaller than the total is still plausible when the name matches. Return invoiceId null when no invoice's client plausibly matches — never force a match. confidence is 0-100: 90+ only when the client name clearly matches; below 60 means you are mostly guessing. reason: one short sentence citing the matched name and how the amount relates (e.g. "Palaniappan Karuppan matches #4021; $2,000 is a partial payment of the $8,000 total").`;
+const MATCH_SYSTEM = `You match customer PAYMENTS to the OPEN INVOICE they most likely paid. For each payment you get an id, a date, an amount, and a description (usually the payer's name, often noisy — e.g. "Zelle payment from PALANIAPPAN KARUPPAN BACm3036p7sr" means the payer is "Palaniappan Karuppan"). You also get the business's invoices, each with an id, number, client name, total, and dates: "date" = when the invoice was issued and "paidDate" = when it was marked paid (either may be blank).
+
+For each payment pick the single invoiceId that best fits ALL of these signals:
+1) CLIENT NAME — the payer in the description should clearly match the invoice's client. This is the primary signal.
+2) AMOUNT — a payment may equal the invoice total, or be a PARTIAL payment / one of several installments toward a larger invoice, so an amount smaller than the total is still plausible when the name matches.
+3) DATE — the payment date should be CLOSE to the invoice's date or paidDate, normally within about two months. A gap of MANY months (in either direction) is a strong sign it is the WRONG invoice even when the name matches — lower the confidence or return null. A payment can fall a little BEFORE the invoice date (an estimate was paid before it became an invoice), so a small negative gap is fine; a gap of many months is not.
+
+Return invoiceId null when no invoice's client plausibly matches, or when the only name matches are far off in date — never force a match. confidence is 0-100: 90+ only when the client name clearly matches AND the date is close; below 60 means you are mostly guessing. reason: one short sentence citing the matched name, the amount relationship, and the date closeness (e.g. "Palaniappan Karuppan matches #4021; $2,000 is a partial payment of the $8,000 total; invoice paid 2026-05-10, near the payment date").`;
 
 export async function handleMatchInvoices(req, env, bizId) {
   const stub = env.BUSINESS_DO.get(env.BUSINESS_DO.idFromName(bizId));
@@ -208,6 +215,7 @@ export async function handleMatchInvoices(req, env, bizId) {
     invoices: invoices.slice(0, MATCH_MAX_INVOICES).map(i => ({
       id: String(i.id), number: String(i.number || ''),
       client: String(i.clientName || '').slice(0, 120), total: (i.totalCents || 0) / 100,
+      date: String(i.date || '').slice(0, 10), paidDate: String(i.datePaid || '').slice(0, 10),
     })),
   };
 
