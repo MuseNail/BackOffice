@@ -210,6 +210,8 @@ function untaggedIncome() {
 // payment id. Idempotent — safe to run after each weekly import; never changes amounts.
 function reconcileIncomeModal() {
   const m = modal('Reconcile Invoice2go income');
+  // Dense 5-column table (with an invoice picker per row) needs more room than the 510px default.
+  if (m.body.parentElement) m.body.parentElement.style.width = '760px';
   const stat = (l, v) => el('div', { style: 'flex:1;background:var(--fill);border-radius:10px;padding:9px 12px' },
     el('div', { class: 'sub', style: 'margin:0' }, l), el('div', { style: 'font-size:1.3em;font-weight:800' }, v));
   const closeRow = () => el('div', { style: 'display:flex;justify-content:flex-end;margin-top:12px' }, el('button', { class: 'btn', onclick: m.close }, 'Close'));
@@ -311,7 +313,7 @@ function reconcileIncomeModal() {
       for (const r of review.slice(0, 200)) {
         const { groups, single } = invGroups(r.txn.payee, invs);
         const sug = aiResults.get(r.txn.id);
-        const cb = combobox({ groups, value: sug?.invoiceId || (single ? single.id : ''), placeholder: 'Search invoices…', minWidth: 0, emptyText: 'No matching invoice — import it first' });
+        const cb = combobox({ groups, value: sug?.invoiceId || (single ? single.id : ''), placeholder: 'Search invoices…', minWidth: 0, emptyText: 'No matching invoice — import it first', scrollToEnd: false });
         cb.style.cssText = 'width:100%;min-width:0';
         rowsCtx.push({ txn: r.txn, amt: r.amt, cb });
         const hint = sug ? el('span', { title: sug.reason || '', style: 'display:inline-flex;align-items:center;gap:5px' }, confPill(sug.confidence), sug.reason ? el('span', { class: 'sub', style: 'margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px' }, sug.reason) : el('span'))
@@ -324,7 +326,10 @@ function reconcileIncomeModal() {
           el('td', {}, el('button', { class: 'btn sm', onclick: () => linkOne(r.txn, cb.value) }, 'Link'))));
       }
       m.body.append(el('div', { class: 'card', style: 'padding:0' },
-        el('table', { class: 'data xl' },
+        el('table', { class: 'data xl', style: 'table-layout:fixed;width:100%' },
+          el('colgroup', {},
+            el('col', { style: 'width:82px' }), el('col', {}), el('col', { style: 'width:92px' }),
+            el('col', { style: 'width:250px' }), el('col', { style: 'width:60px' })),
           el('thead', {}, el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Client'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Match to invoice'), el('th', {}, ''))),
           tbody)));
     }

@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.71.1', items: [
+    { icon: 'table_view', t: 'Reconcile income table reads cleaner', d: 'On the “Reconcile Invoice2go income” screen, a picked invoice now shows its number first (e.g. “#4208 · Teena Ambrose”) instead of scrolling off to the amount, the dialog is wider so the columns aren’t cramped, and the client and amount columns are better proportioned.' },
+  ] },
   { v: '0.71.0', items: [
     { icon: 'link', t: 'Match unlinked income to invoices — now with AI', d: 'On the “Reconcile Invoice2go income” screen, each unlinked payment now has a searchable invoice picker and a Link button, so you can attach it to the right invoice yourself. New “✨ Suggest matches with AI” button proposes the best invoice for every row — reading the payer’s name from the description and the amount — each with a confidence %, and a “Link all at 90%+” button clears the sure ones in one click. As always, it only suggests and you approve; linking just tags the payment to its invoice and changes no totals or fees.' },
   ] },

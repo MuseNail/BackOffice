@@ -20,7 +20,7 @@
 //   emptyText:   the "no matches" line (default 'No matches')
 import { el } from './ui.js';
 
-export function combobox({ groups = [], value = '', text = '', placeholder = '— pick —', onAdd = null, onAddText = null, addLabel = 'Add…', minWidth = 190, freeText = false, emptyText = 'No matches' } = {}) {
+export function combobox({ groups = [], value = '', text = '', placeholder = '— pick —', onAdd = null, onAddText = null, addLabel = 'Add…', minWidth = 190, freeText = false, emptyText = 'No matches', scrollToEnd = true } = {}) {
   const flat = [];
   for (const g of groups) for (const it of g.items) flat.push(it);
   const labelFor = (v) => flat.find(x => x.value === v)?.label || '';
@@ -47,7 +47,7 @@ export function combobox({ groups = [], value = '', text = '', placeholder = '�
   const setDisplay = () => {
     input.value = current ? labelFor(current) : pendingText;
     input.title = input.value;
-    if (input.value) setTimeout(() => { if (document.activeElement !== input) input.scrollLeft = input.scrollWidth; }, 0);
+    if (input.value && scrollToEnd) setTimeout(() => { if (document.activeElement !== input) input.scrollLeft = input.scrollWidth; }, 0);
   };
   setDisplay();
 
