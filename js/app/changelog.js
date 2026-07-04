@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.71.0', items: [
+    { icon: 'link', t: 'Match unlinked income to invoices — now with AI', d: 'On the “Reconcile Invoice2go income” screen, each unlinked payment now has a searchable invoice picker and a Link button, so you can attach it to the right invoice yourself. New “✨ Suggest matches with AI” button proposes the best invoice for every row — reading the payer’s name from the description and the amount — each with a confidence %, and a “Link all at 90%+” button clears the sure ones in one click. As always, it only suggests and you approve; linking just tags the payment to its invoice and changes no totals or fees.' },
+  ] },
   { v: '0.70.11', items: [
     { icon: 'arrow_back', t: '“← Back” links now work from drill-down screens', d: 'Going back from a detail screen to its list — like “← Invoices” on the Reconcile Invoice2go screen, or backing out of a single invoice — did nothing, because the window didn’t refresh when returning to the base list. Back links now take you where they say.' },
   ] },

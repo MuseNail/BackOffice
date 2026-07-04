@@ -1,7 +1,7 @@
 // ── Back Office Worker — router + session auth (kickoff 3b) ────────────────
 import { BusinessDO } from './do/business.js';
 import { RegistryDO } from './do/registry.js';
-import { handleCategorize } from './routes/ai.js';
+import { handleCategorize, handleMatchInvoices } from './routes/ai.js';
 import { handleSyncInbound } from './routes/sync.js';
 import { handleHelcimTransactions, handleHelcimBatches } from './routes/processors.js';
 import { handlePlaidLinkToken, handlePlaidExchange, handlePlaidMap, handlePlaidSync, handlePlaidDisconnect } from './routes/plaid.js';
@@ -101,6 +101,7 @@ export default {
       if (!role) return json({ error: 'forbidden' }, 403);
       // suggestions are read-only — any member may ask; nothing is written
       if (m[2] === '/ai/categorize' && req.method === 'POST') return withCors(await handleCategorize(req, env, bizId));
+      if (m[2] === '/ai/match-invoices' && req.method === 'POST') return withCors(await handleMatchInvoices(req, env, bizId));
       // A client's category/vendor/invoice/note SUGGESTION — a NARROW write any member
       // may make (the DO merges ONLY the suggestion fields onto the staged row). This is
       // the one write a `client`/`viewer` is allowed; it runs before the read-only gate.

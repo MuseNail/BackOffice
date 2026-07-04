@@ -148,3 +148,122 @@ export async function handleCategorize(req, env, bizId) {
 
   return json({ suggestions, usage });
 }
+
+// ── route: /b/:biz/ai/match-invoices — Claude-suggested invoice matches ────────
+// Match unlinked income PAYMENTS to the OPEN INVOICE they most likely paid, by the
+// payer name in the description + amount. Same guardrails as categorize: suggest
+// only (the user links each), API key stays here, spend recorded in the books.
+const MATCH_MAX_PAYMENTS = 40;
+const MATCH_MAX_INVOICES = 400;
+
+const MATCH_SCHEMA = {
+  type: 'object',
+  properties: {
+    suggestions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          invoiceId: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+          confidence: { type: 'integer' },
+          reason: { type: 'string' },
+        },
+        required: ['id', 'invoiceId', 'confidence', 'reason'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['suggestions'],
+  additionalProperties: false,
+};
+
+const MATCH_SYSTEM = `You match customer PAYMENTS to the OPEN INVOICE they most likely paid. For each payment you get an id, a date, an amount, and a description (usually the payer's name, often noisy — e.g. "Zelle payment from PALANIAPPAN KARUPPAN BACm3036p7sr" means the payer is "Palaniappan Karuppan"). You also get the business's invoices, each with an id, number, client name, and total. For each payment pick the single invoiceId whose CLIENT NAME best matches the payer in the description. Use the amount as a secondary signal: a payment may equal the invoice total, or be a PARTIAL payment / one of several installments toward a larger invoice — so an amount smaller than the total is still plausible when the name matches. Return invoiceId null when no invoice's client plausibly matches — never force a match. confidence is 0-100: 90+ only when the client name clearly matches; below 60 means you are mostly guessing. reason: one short sentence citing the matched name and how the amount relates (e.g. "Palaniappan Karuppan matches #4021; $2,000 is a partial payment of the $8,000 total").`;
+
+export async function handleMatchInvoices(req, env, bizId) {
+  const stub = env.BUSINESS_DO.get(env.BUSINESS_DO.idFromName(bizId));
+
+  const gate = await (await stub.fetch('https://do/b/x/_ai/check')).json();
+  if (gate.paused) return json({ error: 'ai_paused' }, 403);
+  if (gate.budgetMicros > 0 && gate.spentMicros >= gate.budgetMicros) {
+    return json({ error: 'ai_budget_reached', spentMicros: gate.spentMicros, budgetMicros: gate.budgetMicros }, 403);
+  }
+  if (!env.ANTHROPIC_API_KEY) return json({ error: 'ai_not_configured' }, 501);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'bad request' }, 400); }
+  const { payments, invoices } = body || {};
+  if (!Array.isArray(payments) || !payments.length || payments.length > MATCH_MAX_PAYMENTS || !Array.isArray(invoices) || !invoices.length) {
+    return json({ error: `bad request — 1..${MATCH_MAX_PAYMENTS} payments + invoices required` }, 400);
+  }
+  const invIds = new Set(invoices.map(i => String(i.id)));
+
+  const payload = {
+    payments: payments.map(p => ({
+      id: String(p.id),
+      description: String(p.payee || '').slice(0, 200),
+      amount: (p.amountCents || 0) / 100,
+      date: p.date,
+    })),
+    invoices: invoices.slice(0, MATCH_MAX_INVOICES).map(i => ({
+      id: String(i.id), number: String(i.number || ''),
+      client: String(i.clientName || '').slice(0, 120), total: (i.totalCents || 0) / 100,
+    })),
+  };
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: env.AI_MODEL || 'claude-opus-4-8',
+      max_tokens: 4000,
+      system: MATCH_SYSTEM,
+      tools: [{ name: 'suggest_invoice_matches', description: 'Return the best invoice match for each payment', input_schema: MATCH_SCHEMA }],
+      tool_choice: { type: 'tool', name: 'suggest_invoice_matches' },
+      messages: [{ role: 'user', content: JSON.stringify(payload) }],
+    }),
+  });
+
+  if (!res.ok) {
+    const raw = await res.text().catch(() => '');
+    console.error('[ai] anthropic', res.status, raw);
+    let type = '', message = '';
+    try { const e = JSON.parse(raw)?.error; type = e?.type || ''; message = String(e?.message || '').slice(0, 300); }
+    catch { message = raw.slice(0, 300); }
+    return json({ error: 'ai_failed', upstream: res.status, type, message }, 502);
+  }
+
+  const data = await res.json();
+  let parsed;
+  try {
+    parsed = data.content?.find(b => b.type === 'tool_use')?.input;
+    if (!parsed) throw new Error('no tool_use block');
+  } catch { return json({ error: 'ai_failed', upstream: 200, type: 'no_tool_use', message: 'model returned no suggestions block' }, 502); }
+
+  const payIds = new Set(payload.payments.map(p => p.id));
+  const suggestions = (parsed.suggestions || [])
+    .filter(s => payIds.has(s.id) && (s.invoiceId === null || invIds.has(s.invoiceId)))
+    .map(s => ({ id: s.id, invoiceId: s.invoiceId, confidence: Math.max(0, Math.min(100, s.confidence | 0)), reason: (typeof s.reason === 'string' ? s.reason.trim().slice(0, 200) : '') }));
+
+  const model = env.AI_MODEL || 'claude-opus-4-8';
+  const usage = data.usage || {};
+  const price = PRICES[model] || PRICES['claude-opus-4-8'];
+  const costMicros = Math.round((usage.input_tokens || 0) * price.in + (usage.output_tokens || 0) * price.out);
+  await stub.fetch('https://do/b/x/state', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ op: 'entity.upsert', kind: 'aiusage', value: {
+      id: 'ai-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      month: new Date().toISOString().slice(0, 7),
+      at: Date.now(), model, rows: payload.payments.length,
+      inputTokens: usage.input_tokens || 0, outputTokens: usage.output_tokens || 0,
+      costMicros, updatedAt: Date.now(),
+    } }),
+  });
+
+  return json({ suggestions, usage });
+}

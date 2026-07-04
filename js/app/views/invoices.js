@@ -5,7 +5,8 @@
 // does not post.
 import { el, clear, toast, fmtMoney, acctAmount, prettyDesc, modal } from '../ui.js';
 import { entities, subscribe, getState, usesInvoices } from '../store.js';
-import { dispatch } from '../sync.js';
+import { dispatch, api } from '../sync.js';
+import { combobox } from '../combobox.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseInvoices } from '../lib/invoice2go.js';
 import { buildCashflowImport, cashflowPaymentTxnId, parseBundleInvoices } from '../lib/i2g-cashflow.js';
@@ -212,9 +213,76 @@ function reconcileIncomeModal() {
   const stat = (l, v) => el('div', { style: 'flex:1;background:var(--fill);border-radius:10px;padding:9px 12px' },
     el('div', { class: 'sub', style: 'margin:0' }, l), el('div', { style: 'font-size:1.3em;font-weight:800' }, v));
   const closeRow = () => el('div', { style: 'display:flex;justify-content:flex-end;margin-top:12px' }, el('button', { class: 'btn', onclick: m.close }, 'Close'));
+
+  const norm = s => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const toks = s => new Set(norm(s).split(' ').filter(w => w.length > 2));
+  const overlaps = (a, b) => { const B = toks(b); for (const w of toks(a)) if (B.has(w)) return true; return false; };
+  const confPill = (c) => el('span', { class: 'pill ' + (c >= 90 ? 'green' : c >= 60 ? 'amber' : 'gray'), style: 'white-space:nowrap' }, `✨ ${c}%`);
+
+  const aiResults = new Map();   // txnId -> { invoiceId, confidence, reason }
+  let aiBusy = false;
+  let rowsCtx = [];              // [{ txn, amt, cb }] for the current render — AI + bulk read these live
+
+  const linkOne = (txn, invoiceId) => {
+    if (!invoiceId) { toast('Pick an invoice first', 'err'); return; }
+    dispatch({ op: 'entity.upsert', kind: 'txn', value: { ...txn, invoiceId, updatedAt: Date.now() } });
+    aiResults.delete(txn.id);
+    toast('Linked to invoice');
+    render();
+  };
+
+  const askAI = async () => {
+    if (aiBusy || !rowsCtx.length) return;
+    aiBusy = true; render();
+    try {
+      const invs = entities('invoice');
+      const payments = rowsCtx.slice(0, 40).map(c => ({ id: c.txn.id, date: c.txn.date, payee: c.txn.payee, amountCents: c.amt }));
+      const invoices = invs.map(i => ({ id: i.id, number: i.number, clientName: i.clientName, totalCents: i.totalCents }));
+      const res = await api(`/b/${getActiveBiz()}/ai/match-invoices`, { method: 'POST', body: JSON.stringify({ payments, invoices }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = data.error === 'ai_budget_reached' ? 'Monthly AI budget reached — raise it in Settings to keep going.'
+          : data.error === 'ai_paused' ? 'AI is paused in Settings.'
+          : data.error === 'ai_not_configured' ? 'AI isn’t set up yet (no API key).'
+          : data.message ? `AI error: ${data.message}` : 'The AI matcher couldn’t run — try again.';
+        toast(msg, 'err'); aiBusy = false; render(); return;
+      }
+      for (const s of (data.suggestions || [])) if (s.invoiceId) aiResults.set(s.id, s);
+      const n = (data.suggestions || []).filter(s => s.invoiceId).length;
+      toast(n ? `AI suggested ${n} match${n === 1 ? '' : 'es'} — review and link` : 'AI found no confident matches');
+      aiBusy = false; render();
+    } catch { toast('Couldn’t reach the AI matcher — try again', 'err'); aiBusy = false; render(); }
+  };
+
+  const linkHighConf = () => {
+    const hi = rowsCtx.filter(c => { const s = aiResults.get(c.txn.id); return s && s.invoiceId && s.confidence >= 90; });
+    if (!hi.length) return;
+    if (!confirm(`Link ${hi.length} high-confidence match${hi.length === 1 ? '' : 'es'} (90%+) to their invoices? You can change any of them afterward — this only tags them, no totals move.`)) return;
+    const vals = hi.map(c => ({ ...c.txn, invoiceId: aiResults.get(c.txn.id).invoiceId, updatedAt: Date.now() }));
+    for (let i = 0; i < vals.length; i += 200) dispatch({ op: 'entity.bulkUpsert', kind: 'txn', values: vals.slice(i, i + 200) });
+    hi.forEach(c => aiResults.delete(c.txn.id));
+    toast(`Linked ${vals.length} payment${vals.length === 1 ? '' : 's'}`);
+    render();
+  };
+
+  // Candidate invoices for one payment: those whose client name shares a word with the
+  // payer in the description ("Likely matches"), then every invoice (searchable) so a
+  // near-miss name can still be found by hand.
+  const invGroups = (payee, invs) => {
+    const opt = i => ({ value: i.id, label: `#${i.number || i.id} · ${i.clientName || '—'} · ${fmtMoney(i.totalCents || 0)}` });
+    const likely = invs.filter(i => i.clientName && overlaps(i.clientName, payee));
+    const likelyIds = new Set(likely.map(i => i.id));
+    const rest = invs.filter(i => !likelyIds.has(i.id));
+    const groups = [];
+    if (likely.length) groups.push({ label: 'Likely matches', items: likely.map(opt) });
+    if (rest.length) groups.push({ label: likely.length ? 'All invoices' : '', items: rest.map(opt) });
+    return { groups, single: likely.length === 1 ? likely[0] : null };
+  };
+
   const render = () => {
     const { auto, review } = untaggedIncome();
     clear(m.body);
+    rowsCtx = [];
     if (!auto.length && !review.length) { m.body.append(el('p', { class: 'sub' }, 'All Invoice2go income is linked to an invoice. ✓'), closeRow()); return; }
     const total = [...auto, ...review].reduce((a, x) => a + x.amt, 0);
     m.body.append(
@@ -233,21 +301,32 @@ function reconcileIncomeModal() {
           render();
         } }, `Link ${auto.length} payment${auto.length === 1 ? '' : 's'}`)));
     if (review.length) {
-      const norm = s => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
-      const invs = entities('invoice');
-      m.body.append(
-        el('div', { style: 'font-weight:800;margin:6px 0 6px' }, `${review.length} need your review`),
-        el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
-          el('table', { class: 'data xl' },
-            el('thead', {}, el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Client'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Why'))),
-            el('tbody', {}, ...review.slice(0, 200).map(r => {
-              const named = invs.filter(i => norm(i.clientName) && norm(i.clientName) === norm(r.txn.payee));
-              const why = named.length > 1 ? `${named.length} possible invoices` : named.length === 1 ? `verify #${named[0].number}` : 'no invoice in Back Office';
-              return el('tr', {},
-                el('td', {}, r.txn.date || '—'), el('td', {}, prettyDesc(r.txn.payee) || '—'),
-                el('td', { class: 'num' }, acctAmount(r.amt, { colored: false })),
-                el('td', {}, el('span', { class: 'pill ' + (named.length ? 'amber' : 'gray') }, why)));
-            })))));
+      const invs = entities('invoice').slice().sort((a, b) => String(b.number || '').localeCompare(String(a.number || '')));
+      const hiCount = review.filter(r => { const s = aiResults.get(r.txn.id); return s && s.invoiceId && s.confidence >= 90; }).length;
+      m.body.append(el('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 8px' },
+        el('div', { style: 'font-weight:800;flex:1' }, `${review.length} need your review`),
+        el('button', { class: 'btn sm', disabled: aiBusy, onclick: askAI }, aiBusy ? '✨ Asking Claude…' : '✨ Suggest matches with AI'),
+        hiCount ? el('button', { class: 'btn sm green', onclick: linkHighConf }, `Link all ${hiCount} at 90%+`) : el('span')));
+      const tbody = el('tbody');
+      for (const r of review.slice(0, 200)) {
+        const { groups, single } = invGroups(r.txn.payee, invs);
+        const sug = aiResults.get(r.txn.id);
+        const cb = combobox({ groups, value: sug?.invoiceId || (single ? single.id : ''), placeholder: 'Search invoices…', minWidth: 0, emptyText: 'No matching invoice — import it first' });
+        cb.style.cssText = 'width:100%;min-width:0';
+        rowsCtx.push({ txn: r.txn, amt: r.amt, cb });
+        const hint = sug ? el('span', { title: sug.reason || '', style: 'display:inline-flex;align-items:center;gap:5px' }, confPill(sug.confidence), sug.reason ? el('span', { class: 'sub', style: 'margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px' }, sug.reason) : el('span'))
+          : el('span', { class: 'sub', style: 'margin:0' }, single ? 'name match' : '');
+        tbody.append(el('tr', {},
+          el('td', { style: 'white-space:nowrap' }, r.txn.date || '—'),
+          el('td', {}, prettyDesc(r.txn.payee) || '—'),
+          el('td', { class: 'num' }, acctAmount(r.amt, { colored: false })),
+          el('td', { style: 'min-width:210px' }, el('div', { style: 'display:flex;flex-direction:column;gap:3px' }, cb, hint)),
+          el('td', {}, el('button', { class: 'btn sm', onclick: () => linkOne(r.txn, cb.value) }, 'Link'))));
+      }
+      m.body.append(el('div', { class: 'card', style: 'padding:0' },
+        el('table', { class: 'data xl' },
+          el('thead', {}, el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Client'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Match to invoice'), el('th', {}, ''))),
+          tbody)));
     }
     m.body.append(el('p', { class: 'sub', style: 'margin-top:12px' }, 'Income totals are unaffected — this only links payments to their invoices.'), closeRow());
   };
