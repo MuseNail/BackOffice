@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.71.3', items: [
+    { icon: 'account_balance', t: 'Match “other income” deposits to invoices — with AI', d: 'On the “Reconcile Invoice2go to the bank” screen, the “bank deposits that aren’t Invoice2go (other income)” list now lets you match each deposit — Zelle, checks, anything paid outside Invoice2go — to the invoice it paid. Pick the invoice yourself, or hit “✨ Suggest invoice matches with AI” to have it propose one by payer name, amount, and date. Accepting a match records that deposit as income (to the same income account your Invoice2go payments use) and links it to the invoice — with a confirmation showing the account and total first. “Post all at 90%+” clears the confident ones at once, and once matched a deposit drops off the list. Deposits that aren’t invoice payments stay put — categorize those in Review as usual.' },
+  ] },
   { v: '0.71.2', items: [
     { icon: 'event', t: 'AI invoice matching now weighs dates', d: 'The “✨ Suggest matches with AI” matcher now sees each invoice’s date and paid date, not just the client and amount — so it won’t suggest an invoice that’s months away from when the payment happened. Date closeness is a strong signal now: a many-months gap lowers confidence or drops the match even when the name fits (with a little slack for payments made while the document was still an estimate).' },
   ] },

@@ -947,6 +947,29 @@ function renderReconcile(root) {
   const body = el('div');
   root.append(el('div', { style: 'margin:10px 0 14px' }, el('label', { class: 'field-label' }, 'Bank account that receives Invoice2go deposits'), sel), body);
 
+  // AI "match a bank deposit → the invoice it paid" state, kept across redraws.
+  const aiResults = new Map();   // depositId -> { invoiceId, confidence, reason }
+  let aiBusy = false;
+  const norm = s => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const toks = s => new Set(norm(s).split(' ').filter(w => w.length > 2));
+  const confPill = c => el('span', { class: 'pill ' + (c >= 90 ? 'green' : c >= 60 ? 'amber' : 'gray'), style: 'white-space:nowrap' }, `✨ ${c}%`);
+  const aiErrMsg = data => data.error === 'ai_budget_reached' ? 'Monthly AI budget reached — raise it in Settings to keep going.'
+    : data.error === 'ai_paused' ? 'AI is paused in Settings.'
+    : data.error === 'ai_not_configured' ? 'AI isn’t set up yet (no API key).'
+    : data.message ? `AI error: ${data.message}` : 'The AI matcher couldn’t run — try again.';
+  const invGroups = (payee, invs) => {
+    const B = toks(payee);
+    const overlaps = name => { for (const w of toks(name)) if (B.has(w)) return true; return false; };
+    const opt = i => ({ value: i.id, label: `#${i.number || i.id} · ${i.clientName || '—'} · ${fmtMoney(i.totalCents || 0)}` });
+    const likely = invs.filter(i => i.clientName && overlaps(i.clientName));
+    const likelyIds = new Set(likely.map(i => i.id));
+    const rest = invs.filter(i => !likelyIds.has(i.id));
+    const groups = [];
+    if (likely.length) groups.push({ label: 'Likely matches', items: likely.map(opt) });
+    if (rest.length) groups.push({ label: likely.length ? 'All invoices' : '', items: rest.map(opt) });
+    return { groups, single: likely.length === 1 ? likely[0] : null };
+  };
+
   const draw = () => {
     const bank = banks.find(b => b.id === bankId), acct = bank.accountId;
     // Scope to the app-owned period (Invoice2go start date) — earlier deposits belong to
@@ -954,7 +977,7 @@ function renderReconcile(root) {
     const cutoff = getState().meta?.i2gCutoff || '2026-03-01';
     // deposits = money IN on this bank, on/after the cutoff: posted txns + newly imported (staged) rows
     const posted = entities('txn').filter(t => t.status === 'posted' && !/^(i2gc-|i2gpo-)/.test(t.id) && (t.date || '') >= cutoff)
-      .map(t => ({ id: t.id, date: t.date, amountCents: (t.lines || []).reduce((s, l) => s + (l.accountId === acct ? l.amountCents : 0), 0), kind: 'posted', payee: t.payee || '—' }))
+      .map(t => ({ id: t.id, date: t.date, amountCents: (t.lines || []).reduce((s, l) => s + (l.accountId === acct ? l.amountCents : 0), 0), kind: 'posted', payee: t.payee || '—', invoiceId: t.invoiceId || '' }))
       .filter(d => d.amountCents > 0);
     const staged = entities('staged').filter(s => s.bankacctId === bankId && s.status === 'pending' && (s.amountCents || 0) > 0 && (s.date || '') >= cutoff)
       .map(s => ({ id: s.id, date: s.date, amountCents: s.amountCents, kind: 'new', payee: s.desc || '—' }));
@@ -992,20 +1015,108 @@ function renderReconcile(root) {
       draw();
     };
 
+    // ── "Other income" → match each non-Invoice2go deposit to the invoice it paid ──
+    const incomeId = getState().meta?.i2gMapping?.incomeId;
+    const incomeName = (entities('account').find(a => a.id === incomeId) || {}).name || 'invoice income';
+    const invs = entities('invoice').slice().sort((a, b) => String(b.number || '').localeCompare(String(a.number || '')));
+    // Needs-attention list: drop deposits already linked to an invoice (posted + tagged).
+    const otherIncome = unmatchedDeposits.filter(d => !d.invoiceId).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const linkedCount = unmatchedDeposits.length - otherIncome.length;
+
+    // Posting a matched deposit RECOGNIZES the income (these were never on the books) to the
+    // invoice-income account and tags the invoice. Already-posted deposits are only tagged.
+    const postDeposit = (dep, invoiceId, { quiet = false } = {}) => {
+      if (!invoiceId) { toast('Pick an invoice first', 'err'); return false; }
+      const inv = invs.find(i => i.id === invoiceId);
+      if (dep.kind === 'new') {
+        if (!incomeId) { toast('Set the invoice income account first (Invoices → Import card).', 'err'); return false; }
+        if (!quiet && !confirm(`Post ${fmtMoney(Math.abs(dep.amountCents))} as income to “${incomeName}” and link it to invoice #${inv?.number || '?'}?`)) return false;
+        const row = entities('staged').find(s => s.id === dep.id);
+        if (!row || row.status !== 'pending') return false;
+        const txn = simpleTxn({ id: 't-' + row.id, date: row.date, payee: row.desc || 'Customer payment', memo: `Invoice payment — matched to #${inv?.number || ''}`, amountCents: Math.abs(row.amountCents), direction: 'in', bankAccountId: acct, categoryAccountId: incomeId, source: { app: 'csv', importId: row.importId, sourceId: row.id } });
+        txn.invoiceId = invoiceId;
+        if (!validateTxn(txn, ctx).ok) { toast('Could not post — the income account may be in a locked period.', 'err'); return false; }
+        dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
+        dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'approved', txnId: txn.id, categoryId: incomeId, invoiceId } });
+      } else {
+        if (!quiet && !confirm(`Link this ${fmtMoney(Math.abs(dep.amountCents))} deposit (already recorded as income) to invoice #${inv?.number || '?'}?`)) return false;
+        const t = entities('txn').find(x => x.id === dep.id);
+        if (!t) return false;
+        dispatch({ op: 'entity.upsert', kind: 'txn', value: { ...t, invoiceId, updatedAt: Date.now() } });
+      }
+      aiResults.delete(dep.id);
+      return true;
+    };
+    const postOne = (dep, invoiceId) => { if (postDeposit(dep, invoiceId)) { toast('Posted as income'); draw(); } };
+    const askAIDeposits = async () => {
+      if (aiBusy || !otherIncome.length) return;
+      aiBusy = true; draw();
+      try {
+        const payments = otherIncome.slice(0, 40).map(d => ({ id: d.id, date: d.date, payee: d.payee, amountCents: d.amountCents }));
+        const invoices = invs.map(i => ({ id: i.id, number: i.number, clientName: i.clientName, totalCents: i.totalCents, date: i.date, datePaid: i.datePaid }));
+        const res = await api(`/b/${getActiveBiz()}/ai/match-invoices`, { method: 'POST', body: JSON.stringify({ payments, invoices }) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { toast(aiErrMsg(data), 'err'); aiBusy = false; draw(); return; }
+        for (const s of (data.suggestions || [])) if (s.invoiceId) aiResults.set(s.id, s);
+        const n = (data.suggestions || []).filter(s => s.invoiceId).length;
+        toast(n ? `AI matched ${n} deposit${n === 1 ? '' : 's'} to invoices — review and post` : 'AI found no invoice matches among these');
+        aiBusy = false; draw();
+      } catch { toast('Couldn’t reach the AI matcher — try again', 'err'); aiBusy = false; draw(); }
+    };
+    const postHighConf = () => {
+      const hi = otherIncome.filter(d => { const s = aiResults.get(d.id); return s && s.invoiceId && s.confidence >= 90; });
+      if (!hi.length) return;
+      if (!incomeId) { toast('Set the invoice income account first (Invoices → Import card).', 'err'); return; }
+      const totalC = hi.reduce((s, d) => s + Math.abs(d.amountCents), 0);
+      if (!confirm(`Post ${hi.length} deposit${hi.length === 1 ? '' : 's'} (${fmtMoney(totalC)} total) as income to “${incomeName}”, each linked to its matched invoice?`)) return;
+      let n = 0;
+      for (const d of hi) if (postDeposit(d, aiResults.get(d.id).invoiceId, { quiet: true })) n++;
+      toast(`Posted ${n} deposit${n === 1 ? '' : 's'} as income`);
+      draw();
+    };
+    const otherIncomeSection = () => {
+      const hiCount = otherIncome.filter(d => { const s = aiResults.get(d.id); return s && s.invoiceId && s.confidence >= 90; }).length;
+      const head = el('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 8px' },
+        el('div', { class: 'cardtitle', style: 'flex:1;margin:0' }, `⚠️ Bank deposits that aren’t Invoice2go (other income) (${otherIncome.length})`),
+        el('button', { class: 'btn sm', disabled: aiBusy || !otherIncome.length, onclick: askAIDeposits }, aiBusy ? '✨ Asking Claude…' : '✨ Suggest invoice matches with AI'),
+        hiCount ? el('button', { class: 'btn sm green', onclick: postHighConf }, `Post all ${hiCount} at 90%+`) : el('span'));
+      if (!otherIncome.length) return el('div', { style: 'margin-bottom:16px' }, head, el('p', { class: 'sub' }, 'None — all clear. 🎉'));
+      const tbody = el('tbody');
+      for (const d of otherIncome.slice(0, 200)) {
+        const { groups, single } = invGroups(d.payee, invs);
+        const sug = aiResults.get(d.id);
+        const cb = combobox({ groups, value: sug?.invoiceId || (single ? single.id : ''), placeholder: 'Search invoices…', minWidth: 0, emptyText: 'No matching invoice — import it first', scrollToEnd: false });
+        cb.style.cssText = 'width:100%;min-width:0';
+        const hint = sug ? el('span', { title: sug.reason || '', style: 'display:inline-flex;align-items:center;gap:5px' }, confPill(sug.confidence), sug.reason ? el('span', { class: 'sub', style: 'margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px' }, sug.reason) : el('span')) : el('span', { class: 'sub', style: 'margin:0' }, single ? 'name match' : '');
+        tbody.append(el('tr', {},
+          el('td', { style: 'white-space:nowrap' }, d.date || '—'),
+          el('td', { class: 'num' }, acctAmount(d.amountCents, { colored: false })),
+          el('td', {}, prettyDesc(d.payee) || '—'),
+          el('td', {}, el('div', { style: 'display:flex;flex-direction:column;gap:3px' }, cb, hint)),
+          el('td', {}, el('button', { class: 'btn sm green', onclick: () => postOne(d, cb.value) }, d.kind === 'new' ? 'Post → link' : 'Link'))));
+      }
+      return el('div', { style: 'margin-bottom:16px' },
+        head,
+        el('p', { class: 'sub', style: 'max-width:900px;margin:0 0 8px' }, `Deposits received outside Invoice2go (Zelle, checks, etc.). Match one to the invoice it paid and it posts as income to “${incomeName}” and links to that invoice. Deposits that aren’t invoice payments — categorize as usual in Review.${otherIncome.length > 40 ? ' AI matches the first 40 at a time.' : ''}${linkedCount ? ` · ${linkedCount} already linked` : ''}`),
+        el('div', { class: 'card', style: 'padding:0' },
+          el('table', { class: 'data xl', style: 'table-layout:fixed;width:100%;max-width:900px' },
+            el('colgroup', {}, el('col', { style: 'width:92px' }), el('col', { style: 'width:100px' }), el('col', {}), el('col', { style: 'width:250px' }), el('col', { style: 'width:96px' })),
+            el('thead', {}, el('tr', {}, el('th', {}, 'Deposit date'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Description'), el('th', {}, 'Match to invoice'), el('th', {}, ''))),
+            tbody)));
+    };
+
     clear(body).append(
       el('div', { class: 'row', style: 'margin-bottom:14px' },
         kpiCard('Payouts matched', `${matches.length} / ${payouts.length}`, fmtMoney(matches.reduce((s, m) => s + m.payout.netToBankCents, 0))),
         kpiCard('Payouts not matched', String(unmatchedPayouts.length), fmtMoney(sumP(unmatchedPayouts)) + ' — investigate'),
-        kpiCard('Deposits not Invoice2go', String(unmatchedDeposits.length), fmtMoney(sumD(unmatchedDeposits)) + ' — other income')),
+        kpiCard('Deposits not Invoice2go', String(otherIncome.length), fmtMoney(sumD(otherIncome)) + ' — other income')),
       el('div', { style: 'display:flex;gap:14px;align-items:center;margin-bottom:16px;flex-wrap:wrap' },
         el('button', { class: 'btn green', disabled: !toPost.length || !clearingId, onclick: postMatches }, toPost.length ? `Post ${toPost.length} matched deposits → ${clearingName}` : 'All matched deposits posted ✓'),
         el('span', { class: 'sub' }, `${clearingName} balance: `, el('b', {}, fmtMoney(clearingBal)), ' — drains toward $0 as matches post')),
       reconTable('⚠️ Invoice2go payouts with no matching bank deposit', ['Payout date', 'Amount', 'Method'],
         unmatchedPayouts.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '')).map(p => [p.date, fmtMoney(p.netToBankCents), payoutMethodLabel(p.method)]),
         'These need either the bank statement for that period imported, or a manual match (coming next). Each should eventually tie to a real deposit.'),
-      reconTable('⚠️ Bank deposits that aren’t Invoice2go (other income)', ['Deposit date', 'Amount', 'Source', 'Description'],
-        unmatchedDeposits.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 200).map(d => [d.date, fmtMoney(d.amountCents), d.kind === 'new' ? 'new import' : 'on file', d.payee]),
-        `Deposits not explained by an Invoice2go payout — your other income, to categorize as usual.${unmatchedDeposits.length > 200 ? ' (showing the first 200)' : ''}`, true),
+      otherIncomeSection(),
       el('details', {},
         el('summary', { class: 'sub', style: 'cursor:pointer;margin-bottom:6px' }, `✅ ${matches.length} matched payouts (click to view)`),
         reconTable('', ['Payout date', 'Amount', '→ Deposit date', 'Source'],
