@@ -7,7 +7,7 @@
 //  • Fee split — a deposit where the processor kept a cut: posts gross income,
 //    the fee as its own expense, and the net into the bank, in one balanced txn.
 import { el, clear, toast, fmtMoney, acctAmount, modal, prettyDesc } from '../ui.js';
-import { entities, subscribe, getState, usesInvoices } from '../store.js';
+import { entities, subscribe, getState, usesInvoices, usesMuseSync } from '../store.js';
 import { dispatch, api } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { validateTxn, simpleTxn } from '../lib/posting.js';
@@ -342,7 +342,12 @@ function drawBody(body, editable) {
       el('button', { class: 'btn sm ghost', onclick: () => skipRow(row) }, 'Skip'),
       el('button', { class: 'btn sm ghost', title: 'Auto-categorize this vendor from now on', onclick: () => makeRuleModal(row, sel.value, vendSel.value, categories, accountsById) }, '⚡ Rule'),
       el('button', { class: 'btn sm ghost', title: 'Split this transaction across several accounts', onclick: () => splitModal(row, accountsById) }, '⊟ Split')];
-    if (row.amountCents > 0) {
+    // % Fee / $ Match are card-processor batch-deposit tools (split out the processing fee,
+    // match a payout to the day's card sales via the Muse/Helcim clearing account). Only a
+    // Muse-synced salon gets those batch deposits — an Invoice2go / direct-payment business
+    // (e.g. TIE) matches income to invoices and reconciles payouts on the dedicated Reconcile
+    // screen instead, so these buttons are just clutter there. Show them only for the salon.
+    if (row.amountCents > 0 && usesMuseSync()) {
       actions.push(el('button', { class: 'btn sm ghost', title: 'Deposit with a processing fee taken out', onclick: () => feeSplitModal(row, accountsById) }, '% Fee'));
       actions.push(el('button', { class: 'btn sm ghost', title: 'Match this deposit to recorded sales/payments', onclick: () => matchDepositModal(row, accountsById) }, '⚡$ Match'));
     }

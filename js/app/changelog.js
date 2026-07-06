@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.71.4', items: [
+    { icon: 'filter_alt_off', t: 'Less clutter on the Review screen', d: 'The “% Fee” and “⚡$ Match” buttons now appear only for businesses that take card-processor batch deposits (the salon). Those two are for splitting out a processing fee and matching a card payout to the day’s sales — they don’t apply to a business whose income is direct customer payments matched to invoices, so they’re hidden there to keep each Review row cleaner. Nothing else changes, and the buttons still work exactly the same wherever they do show.' },
+  ] },
   { v: '0.71.3', items: [
     { icon: 'account_balance', t: 'Match “other income” deposits to invoices — with AI', d: 'On the “Reconcile Invoice2go to the bank” screen, the “bank deposits that aren’t Invoice2go (other income)” list now lets you match each deposit — Zelle, checks, anything paid outside Invoice2go — to the invoice it paid. Pick the invoice yourself, or hit “✨ Suggest invoice matches with AI” to have it propose one by payer name, amount, and date. Accepting a match records that deposit as income (to the same income account your Invoice2go payments use) and links it to the invoice — with a confirmation showing the account and total first. “Post all at 90%+” clears the confident ones at once, and once matched a deposit drops off the list. Deposits that aren’t invoice payments stay put — categorize those in Review as usual.' },
   ] },
