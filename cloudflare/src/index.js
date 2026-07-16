@@ -122,6 +122,15 @@ export default {
         if (m[2] === '/plaid/sync')       return withCors(await handlePlaidSync(req, env, bizId));
         if (m[2] === '/plaid/disconnect') return withCors(await handlePlaidDisconnect(req, env, bizId));
       }
+      // The DO strips the /b/<biz> prefix, so an underscore path forwarded from here
+      // lands on its INTERNAL handlers — which assume a DO-only caller and hold secrets
+      // (/_plaid/items returns Plaid access_tokens; /_sync/inbound bypasses SYNC_TOKEN).
+      // Default-deny the namespace, like /registry/_* already does above. /_audit is the
+      // one internal read the app itself makes (settings.js Activity card), so it stays —
+      // scoped to the roles that can actually open Settings (settings.js:52/:79), since it
+      // lists every txn's payee/amount/actor.
+      if (m[2].startsWith('/_') && m[2] !== '/_audit') return json({ error: 'not found' }, 404);
+      if (m[2] === '/_audit' && role !== 'owner' && role !== 'manager') return json({ error: 'forbidden' }, 403);
       // `viewer` and `client` are read-only on the books (the /suggest narrow write
       // above is their only exception); everything else here is GET or the WebSocket.
       if ((role === 'viewer' || role === 'client') && req.method !== 'GET' && !m[2].endsWith('/ws')) return json({ error: 'read only' }, 403);

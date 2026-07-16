@@ -12,9 +12,10 @@ account_id = "7e47fe5134a4b77582cf7746bff3fb62"
 #   HELCIM_API_TOKEN  — enables GET /b/:biz/processor/helcim/transactions (M13 deposit
 #                       matching, Helcim API fallback). Same token the Muse Worker uses.
 #                       Unset = the route answers 501; books-first matching still works.
-#   PLAID_SECRET      — enables /b/:biz/plaid/* (bank feed). The Plaid Sandbox secret
-#                       while testing, then the Production secret to go live. Unset =
-#                       the routes answer 501. Set the matching PLAID_ENV var below.
+#   PLAID_SECRET      — enables /b/:biz/plaid/* (bank feed). Use the PRODUCTION secret:
+#                       these are live books and sandbox is REFUSED (routes/plaid.js has
+#                       no sandbox host — a 2026-06 sandbox feed put Plaid's demo
+#                       fixtures in the Muse ledger). Unset = the routes answer 501.
 # Optional vars: AI_MODEL (defaults to claude-opus-4-8; e.g. claude-haiku-4-5 for cheaper batches)
 
 [vars]
@@ -23,7 +24,7 @@ account_id = "7e47fe5134a4b77582cf7746bff3fb62"
 AI_MODEL = "claude-haiku-4-5"
 # Plaid bank feed (the secret is PLAID_SECRET, set via `wrangler secret put`).
 PLAID_CLIENT_ID = "6a2eb9669d3c7c000eacc5e0"
-PLAID_ENV = "production"   # live bank data — needs the PRODUCTION secret + the redirect URI registered in the Plaid dashboard
+PLAID_ENV = "production"   # the ONLY accepted value — anything else refuses the feed (501) rather than sourcing fake data. Needs the PRODUCTION secret + the redirect URI registered in the Plaid dashboard
 PLAID_REDIRECT_URI = "https://musenail.github.io/BackOffice/"
 # PLAID_WEBHOOK_URL — add when wiring webhook/cron auto-sync.
 # Web Push (bug alerts). VAPID_PUBLIC_KEY is non-secret (also shipped in the client

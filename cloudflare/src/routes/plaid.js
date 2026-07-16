@@ -3,18 +3,52 @@
 // secret). A Link token is minted here; the public_token Link returns is exchanged
 // for a long-lived access_token that is stored ONLY in the BusinessDO under a
 // server-only key (never in the client snapshot). /transactions/sync then pulls
-// settled rows that land STAGED in the same Review flow as CSV imports. PLAID_ENV
-// selects sandbox vs production. The owner connects a feed onto a bank account they
-// already created (with its ledger link), so we never auto-create orphan accounts.
+// settled rows that land STAGED in the same Review flow as CSV imports. These are
+// LIVE books, so `production` is the only env this Worker will talk to — see below.
+// The owner connects a feed onto a bank account they already created (with its
+// ledger link), so we never auto-create orphan accounts.
 
 import { shapePlaidBatch } from '../../../js/app/lib/plaid-map.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
 
-const PLAID_HOSTS = { sandbox: 'https://sandbox.plaid.com', production: 'https://production.plaid.com' };
-const plaidHost = (env) => PLAID_HOSTS[env.PLAID_ENV === 'production' ? 'production' : 'sandbox'];
-const configured = (env) => !!(env.PLAID_CLIENT_ID && env.PLAID_SECRET);
+// Sandbox is deliberately ABSENT. In 2026-06 a feed was connected while this Worker
+// resolved to sandbox, and Plaid's canned demo fixtures (Uber SF**POOL**, SparkFun,
+// United Airlines) landed in the live Muse books as real-looking transactions; five
+// were approved into the ledger before anyone noticed. Nothing here should be able to
+// pull fabricated money into real books, so there is no fake host to select.
+const PLAID_HOSTS = { production: 'https://production.plaid.com' };
+
+// The resolved env, or null if it isn't one we'll talk to. `Object.hasOwn` (not a bare
+// index) so inherited keys like 'constructor' can't resolve to a truthy non-host. Only
+// whitespace is trimmed: case is NOT folded, so a `PLAID_ENV` that doesn't match the
+// toml surfaces as a misconfiguration instead of being quietly absorbed.
+export const plaidEnv = (env) => {
+  const e = String(env.PLAID_ENV ?? '').trim();
+  return Object.hasOwn(PLAID_HOSTS, e) ? e : null;
+};
+
+// Throws rather than returning undefined: a bad env must never build a garbage URL.
+export function plaidHost(env) {
+  const e = plaidEnv(env);
+  if (!e) throw new Error(`PLAID_ENV must be one of [${Object.keys(PLAID_HOSTS).join(', ')}]; got ${JSON.stringify(env.PLAID_ENV ?? null)}`);
+  return PLAID_HOSTS[e];
+}
+
+// Credentials only — NOT the env. This gates handlePlaidDisconnect too, and a
+// misconfigured env must still let the owner detach a feed.
+export const configured = (env) => !!(env.PLAID_CLIENT_ID && env.PLAID_SECRET);
+
+// 501 for the routes that actually reach Plaid, so a bad env disables the feed loudly
+// instead of silently sourcing data from somewhere else. Logs, because the client toast
+// buckets every 501 as "not configured" — `wrangler tail` is where the cause is legible.
+const envInvalid = (env) => {
+  if (plaidEnv(env)) return null;
+  const detail = `PLAID_ENV must be one of [${Object.keys(PLAID_HOSTS).join(', ')}]; got ${JSON.stringify(env.PLAID_ENV ?? null)}`;
+  console.error('[plaid] refusing to run:', detail);
+  return json({ error: 'plaid_env_invalid', detail }, 501);
+};
 
 async function plaid(env, path, body) {
   const res = await fetch(plaidHost(env) + path, {
@@ -37,6 +71,7 @@ const toDO = (env, bizId, path, body) => stubFor(env, bizId).fetch(new Request('
 // POST /b/:biz/plaid/link-token → { link_token } — opens Plaid Link on the client.
 export async function handlePlaidLinkToken(req, env, bizId) {
   if (!configured(env)) return json({ error: 'plaid_not_configured' }, 501);
+  const bad = envInvalid(env); if (bad) return bad;
   const body = {
     client_name: 'Muse Back Office',
     language: 'en',
@@ -57,6 +92,7 @@ export async function handlePlaidLinkToken(req, env, bizId) {
 // depository accounts so the client can map one to the bank account being connected.
 export async function handlePlaidExchange(req, env, bizId) {
   if (!configured(env)) return json({ error: 'plaid_not_configured' }, 501);
+  const bad = envInvalid(env); if (bad) return bad;
   let b = {}; try { b = await req.json(); } catch {}
   const publicToken = String(b.public_token || '');
   if (!publicToken) return json({ error: 'public_token required' }, 400);
@@ -105,6 +141,7 @@ export async function handlePlaidDisconnect(req, env, bizId) {
 // POST /b/:biz/plaid/sync → { synced, items } — pull new settled rows into Review.
 export async function handlePlaidSync(req, env, bizId) {
   if (!configured(env)) return json({ error: 'plaid_not_configured' }, 501);
+  const bad = envInvalid(env); if (bad) return bad;
   const itemsRes = await toDO(env, bizId, '/_plaid/items');
   const { items } = await itemsRes.json();
   if (!items || !items.length) return json({ synced: 0, items: 0 });

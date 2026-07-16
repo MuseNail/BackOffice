@@ -206,8 +206,10 @@ export class BusinessDO {
       return json({ ok: true });
     }
 
-    // internal: the sync orchestrator (routes/plaid.js) reads every item + token
-    // here. Only reachable DO-internally; never proxied to a client.
+    // internal: the sync orchestrator (routes/plaid.js) reads every item + token here.
+    // This returns access_tokens in plaintext, so it MUST stay unreachable from a client.
+    // The Worker enforces that by 404ing the /_ namespace before it forwards (index.js);
+    // until 2026-07 it did not, and GET /b/<biz>/_plaid/items served tokens to any member.
     if (path === '/_plaid/items' && req.method === 'GET') {
       const items = [];
       for (const v of (await this.state.storage.list({ prefix: 'plaid:' })).values()) items.push(v);
