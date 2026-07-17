@@ -2,8 +2,9 @@
 // Management UI renders only for owner/manager sessions; the server enforces
 // the same rule, this is just honest UI. Muse sync + IIF export land M11/M12.
 import { el, clear, toast, fmtMoney, acctAmount, modal } from '../ui.js';
-import { api, dispatch } from '../sync.js';
+import { api, dispatch, saveOrphanTo } from '../sync.js';
 import { getActiveBiz, getBusinesses, roleFor, getUser } from '../session.js';
+import { describeWrite } from '../lib/orphan-recovery.js';
 import { getState, entities, byId, subscribe, usesInvoices, usesMuseSync } from '../store.js';
 import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
@@ -28,7 +29,7 @@ export const SETTINGS_NAV = [
   { key: 'set_qb', title: 'QuickBooks', icon: 'sync_alt', desc: 'Export, sync lists, and import to/from QuickBooks Desktop.' },
   { key: 'set_integrations', title: 'Integrations', icon: 'hub', desc: 'Connections to other apps (Muse salon sync).' },
   { key: 'set_books', title: 'Close the books', icon: 'lock', desc: 'Lock finished months so they can’t be changed.' },
-  { key: 'set_data', title: 'Data & maintenance', icon: 'shield', desc: 'Activity log and recovery of rejected writes.' },
+  { key: 'set_data', title: 'Data & maintenance', icon: 'shield', desc: 'Activity log, plus recovery of held and rejected writes.' },
   { key: 'set_diagnostics', title: 'Diagnostics', icon: 'bug_report', desc: 'Automatic error log and bug-alert notifications.' },
 ];
 
@@ -102,11 +103,6 @@ export const setBooks = sectionView('set_books');
 export const setData = sectionView('set_data');
 export const setDiagnostics = sectionView('set_diagnostics');
 
-// ── Rejected writes (dead-letter log) ──
-// sync.js records writes the server turned down (409 stale/blocked) to the
-// LS.failed log so they're never silently lost. This card surfaces them for the
-// owner; there's no retry — a rejection is the server deciding the write is
-// stale or not allowed (e.g. editing a reconciled txn). Device-local.
 // ── Audit log (server-stored: who changed which transaction, when) ──
 async function drawAuditCard(card, biz) {
   clear(card).append(
@@ -131,35 +127,78 @@ async function drawAuditCard(card, biz) {
     el('tbody', {}, ...rows))));
 }
 
+// ── Held & rejected writes (dead-letter recovery) ──
+// Two kinds land here: ORPHANS — writes with no business tag, which the app refuses to guess
+// a destination for (a wrong guess posted a $4k txn into the wrong books); the owner files
+// each to its books with the picker. And REJECTIONS — writes a business's server turned down
+// (stale/blocked edit), kept so nothing is silently lost. Device-local.
 function drawFailedOps(card, biz) {
   let log = [];
   try { log = JSON.parse(localStorage.getItem(LS.failed) || '[]'); } catch { /* corrupt → empty */ }
+  // Orphans surface under every business (they need the owner to choose their books); a
+  // business-stamped rejection shows only under its own business.
   const mine = log.filter(e => !e.biz || e.biz === biz);
-  const header = el('div', { class: 'cardtitle' }, `Rejected writes${mine.length ? ` (${mine.length})` : ''}`);
+  const orphans = mine.filter(e => !e.biz);
+  const stamped = mine.filter(e => e.biz);
+  const header = el('div', { class: 'cardtitle' }, `Held & rejected writes${mine.length ? ` (${mine.length})` : ''}`);
   if (!mine.length) {
-    clear(card).append(header, el('p', { class: 'sub' }, 'None. If the server ever turns down a write (a stale or blocked edit), it’s logged here instead of being lost.'));
+    clear(card).append(header, el('p', { class: 'sub' }, 'None. If a write ever can’t be routed, or the server turns one down, it’s held here instead of being lost.'));
     return;
   }
   const fmtWhen = ts => { try { return new Date(ts).toLocaleString(); } catch { return '—'; } };
-  const fmtWhat = op => `${op?.op || '?'} ${op?.kind || ''} ${op?.value?.id || op?.id || ''}`.trim();
-  const rows = mine.map(e => el('tr', {},
-    el('td', {}, fmtWhen(e.rejectedAt)),
-    el('td', {}, fmtWhat(e.op)),
-    el('td', {}, String(e.reason || 'rejected'))));
+  const label = op => { const d = describeWrite(op); return d.kind === 'txn' ? `${d.date ? d.date + ' · ' : ''}${d.payee || '(no payee)'} · ${fmtMoney(d.cents)}` : d.fallback; };
+  const businesses = getBusinesses();
+
+  // An orphan needs the owner to say which books it belongs to — then it's filed exactly there.
+  const orphanRow = (e) => {
+    const sel = el('select', { class: 'field-input', style: 'max-width:220px;margin:0' },
+      el('option', { value: '' }, 'Choose its books…'),
+      ...businesses.map(b => el('option', { value: b.id }, b.name || b.id)));
+    return el('div', { class: 'card', style: 'border:1px solid var(--amber);margin:0 0 8px;box-shadow:none' },
+      el('div', { style: 'font-weight:700;color:var(--amber);font-size:12px;margin-bottom:3px' }, '⚠️ Not saved yet — choose its books'),
+      el('div', { style: 'font-weight:600' }, label(e.op)),
+      el('div', { class: 'sub', style: 'margin:2px 0 8px' }, `${fmtWhen(e.rejectedAt)} · held because no business was set`),
+      el('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, sel,
+        el('button', { class: 'btn sm', onclick: async () => {
+          const b = sel.value;
+          if (!b) { toast('Choose a business first', 'err'); return; }
+          // Remove THIS orphan from the log by identity (re-read live so a concurrent change
+          // isn't clobbered), then file it to the chosen books.
+          let cur = []; try { cur = JSON.parse(localStorage.getItem(LS.failed) || '[]'); } catch { /* empty */ }
+          const os = JSON.stringify(e.op);
+          const idx = cur.findIndex(x => !x.biz && x.rejectedAt === e.rejectedAt && JSON.stringify(x.op) === os);
+          // Claim-then-file: only file if THIS click removed the orphan from the log. If it was
+          // already filed (another tab, or a double-click), bail — filing it again would land the
+          // same write in a SECOND company's books, the exact hole this fix exists to close.
+          if (idx < 0) { toast('Already filed', 'err'); drawFailedOps(card, biz); return; }
+          cur.splice(idx, 1); localStorage.setItem(LS.failed, JSON.stringify(cur));
+          await saveOrphanTo(b, e.op);
+          toast('Saved to ' + (businesses.find(x => x.id === b)?.name || b));
+          drawFailedOps(card, biz);
+        } }, 'Save to these books')));
+  };
+
+  const stampedTable = stamped.length ? el('div', { style: 'overflow-x:auto' }, el('table', { class: 'data xl' },
+    el('thead', {}, el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Write'), el('th', {}, 'Reason'))),
+    el('tbody', {}, ...stamped.map(e => el('tr', {},
+      el('td', {}, fmtWhen(e.rejectedAt)),
+      el('td', {}, label(e.op)),
+      el('td', {}, String(e.reason || 'rejected'))))))) : null;
+
   clear(card).append(
     header,
-    el('p', { class: 'sub' }, 'Writes the server turned down — kept so nothing is silently lost. There’s no retry: a rejection means the server considered the write stale or not allowed.'),
-    el('div', { style: 'overflow-x:auto' }, el('table', { class: 'data xl' },
-      el('thead', {}, el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Write'), el('th', {}, 'Reason'))),
-      el('tbody', {}, ...rows))),
-    el('div', { style: 'margin-top:12px' },
+    el('p', { class: 'sub' }, 'Writes that couldn’t be routed, or that the server turned down — held so nothing is silently lost. A held write waits until you file it to the right books.'),
+    ...orphans.map(orphanRow),
+    stampedTable || el('span'),
+    stamped.length ? el('div', { style: 'margin-top:12px' },
       el('button', { class: 'btn sm ghost', onclick: () => {
-        if (!confirm(`Clear ${mine.length} rejected-write log entr${mine.length === 1 ? 'y' : 'ies'} from this device? This only removes the diagnostic log — it doesn’t change any books data.`)) return;
-        const kept = log.filter(e => e.biz && e.biz !== biz);   // keep other businesses' entries
+        if (!confirm(`Clear ${stamped.length} rejected-write log entr${stamped.length === 1 ? 'y' : 'ies'} for this business? This removes only the diagnostic log for writes the server rejected — un-saved writes are kept, and no books data changes.`)) return;
+        let all = []; try { all = JSON.parse(localStorage.getItem(LS.failed) || '[]'); } catch { /* empty */ }
+        const kept = all.filter(e => !e.biz || e.biz !== biz);   // keep orphans + other businesses
         localStorage.setItem(LS.failed, JSON.stringify(kept));
         toast('Cleared');
         drawFailedOps(card, biz);
-      } }, 'Clear all')));
+      } }, 'Clear rejected log')) : el('span'));
 }
 
 // ── Business features (per-business modules) ──

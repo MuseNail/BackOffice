@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.71.8', items: [
+    { icon: 'shield', t: 'The app no longer guesses which company a write belongs to', d: 'If a change ever couldn’t be tied to a business — for example one made while signed out — the app used to guess which company it belonged to and send it to whatever was open, which with two businesses open could file it under the wrong one. It now never guesses. The change is held safely under Settings → Data & maintenance, showing its date, who it’s for, and amount, with a “Save to these books” button so you file it to the right company yourself. And clearing that log no longer deletes a held change you haven’t saved yet — only the server-rejected diagnostic entries.' },
+  ] },
   { v: '0.71.7', items: [
     { icon: 'link', t: 'Banking flags an account your bank offers but you haven’t connected', d: 'If one of your banks is offering an account that isn’t hooked up to your books yet, its card now shows so — with a one-tap way to connect it: “Get full history” reconnects it fresh (a separate connection that pulls older months, so a few transactions you already have — mostly transfers — may appear in Review to skip), or “Just link new” adds it to an existing connection at no extra bank-feed cost. It always shows the account’s last four and asks you to confirm before linking, so a feed can’t attach on its own to the wrong account. Most of the time there’s nothing to show here — it only appears when there’s genuinely an unconnected account to pick up. Cash accounts are left alone; owner and managers only.' },
   ] },

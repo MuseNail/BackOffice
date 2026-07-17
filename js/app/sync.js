@@ -3,6 +3,7 @@ import { ORIGIN, LS } from './config.js';
 import { getToken, deviceId, getActiveBiz, clearSession } from './session.js';
 import { setSnapshot, applyChange } from './store.js';
 import { reportError } from './reporter.js';   // log rejected writes to Diagnostics
+import { requeueRoutable } from './lib/orphan-recovery.js';
 
 let ws = null;
 let wsBiz = '';
@@ -106,14 +107,34 @@ export function syncNow() {
   const b = wsBiz || getActiveBiz();
   try {
     const failed = JSON.parse(localStorage.getItem(LS.failed) || '[]');
-    if (failed.length) {
-      const ob = readOutbox();
-      const requeued = failed.slice().reverse().map(f => { const op = { ...f.op }; delete op._healed; return { biz: f.biz || b, op }; });
-      localStorage.setItem(LS.outbox, JSON.stringify(ob.concat(requeued)));
-      localStorage.setItem(LS.failed, '[]');
+    // Re-queue ONLY writes that still know their business. An un-tagged orphan must never be
+    // guessed back into the queue — flushOutbox would dead-letter it again → a loop plus a
+    // serious-error push per tap. Orphans stay in the failed log for the recovery UI's
+    // per-row "Save to these books" (each keeps its own biz — no `|| b` fallback guess).
+    const r = requeueRoutable(failed, readOutbox());
+    if (r.moved) {
+      localStorage.setItem(LS.outbox, JSON.stringify(r.outbox));
+      localStorage.setItem(LS.failed, JSON.stringify(r.failed));
     }
   } catch { /* best-effort */ }
   if (b) { connectWS(b, true); return flushOutbox(); }
+}
+
+// Recovery UI: file a held (dead-lettered) orphan write to the business the owner explicitly
+// picks. Pushes it onto the outbox with THAT biz and flushes. Kept separate from dispatch —
+// which re-stamps its own biz from the open tab — so a held write reaches exactly the books
+// the owner chose, never a guess.
+export function saveOrphanTo(biz, op) {
+  if (!biz || !op) return;
+  const ob = readOutbox();
+  ob.push({ biz, op });
+  localStorage.setItem(LS.outbox, JSON.stringify(ob));
+  // If it's going to the business open in THIS tab, apply it locally now: the server's echo
+  // comes back stamped with the op's original device id and is suppressed as a self-echo
+  // (connectWS onmessage), so without this the filed write wouldn't appear until a reload.
+  if (biz === wsBiz) { try { applyChange(op); } catch { /* skip a bad op */ } }
+  emitStatus();
+  return flushOutbox();
 }
 
 // Move a write the server refused (or an unroutable one) to the dead-letter log so it's
@@ -138,13 +159,15 @@ async function flushOutbox() {
       const outbox = readOutbox();
       if (!outbox.length) break;
       const item = outbox[0];
-      // A business-less item (queued while the active-business marker was cleared, e.g. after
-      // an idle sign-out) is unroutable. Re-route it to the current business so it can never
-      // jam the queue; if there's genuinely no business context, dead-letter it and move on.
+      // A business-less item lost its routing tag (queued while the active-business marker was
+      // cleared, e.g. after an idle sign-out, or a legacy pre-v0.70.1 orphan). NEVER guess its
+      // business from whatever tab is open — that guess posted a $4k TIE txn into Muse's books.
+      // Hold it in the dead-letter log for the owner to file by hand (Settings → Data &
+      // maintenance → Save to these books). It still unjams the queue (it shifts).
       if (!item.biz) {
-        const b = wsBiz || getActiveBiz();
-        if (b) { item.biz = b; const c = readOutbox(); c[0] = item; localStorage.setItem(LS.outbox, JSON.stringify(c)); }
-        else { deadLetter(item, 'no-business'); const c = readOutbox(); c.shift(); localStorage.setItem(LS.outbox, JSON.stringify(c)); continue; }
+        deadLetter(item, 'no-business');
+        const c = readOutbox(); c.shift(); localStorage.setItem(LS.outbox, JSON.stringify(c));
+        continue;
       }
       let res;
       try {

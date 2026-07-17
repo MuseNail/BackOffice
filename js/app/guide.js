@@ -160,7 +160,7 @@ const FULL = `
 <li><strong>QuickBooks Desktop export</strong> — pick a date range and <strong>Export .iif</strong>; if some transactions were exported before, it warns so you don't double them in QuickBooks.</li>
 <li><strong>Import chart of accounts (.IIF)</strong> — bring a client's QuickBooks accounts in; existing ones are skipped, so re-importing is safe.</li>
 <li><strong>Close the books</strong> — pick a month and <strong>Close month</strong> to lock it: a locked month rejects new postings <em>and</em> edits/deletes of posted entries (QuickBooks re-exports still work). Locked months are listed with a <strong>Reopen</strong> button.</li>
-<li><strong>Rejected writes</strong> — a log of any write the server turned down (a stale or blocked edit) so nothing is silently lost; <strong>Clear all</strong> removes the log for this business.</li>
+<li><strong>Held &amp; rejected writes</strong> — writes that couldn't be routed to a business (held) or that the server turned down (rejected), so nothing is silently lost. A held write waits for you to file it with <strong>Save to these books</strong>; <strong>Clear rejected log</strong> removes only the server-rejected diagnostic rows for this business — it never deletes a held write.</li>
 </ul>
 
 <h2>Core workflows</h2>
@@ -259,7 +259,7 @@ const QUICK = `
 <li><strong>Muse sync</strong>: map the salon's daily sales/cash types to accounts (when the Muse app pushes daily totals).</li>
 <li><strong>QuickBooks</strong>: export the posted ledger as an <code>.IIF</code> file for a date range, and <strong>import a chart of accounts</strong> from QuickBooks.</li>
 <li><strong>Close the books</strong>: lock a finished month against changes; reopen anytime.</li>
-<li><strong>Rejected writes</strong>: a log of any writes the server turned down (stale or blocked edits) so nothing is silently lost.</li>
+<li><strong>Held &amp; rejected writes</strong>: writes held because they couldn't be routed to a business, or turned down by the server, so nothing is silently lost — a held one you file with "Save to these books".</li>
 </ul>
 
 <h2>Core workflows</h2>
