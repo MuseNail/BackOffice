@@ -3,11 +3,12 @@
 // entity PLUS its linked ledger account (qbType BANK/CCARD), created together.
 import { el, clear, toast, modal, fmtMoney, acctAmount, prettyDesc } from '../ui.js';
 import { entities, subscribe } from '../store.js';
-import { dispatch } from '../sync.js';
-import { getActiveBiz, canEdit } from '../session.js';
-import { startPlaidConnect, syncPlaid, disconnectPlaid } from '../plaid-connect.js';
+import { dispatch, api } from '../sync.js';
+import { getActiveBiz, canEdit, roleFor } from '../session.js';
+import { startPlaidConnect, syncPlaid, disconnectPlaid, linkExistingAccount } from '../plaid-connect.js';
 import { accountBalance } from '../lib/posting.js';
 import { plaidErrorText } from '../lib/plaid-feed.js';
+import { plaidIntel } from '../lib/plaid-intel.js';
 import { parseCsv, detectColumns, normalizeRows, dedupHash } from '../lib/csv.js';
 import { looksLikeOfx, parseOfx } from '../lib/ofx.js';
 import { parseMoney } from '../lib/money.js';
@@ -40,10 +41,44 @@ function feedHealth(b) {
   return el('div', sty('green'), `🔗 ${label} · synced ${when}`);
 }
 
+// A recovery strip for an account the bank OFFERS but that isn't linked here. Names the
+// offered account (last four) so the owner can eyeball-match it; the actual bind is behind
+// linkExistingAccount's identity-confirm. Get full history = a fresh connect (full
+// back-history); Just link new = map onto the existing feed (new rows only, no second bill).
+function feedOfferStrip(bankacct, candidates) {
+  const c = candidates[0];
+  const inst = c.institution || bankacct.institution || 'Your bank';
+  return el('div', { class: 'feed-offer' },
+    el('div', { class: 'feed-offer-title' }, `${inst} is offering an account ••${c.mask}`),
+    el('div', { class: 'feed-offer-sub' }, 'Its feed history isn’t in your books yet.'),
+    el('div', { class: 'feed-offer-actions' },
+      el('button', { class: 'btn sm green', onclick: () => startPlaidConnect(bankacct, { note: 'Getting full history connects this account as a separate bank feed — a small extra cost. To use your existing feed at no extra cost (but without old history), choose “Just link new”.' }) }, 'Get full history'),
+      el('button', { class: 'btn sm ghost', onclick: () => linkExistingAccount(bankacct, c) }, 'Just link new')));
+}
+
+// Owner/manager only: GET /plaid/accounts is gated to those roles server-side, so anyone
+// else would only 403. A failed/403/501 fetch degrades silently — the strips are additive
+// over today's cards, never load-bearing.
+async function maybeLoadFeedIntel(draw) {
+  const biz = getActiveBiz();
+  if (!['owner', 'manager'].includes(roleFor(biz))) return;
+  try {
+    const r = await api(`/b/${biz}/plaid/accounts`);
+    if (!r.ok) return;
+    const data = await r.json().catch(() => ({}));
+    plaidItems = Array.isArray(data.items) ? data.items : [];
+    draw();
+  } catch { /* silent — feed intel is additive over the existing cards */ }
+}
+
 let unsub = null;
+// Cached GET /plaid/accounts items (owner/manager only; NOT in the synced snapshot).
+// Null until the fetch resolves; the per-card feed strips are additive over today's cards.
+let plaidItems = null;
 
 export function render(root, detail) {
   const editable = canEdit(getActiveBiz());
+  plaidItems = null;
   const body = el('div');
   root.append(
     el('h2', {}, 'Banking'),
@@ -55,6 +90,7 @@ export function render(root, detail) {
   const draw = () => drawBody(body, editable);
   unsub = subscribe(draw);
   draw();
+  maybeLoadFeedIntel(draw);
   // "+ New" deep-links: /banking/new opens add-account; /banking/import opens the CSV
   // wizard when there's a single account (otherwise the per-account Import buttons show).
   if (editable && detail === 'new') addBankModal();
@@ -66,6 +102,7 @@ export function unmount() { unsub?.(); unsub = null; }
 function drawBody(body, editable) {
   const bankaccts = entities('bankacct');
   const txns = entities('txn');
+  const intel = plaidIntel(bankaccts, plaidItems || []);
   const cards = bankaccts.map(b => {
     const bal = accountBalance(txns, b.accountId);
     const pending = entities('staged').filter(s => s.bankacctId === b.id && s.status === 'pending').length;
@@ -78,6 +115,7 @@ function drawBody(body, editable) {
       pending ? el('span', { class: 'pill amber' }, `${pending} in Review`) : el('span', { class: 'pill green' }, 'Up to date'),
       openLine ? el('div', { class: 'sub', style: 'margin:6px 0 0' }, `Opening ${fmtMoney(openLine.amountCents)} as of ${opening.date}`) : null,
       b.plaid ? feedHealth(b) : null,
+      (editable && intel[b.id] && intel[b.id].status === 'offered') ? feedOfferStrip(b, intel[b.id].candidates) : null,
       editable ? el('div', { style: 'margin-top:auto;padding-top:10px;display:flex;gap:6px;flex-wrap:wrap' },
         el('button', { class: 'btn sm', onclick: () => importWizard(b) }, 'Import CSV'),
         el('button', { class: 'btn sm ghost', onclick: () => openingBalanceModal(b) }, openLine ? 'Opening balance' : 'Set opening balance'),

@@ -186,6 +186,14 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 .pill.gray{background:var(--fill);color:var(--mut)}
 .linklike{background:none;border:none;color:var(--brand);font-weight:700;cursor:pointer;font:inherit;padding:0}
 
+/* ── Bank-feed recovery strip + link-confirm (Banking) ── */
+.feed-offer{margin-top:9px;background:var(--brand-soft);border:1px solid var(--line-2);border-radius:10px;padding:9px 10px}
+.feed-offer-title{font-size:12px;font-weight:700;color:var(--brand-dim)}
+.feed-offer-sub{font-size:11px;color:var(--ink-2);margin:3px 0 8px}
+.feed-offer-actions{display:flex;gap:6px;flex-wrap:wrap}
+.feed-confirm{background:var(--fill);border:1px solid var(--line-2);border-radius:10px;padding:10px 12px;margin:8px 0}
+.feed-confirm-name{font-weight:800;font-size:14px;color:var(--ink)}
+
 /* ── "Excel" data-table style — opt-in via .xl, rolled out per tab ──
    Blue gridline header (white caps), full cell gridlines, light-blue zebra, navy total bar.
    One uniform 12.5px size everywhere (header/body/footer). */

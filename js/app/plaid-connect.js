@@ -162,7 +162,7 @@ export function disconnectPlaid(bankacct) {
 // AND consumed from the feed, so a wrong date can only be fixed by disconnecting and
 // connecting again. It used to pre-fill today — the most destructive possible value —
 // which silently emptied Honey - 8002 (0 rows, history gone) in 2026-07.
-export function startPlaidConnect(bankacct) {
+export function startPlaidConnect(bankacct, opts = {}) {
   const today = todayLocal();                       // the OWNER's day: after ~5pm Pacific, UTC is already tomorrow
   // Only an imported STATEMENT row proves we hold a period. A posted transaction does
   // not: a transfer from another account, or an opening balance, puts a line on this
@@ -170,12 +170,18 @@ export function startPlaidConnect(bankacct) {
   const lastImport = lastImportedDate(entities('staged'), bankacct.id);
   const hasHistory = lastImport !== null;
   const suggested = hasHistory ? suggestedCutoff(lastImport) : farBackCutoff();
+  // Transfers and opening balances post a line on this account without its statement ever
+  // being imported (Honey's whole balance is transfers from another account). A fresh pull
+  // re-offers those rows, and they can't be content-deduped against a row that never had a
+  // staged twin HERE — so warn, but only for that has-posted-yet-no-imports shape.
+  const hasPosted = !hasHistory && (entities('txn') || []).some(t => (t.lines || []).some(l => l.accountId === bankacct.accountId));
 
   const m = modal(`Connect bank feed — ${bankacct.name}`);
   const dateIn = el('input', { class: 'field-input', type: 'date', value: suggested, max: today, style: 'max-width:175px' });
   const pretty = (d) => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
 
   m.body.append(
+    opts.note ? el('p', { class: 'sub', style: 'color:var(--amber)' }, opts.note) : null,
     hasHistory
       ? el('p', {}, `Your books already have imported transactions for this account through ${pretty(lastImport)}. To avoid duplicates, only pull bank transactions dated on or after:`)
       : el('p', {}, 'This account has no imported statements in your books, so there’s nothing to duplicate. We’ll pull as much history as your bank will give us, starting from:'),
@@ -183,6 +189,7 @@ export function startPlaidConnect(bankacct) {
     hasHistory
       ? el('p', { class: 'sub' }, 'That’s the day after your last import — no gap, no overlap. Older transactions stay in your books from the import.')
       : el('p', { class: 'sub' }, 'Banks usually go back about two years, but some give much less. Whatever arrives lands in Review — nothing posts to your books until you approve it.'),
+    hasPosted ? el('p', { class: 'sub' }, 'This account already shows some transactions from transfers or an opening balance. A few of those may reappear in Review to skip — approving is always your choice.') : null,
     el('p', { class: 'sub', style: 'color:var(--red)' },
       '⚠️ Transactions dated before this are skipped, and this feed won’t offer them again. If the date turns out wrong, press Disconnect and connect the feed again — that starts fresh from your bank.'),
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' },
@@ -237,4 +244,60 @@ export async function resumePlaidOAuth() {
     });
     handler.open();
   } catch { clearOAuth(); history.replaceState(null, '', clean); }
+}
+
+// ── Recovery: link an already-OFFERED account onto an existing feed ──────────────
+// A cheaper alternative to startPlaidConnect: attach an account the bank already exposes
+// on a live Item, with NO new Plaid Item (no second bill). It cannot backfill old history
+// on a synced Item — that feed's cursor has already walked past those rows — so the copy
+// must never promise it (use "Get full history" for that). `candidate` = one entry from
+// plaid-intel's candidates {itemId, plaidAccountId, name, mask, subtype, institution,
+// itemLastSyncAt}. A name-parsed last-four only CHOSE this card; the owner confirms the
+// real account identity here BEFORE the bind — mirroring pickAccountModal, because a wrong
+// bind feeds this register from the wrong account and every approval after posts to the
+// wrong book.
+export function linkExistingAccount(bankacct, candidate) {
+  const synced = !!candidate.itemLastSyncAt;
+  const label = `${candidate.name || 'account'}${candidate.mask ? ' ••' + candidate.mask : ''}`;
+  const m = modal(`Link this account to “${bankacct.name}”?`);
+  m.body.append(
+    el('p', {}, `Your ${candidate.institution || 'bank'} connection is offering:`),
+    el('div', { class: 'feed-confirm' },
+      el('div', { class: 'feed-confirm-name' }, label),
+      el('div', { class: 'sub', style: 'margin:2px 0 0' }, candidate.subtype || 'account')),
+    el('p', { class: 'sub' }, `Check the last four match “${bankacct.name}”. Linking the wrong account feeds this register from the wrong place.`),
+    el('p', { class: 'sub', style: 'color:var(--amber)' }, synced
+      ? '⚠️ New transactions only. This won’t bring back this account’s older history — for that, use “Get full history” instead.'
+      : 'Whatever history this feed still offers will land in Review to skip or approve.'),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
+      el('button', { class: 'btn', onclick: async () => {
+        m.close();
+        const biz = getActiveBiz();
+        const r = await api(`/b/${biz}/plaid/map`, { method: 'POST', body: JSON.stringify({ itemId: candidate.itemId, plaidAccountId: candidate.plaidAccountId, bankacctId: bankacct.id }) });
+        if (!r.ok) { toast('Could not link the account', 'err'); return; }
+        // syncPlaid returns FLEET-wide totals and always toasts — scope the result to THIS
+        // account so an unrelated feed's rows/errors can't be credited or blamed here.
+        const { errors } = await syncPlaid(biz);
+        const mine = (errors || []).some(e => (e.bankacctIds || []).includes(bankacct.id));
+        const rows = entities('staged').filter(s => s.bankacctId === bankacct.id).length;
+        linkedModal(bankacct, rows, mine);
+      } }, 'Link account')),
+  );
+}
+
+// Honest post-link message — NOT connectedModal, whose "fills in older history afterwards"
+// line is false for a map onto an existing (synced) Item.
+function linkedModal(bankacct, rows, hadError) {
+  const m = modal(`${bankacct.name} is linked`);
+  m.body.append(
+    el('p', {}, rows
+      ? `${rows} transaction${rows === 1 ? '' : 's'} ${rows === 1 ? 'is' : 'are'} in Review so far.`
+      : 'No transactions have arrived yet — press Sync now in a minute.'),
+    hadError ? el('p', { class: 'sub', style: 'color:var(--amber)' }, 'Your bank didn’t send everything this time — pressing Sync now again usually finishes it.') : null,
+    el('p', { class: 'sub' }, 'New transactions keep arriving on each sync. This didn’t add a separate bank feed.'),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' },
+      el('button', { class: 'btn ghost', onclick: () => { m.close(); syncPlaid(getActiveBiz()); } }, 'Sync now'),
+      el('button', { class: 'btn', onclick: m.close }, 'Done')),
+  );
 }
