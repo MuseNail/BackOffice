@@ -67,6 +67,7 @@ const ERRORS = {
   INSTITUTION_NOT_RESPONDING: (n) => `${n}'s bank isn't responding — try again later`,
   RATE_LIMIT_EXCEEDED: (n) => `${n} was asked too often — wait a minute and sync again`,
   PARTIAL_SYNC: (n) => `only part of ${n} synced — press Sync now again to pull the rest`,
+  WRITE_FAILED: (n) => `${n}'s transactions arrived but couldn't be saved — press Sync now again`,
 };
 
 // Plain English for one failed feed. Never leaks a Plaid error code at the owner,

@@ -261,6 +261,17 @@ export async function handlePlaidSync(req, env, bizId) {
     });
     const w = await writeRes.json().catch(() => ({}));
     total += w.created || 0;
+    // The rows reached us and then didn't reach Review. Saying nothing here is the same
+    // failure as swallowing a Plaid error — it just happens one layer further in.
+    if (w.error && !failure) {
+      errors.push({
+        itemId: item.itemId,
+        institution: item.institution || 'Bank',
+        bankacctIds: [...new Set(Object.values(item.bankacctByPlaidAcct || {}))],
+        code: 'WRITE_FAILED',
+        message: String(w.error),
+      });
+    }
   }
   return json({ synced: total, items: items.length, errors });
 }

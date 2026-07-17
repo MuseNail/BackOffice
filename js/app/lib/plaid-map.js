@@ -1,13 +1,12 @@
 // ── lib: plaid-map — Plaid bank transactions → Back Office staged rows (pure) ───
 // Plaid's `amount` is a NUMBER and POSITIVE means money LEAVING the account (an
 // outflow) — the OPPOSITE of Back Office (and of bank CSVs), where negative = out.
-// So we FLIP the sign. We stage only settled rows (`pending === false`); the
-// staged-row id is derived from Plaid's stable transaction_id so a re-sync is
-// idempotent. The dedupHash is the SAME content hash the CSV importer uses, so a CSV
-// import checks itself against Plaid rows already staged (banking.js) — but NOT the
-// reverse: routes/plaid.js calls shapePlaidBatch without knownHashes, so a Plaid row
-// and an existing CSV row for the same transaction both survive. Don't read the
-// knownHashes parameter as a guarantee the sync path makes; today nothing passes it.
+// So we FLIP the sign. We stage only settled rows (`pending === false`); the staged-row
+// id is derived from Plaid's transaction_id so re-syncing one feed is idempotent. That
+// id is unique PER ITEM, though, so a RE-LINKED bank returns the same money under all-new
+// ids — which is why dedupHash (the same content hash the CSV importer uses) is the real
+// guard, applied in the DO at /_plaid/apply-sync where the staged rows actually live.
+// `knownHashes` below only dedups WITHIN a batch for callers that pass nothing.
 // `/transactions/sync` returns added/modified/removed arrays of these objects. No DOM/IO.
 
 import { dedupHash } from './csv.js';

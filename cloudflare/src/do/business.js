@@ -4,6 +4,7 @@
 // `meta` is the business profile. `seq` is a monotonic mutation counter.
 // (The '__system__' instance also holds Web Push subs + the error-report ring buffer.)
 import { sendPush, pushKeyHash } from '../push.js';
+import { freshRows, stagedIndex } from './plaid-dedup.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -223,38 +224,57 @@ export class BusinessDO {
     if (path === '/_plaid/apply-sync' && req.method === 'POST') {
       const { itemId, values, cursor, ok = true, error = null } = await req.json();
       const now = Date.now();
-      const fresh = [];
-      for (const r of (values || [])) {
-        if (!r?.id) continue;
-        const existing = await this.state.storage.get('staged:' + r.id);
-        if (!existing) { fresh.push({ ...r, createdAt: now, updatedAt: now, updatedBy: 'plaid' }); continue; }
-        if (existing.status === 'pending' && (existing.amountCents !== r.amountCents || existing.desc !== r.desc || existing.date !== r.date)) {
-          fresh.push({ ...existing, ...r, updatedAt: now, updatedBy: 'plaid' });
-        }
+      // Match on CONTENT as well as id: a re-linked bank is a new Plaid Item, and its
+      // ids are all new even though the money is the same. Skip the scan when there's
+      // nothing to place — the everyday sync brings zero rows.
+      let fresh = [];
+      if (values?.length) {
+        const { byId, countByAcct } = await stagedIndex(this.state.storage);
+        fresh = freshRows(values, byId, countByAcct, now);
       }
-      if (fresh.length) await this.apply({ op: 'entity.bulkUpsert', kind: 'staged', values: fresh, device: '' });
+      // Chunked, and the result is CHECKED. apply() rejects a bulkUpsert over 500 and
+      // writes NOTHING; this used to ignore that, advance the cursor, stamp a clean sync
+      // and report the rows as created — so a big first pull (730 days of history now
+      // makes that ordinary) reported "N new transactions" over an empty Review, with
+      // the cursor burned past them. Only a re-link recovered it.
+      let wrote = 0, writeFailed = null;
+      for (let i = 0; i < fresh.length; i += 400) {
+        const slice = fresh.slice(i, i + 400);
+        const res = await this.apply({ op: 'entity.bulkUpsert', kind: 'staged', values: slice, device: '' });
+        if (res?.rejected) { writeFailed = res.reason || 'write rejected'; break; }
+        wrote += slice.length;
+      }
       const item = await this.state.storage.get('plaid:' + itemId);
       if (item) {
-        if (cursor != null) item.cursor = cursor;
+        // NEVER advance past rows we failed to write — the cursor is the only thing
+        // standing between a failed write and permanently unreachable transactions.
+        if (cursor != null && !writeFailed) item.cursor = cursor;
         // lastSyncAt means "we know this feed is current", so only a CLEAN sync may
         // stamp it — otherwise a feed that died months ago keeps reading as fresh.
         // lastError is the state a toast can't carry: the Banking card reads it long
         // after the toast is gone, which is the only way the owner finds out at all
         // (there is no cron, no webhook, and no sync on load).
-        if (ok) { item.lastSyncAt = now; delete item.lastError; }
-        else item.lastError = { ...(error || {}), at: now };
+        // A failed WRITE is a failed sync too — the rows aren't in Review either way,
+        // so it must not read as clean.
+        const clean = ok && !writeFailed;
+        const why = writeFailed ? { code: 'WRITE_FAILED', message: writeFailed } : (error || {});
+        if (clean) { item.lastSyncAt = now; delete item.lastError; }
+        else item.lastError = { ...why, at: now };
         await this.state.storage.put('plaid:' + itemId, item);
         for (const baId of Object.values(item.bankacctByPlaidAcct || {})) {
           const ba = await this.state.storage.get('bankacct:' + baId);
           if (!ba) continue;
           const plaid = { ...(ba.plaid || {}) };
-          if (ok) { plaid.lastSyncAt = now; delete plaid.lastError; }
-          else plaid.lastError = { code: error?.code || 'PLAID_ERROR', at: now };
+          if (clean) { plaid.lastSyncAt = now; delete plaid.lastError; }
+          else plaid.lastError = { code: why.code || 'PLAID_ERROR', at: now };
           ba.plaid = plaid; ba.updatedAt = now;
           await this.apply({ op: 'entity.upsert', kind: 'bankacct', value: ba, device: '' });
         }
       }
-      return json({ ok: true, created: fresh.length });
+      // `wrote`, not fresh.length: report what actually landed in Review, not what we
+      // intended to put there. `dupes` is what the feed re-offered that we already hold
+      // — worth surfacing rather than dropping in silence.
+      return json({ ok: !writeFailed, created: wrote, dupes: (values?.length || 0) - fresh.length, error: writeFailed || null });
     }
 
     // internal: remove a Plaid feed from one bank account. Drops that account's
