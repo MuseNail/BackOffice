@@ -9,8 +9,7 @@
 
 import { el, modal, toast } from './ui.js';
 import { api } from './sync.js';
-import { getActiveBiz } from './session.js';
-import { entities } from './store.js';
+import { entities, getStateBiz } from './store.js';
 import { reportError } from './reporter.js';
 import { suggestedCutoff, farBackCutoff, todayLocal, lastImportedDate, syncMessage } from './lib/plaid-feed.js';
 
@@ -151,7 +150,7 @@ export function disconnectPlaid(bankacct) {
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', onclick: async () => {
         m.close();
-        const r = await api(`/b/${getActiveBiz()}/plaid/disconnect`, { method: 'POST', body: JSON.stringify({ bankacctId: bankacct.id }) });
+        const r = await api(`/b/${getStateBiz()}/plaid/disconnect`, { method: 'POST', body: JSON.stringify({ bankacctId: bankacct.id }) });
         toast(r.ok ? 'Bank feed disconnected' : 'Could not disconnect', r.ok ? 'ok' : 'err');
       } }, 'Disconnect')),
   );
@@ -203,7 +202,7 @@ export function startPlaidConnect(bankacct, opts = {}) {
 }
 
 async function openPlaidLink(bankacct, startDate) {
-  const biz = getActiveBiz();
+  const biz = getStateBiz();
   try {
     await loadPlaid();
     const r = await api(`/b/${biz}/plaid/link-token`, { method: 'POST' });
@@ -273,7 +272,7 @@ export function linkExistingAccount(bankacct, candidate) {
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'),
       el('button', { class: 'btn', onclick: async () => {
         m.close();
-        const biz = getActiveBiz();
+        const biz = getStateBiz();
         const r = await api(`/b/${biz}/plaid/map`, { method: 'POST', body: JSON.stringify({ itemId: candidate.itemId, plaidAccountId: candidate.plaidAccountId, bankacctId: bankacct.id }) });
         if (!r.ok) { toast('Could not link the account', 'err'); return; }
         // syncPlaid returns FLEET-wide totals and always toasts — scope the result to THIS
@@ -297,7 +296,7 @@ function linkedModal(bankacct, rows, hadError) {
     hadError ? el('p', { class: 'sub', style: 'color:var(--amber)' }, 'Your bank didn’t send everything this time — pressing Sync now again usually finishes it.') : null,
     el('p', { class: 'sub' }, 'New transactions keep arriving on each sync. This didn’t add a separate bank feed.'),
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end' },
-      el('button', { class: 'btn ghost', onclick: () => { m.close(); syncPlaid(getActiveBiz()); } }, 'Sync now'),
+      el('button', { class: 'btn ghost', onclick: () => { m.close(); syncPlaid(getStateBiz()); } }, 'Sync now'),
       el('button', { class: 'btn', onclick: m.close }, 'Done')),
   );
 }

@@ -4,7 +4,7 @@
 // every posted txn sums to zero, so assets always equal liabilities + equity
 // + net income to date.
 import { el, clear, fmtMoney, acctAmount, prettyDesc, modal } from '../ui.js';
-import { entities, subscribe } from '../store.js';
+import { entities, subscribe, getStateBiz } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { activityByAccount, accountBalance } from '../lib/posting.js';
@@ -438,11 +438,11 @@ function drawBody(body) {
   // is the fallback (and pre-sync cache) — read entity-first, fall back to it, then
   // 25%. NOTE: the synced path needs the Worker to know 'taxsetting' (ENTITY_KINDS);
   // until that's deployed the rate stays device-local via localStorage (no regression).
-  const rateKey = `bo_tax_rate_${getActiveBiz()}`;
+  const rateKey = `bo_tax_rate_${getStateBiz()}`;
   const synced = entities('taxsetting').find(t => t.id === 'tax');
   const rate = (synced && typeof synced.rate === 'number') ? synced.rate
     : parseFloat(localStorage.getItem(rateKey) || '25');
-  const taxEditable = canEdit(getActiveBiz());
+  const taxEditable = canEdit(getStateBiz());
   const setAside = net > 0 ? Math.round(net * rate / 100) : 0;
   const rateIn = el('input', { class: 'field-input', style: 'max-width:90px;margin:0', inputmode: 'decimal', 'data-nocents': '1', value: String(rate), disabled: !taxEditable,
     onchange: (e) => {

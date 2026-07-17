@@ -1,7 +1,7 @@
 // ── sync — snapshot load, dispatch, offline outbox, WebSocket ────────────────
 import { ORIGIN, LS } from './config.js';
 import { getToken, deviceId, getActiveBiz, clearSession } from './session.js';
-import { setSnapshot, applyChange } from './store.js';
+import { setSnapshot, applyChange, getStateBiz, setStateBiz } from './store.js';
 import { reportError } from './reporter.js';   // log rejected writes to Diagnostics
 import { requeueRoutable } from './lib/orphan-recovery.js';
 
@@ -30,24 +30,33 @@ export async function api(path, opts = {}) {
 }
 
 export async function openBusiness(bizId) {
+  // Stamp the routing authority SYNCHRONOUSLY, before any await, so from the instant we start
+  // opening this business every write in THIS tab routes to it — not the previously-open one.
+  setStateBiz(bizId);
+  let hasCache = false;
   const cached = localStorage.getItem(LS.cache(bizId));
   if (cached) {
-    try {
-      const parsed = JSON.parse(cached);
-      // Multi-tenant guard: only render a cached snapshot stamped for THIS business
-      // (or an older unstamped cache, for back-compat). A mismatch means a wrong/stale
-      // entry under this key — skip it; the network fetch below loads the right one.
-      if (!parsed._biz || parsed._biz === bizId) setSnapshot(parsed);
-    } catch { /* bad cache */ }
+    // Only render a cached snapshot stamped for THIS business (or an older unstamped cache).
+    try { const parsed = JSON.parse(cached); if (!parsed._biz || parsed._biz === bizId) { setSnapshot(parsed, bizId); hasCache = true; } } catch { /* bad cache */ }
   }
+  // No matching cache (wrong _biz OR first open) → clear the store so the PREVIOUS business's
+  // data is never shown or read during the async fetch below.
+  if (!hasCache) setSnapshot({ meta: null, entities: {}, seq: 0 }, bizId);
   try {
     const res = await api(`/b/${bizId}/state`);
+    // ⚠️ Stale-reply guard: if the tab switched to another business while this fetch was in
+    // flight, DISCARD the reply — never re-stamp stateBiz, overwrite the store, or open a socket
+    // for a business the user already left. Without this, a slow business-A reply arriving after
+    // a click to B re-points the tab to A and the next write routes to the wrong company.
+    if (getStateBiz() !== bizId) return;
     if (res.ok) {
       const snap = await res.json();
-      setSnapshot(snap);
+      if (getStateBiz() !== bizId) return;
+      setSnapshot(snap, bizId);
       localStorage.setItem(LS.cache(bizId), JSON.stringify({ ...snap, _biz: bizId }));
     }
-  } catch { /* offline — the cached snapshot (if any) stands */ }
+  } catch { /* offline — the cached/empty snapshot stands */ }
+  if (getStateBiz() !== bizId) return;   // switched away during the await → don't wire up the left business
   // Re-apply queued-but-unsynced writes on top of the snapshot so a reload never makes a
   // pending change look lost (that "looks unsaved" gap is what prompted re-entry → a duplicate).
   replayOutboxLocal(bizId);
@@ -66,12 +75,13 @@ function replayOutboxLocal(biz) {
 
 // The single write path: optimistic local apply → outbox → WS (HTTP fallback).
 export async function dispatch(op) {
-  // Route by the IN-MEMORY opened business (set by connectWS), falling back to the stored
-  // marker. An idle sign-out clears the localStorage marker (bo_active_biz); a write queued
-  // with an empty biz can't be routed — it used to POST to /b//state, fail, and JAM the whole
-  // FIFO outbox while the pill still read "Synced". wsBiz survives the sign-out, so this is
-  // the reliable source; the flusher below also re-routes any legacy business-less item.
-  const biz = wsBiz || getActiveBiz();
+  // Route by the PER-TAB loaded business first: stateBiz is this tab's own company (module
+  // state), so two tabs on different companies each route correctly. getActiveBiz is a shared
+  // last-tab-wins marker (could be the OTHER tab's) so it's only a fallback; wsBiz is set only
+  // after an await so it's last (it would shadow the correct answer for the whole load window).
+  // If all three are empty (no business loaded), the write queues with biz='' and the flusher
+  // dead-letters it for the recovery UI — it is NEVER guessed into whatever books are open.
+  const biz = getStateBiz() || getActiveBiz() || wsBiz;
   op.device = deviceId();
   if (op.op === 'entity.upsert') { op.value.updatedAt = Date.now(); op.value.updatedBy = op.device; }
   applyChange(op);
@@ -104,7 +114,7 @@ export function failedOpsCount() { return failedCount(); }
 // one tap to recover; flush alone only re-sends the outbox. Anything still bad just returns to
 // the failed log (user-initiated, so no loop). Then reconnect + flush the current business.
 export function syncNow() {
-  const b = wsBiz || getActiveBiz();
+  const b = getStateBiz() || getActiveBiz() || wsBiz;
   try {
     const failed = JSON.parse(localStorage.getItem(LS.failed) || '[]');
     // Re-queue ONLY writes that still know their business. An un-tagged orphan must never be
@@ -129,10 +139,10 @@ export function saveOrphanTo(biz, op) {
   const ob = readOutbox();
   ob.push({ biz, op });
   localStorage.setItem(LS.outbox, JSON.stringify(ob));
-  // If it's going to the business open in THIS tab, apply it locally now: the server's echo
+  // If it's going to the business loaded in THIS tab, apply it locally now: the server's echo
   // comes back stamped with the op's original device id and is suppressed as a self-echo
   // (connectWS onmessage), so without this the filed write wouldn't appear until a reload.
-  if (biz === wsBiz) { try { applyChange(op); } catch { /* skip a bad op */ } }
+  if (biz === getStateBiz()) { try { applyChange(op); } catch { /* skip a bad op */ } }
   emitStatus();
   return flushOutbox();
 }
@@ -190,7 +200,10 @@ async function flushOutbox() {
               && !item.op._healed && Number.isFinite(body.storedUpdatedAt)) {
             item.op._healed = true;
             item.op.value = { ...item.op.value, updatedAt: body.storedUpdatedAt + 1 };
-            applyChange(item.op);   // keep optimistic state in step with the re-stamp
+            // Keep optimistic state in step with the re-stamp — but only when THIS item belongs
+            // to the loaded business; the shared outbox can hold another business's queued op, and
+            // applying it here would corrupt the loaded business's store.
+            if (item.biz === getStateBiz()) applyChange(item.op);
             const cur = readOutbox(); cur[0] = item; localStorage.setItem(LS.outbox, JSON.stringify(cur));
             continue;               // retry the head with the healed stamp
           }
@@ -224,6 +237,7 @@ function connectWS(bizId, isReconnect = false) {
   try { ws?.close(); } catch { /* already closed */ }
   stopHeartbeat();
   wsBiz = bizId;
+  const socketBiz = bizId;   // captured per-socket: module wsBiz is overwritten on a business switch
   const url = ORIGIN.replace(/^http/, 'ws') + `/b/${bizId}/ws?device=${deviceId()}`;
   // NOTE: browser WebSocket can't set an Authorization header — the WS route is
   // gated by the Worker auth before upgrade via this token query param in M0;
@@ -233,7 +247,10 @@ function connectWS(bizId, isReconnect = false) {
     try {
       const msg = JSON.parse(ev.data);
       if (msg.type === 'pong') { lastPong = Date.now(); return; }
-      if (msg.type === 'op' && msg.op?.device !== deviceId()) applyChange(msg.op);
+      // Apply a broadcast only while THIS socket's business is still the loaded one — a frame
+      // still queued on a socket for a just-switched-away business must not write into the new
+      // business's store (module wsBiz already points at the new business, so it can't guard this).
+      if (msg.type === 'op' && msg.op?.device !== deviceId() && socketBiz === getStateBiz()) applyChange(msg.op);
     } catch { /* ignore */ }
   };
   ws.onopen = () => {
@@ -274,9 +291,13 @@ async function resync(bizId) {
     const res = await api(`/b/${bizId}/state`);
     if (res.ok) {
       const snap = await res.json();
-      setSnapshot(snap);
-      localStorage.setItem(LS.cache(bizId), JSON.stringify({ ...snap, _biz: bizId }));
-      replayOutboxLocal(bizId);
+      // Stale-reply guard (same as openBusiness): apply only if this is STILL the loaded business
+      // — a late resync for a switched-away business must not re-stamp stateBiz or overwrite the store.
+      if (getStateBiz() === bizId) {
+        setSnapshot(snap, bizId);
+        localStorage.setItem(LS.cache(bizId), JSON.stringify({ ...snap, _biz: bizId }));
+        replayOutboxLocal(bizId);
+      }
     }
   } catch { /* still offline; onclose will retry */ }
   flushOutbox();

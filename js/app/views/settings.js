@@ -3,9 +3,9 @@
 // the same rule, this is just honest UI. Muse sync + IIF export land M11/M12.
 import { el, clear, toast, fmtMoney, acctAmount, modal } from '../ui.js';
 import { api, dispatch, saveOrphanTo } from '../sync.js';
-import { getActiveBiz, getBusinesses, roleFor, getUser } from '../session.js';
+import { getBusinesses, roleFor, getUser } from '../session.js';
 import { describeWrite } from '../lib/orphan-recovery.js';
-import { getState, entities, byId, subscribe, usesInvoices, usesMuseSync } from '../store.js';
+import { getState, entities, byId, subscribe, usesInvoices, usesMuseSync, getStateBiz } from '../store.js';
 import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 import { accountLabel } from '../lib/coa-templates.js';
@@ -46,7 +46,7 @@ const SECTION_CARDS = {
 };
 
 export function render(root) {
-  const biz = getActiveBiz();
+  const biz = getStateBiz();
   const myRole = roleFor(biz);
   const bizName = getState().meta?.name || getBusinesses().find(b => b.id === biz)?.name || biz;
   root.append(el('h2', {}, `Settings — ${bizName}`));
@@ -74,7 +74,7 @@ function sectionView(key) {
   const meta = SETTINGS_NAV.find(s => s.key === key);
   return {
     render(root) {
-      const biz = getActiveBiz();
+      const biz = getStateBiz();
       root.append(el('div', { style: 'display:flex;align-items:center;gap:10px;margin-bottom:12px' },
         el('a', { class: 'btn sm ghost', href: `#/b/${biz}/settings` }, '← All settings'),
         el('h2', { style: 'margin:0' }, meta?.title || 'Settings')));

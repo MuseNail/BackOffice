@@ -1,5 +1,6 @@
 // ── session — auth token, device id, active business ────────────────
 import { LS } from './config.js';
+import { setStateBiz } from './store.js';
 
 export function getToken() { return localStorage.getItem(LS.token) || ''; }
 export function setToken(t) { t ? localStorage.setItem(LS.token, t) : localStorage.removeItem(LS.token); }
@@ -27,6 +28,7 @@ export function setBusinesses(b) { localStorage.setItem(LS.businesses, JSON.stri
 
 export function clearSession() {
   for (const k of [LS.token, LS.user, LS.businesses, LS.activeBiz]) localStorage.removeItem(k);
+  setStateBiz('');   // clear the per-tab routing authority so it can't survive into the next user's session (the idle path signs out without a reload)
 }
 
 export function roleFor(bizId) {

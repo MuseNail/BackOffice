@@ -4,7 +4,7 @@
 // to the ledger and bank reconciliation are later phases — this view tracks, it
 // does not post.
 import { el, clear, toast, fmtMoney, acctAmount, prettyDesc, modal } from '../ui.js';
-import { entities, subscribe, getState, usesInvoices } from '../store.js';
+import { entities, subscribe, getState, usesInvoices, getStateBiz } from '../store.js';
 import { dispatch, api } from '../sync.js';
 import { combobox } from '../combobox.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -240,7 +240,7 @@ function reconcileIncomeModal() {
       const invs = entities('invoice');
       const payments = rowsCtx.slice(0, 40).map(c => ({ id: c.txn.id, date: c.txn.date, payee: c.txn.payee, amountCents: c.amt }));
       const invoices = invs.map(i => ({ id: i.id, number: i.number, clientName: i.clientName, totalCents: i.totalCents, date: i.date, datePaid: i.datePaid }));
-      const res = await api(`/b/${getActiveBiz()}/ai/match-invoices`, { method: 'POST', body: JSON.stringify({ payments, invoices }) });
+      const res = await api(`/b/${getStateBiz()}/ai/match-invoices`, { method: 'POST', body: JSON.stringify({ payments, invoices }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const msg = data.error === 'ai_budget_reached' ? 'Monthly AI budget reached — raise it in Settings to keep going.'
@@ -1054,7 +1054,7 @@ function renderReconcile(root) {
       try {
         const payments = otherIncome.slice(0, 40).map(d => ({ id: d.id, date: d.date, payee: d.payee, amountCents: d.amountCents }));
         const invoices = invs.map(i => ({ id: i.id, number: i.number, clientName: i.clientName, totalCents: i.totalCents, date: i.date, datePaid: i.datePaid }));
-        const res = await api(`/b/${getActiveBiz()}/ai/match-invoices`, { method: 'POST', body: JSON.stringify({ payments, invoices }) });
+        const res = await api(`/b/${getStateBiz()}/ai/match-invoices`, { method: 'POST', body: JSON.stringify({ payments, invoices }) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) { toast(aiErrMsg(data), 'err'); aiBusy = false; draw(); return; }
         for (const s of (data.suggestions || [])) if (s.invoiceId) aiResults.set(s.id, s);

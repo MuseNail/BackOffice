@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.71.9', items: [
+    { icon: 'account_balance', t: 'Each open tab stays pinned to its own company', d: 'When you have more than one business open in separate tabs, each tab now routes its changes by the company it’s actually showing — its own — instead of a single shared “which company is active” marker that the last-focused tab could change. So a change made in one tab can’t land in another company’s books, even during the moment a company is still loading. This also covers connecting or syncing a bank feed (it goes to the company you’re viewing, not whichever tab was focused last) and the AI matching tools (one company’s data is never sent under another’s).' },
+  ] },
   { v: '0.71.8', items: [
     { icon: 'shield', t: 'The app no longer guesses which company a write belongs to', d: 'If a change ever couldn’t be tied to a business — for example one made while signed out — the app used to guess which company it belonged to and send it to whatever was open, which with two businesses open could file it under the wrong one. It now never guesses. The change is held safely under Settings → Data & maintenance, showing its date, who it’s for, and amount, with a “Save to these books” button so you file it to the right company yourself. And clearing that log no longer deletes a held change you haven’t saved yet — only the server-rejected diagnostic entries.' },
   ] },

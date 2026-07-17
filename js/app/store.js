@@ -4,13 +4,21 @@
 
 let state = { meta: null, entities: {}, seq: 0 };
 let rev = 0;
+// The business the loaded state belongs to — the PER-TAB routing authority (dispatch reads it
+// first). The shared bo_active_biz marker is last-tab-wins across tabs; this is module state, so
+// each tab routes to its OWN company even with two open. The DO can't stamp its own id, so this
+// is client-tracked from the bizId openBusiness fetched for — never derived from snapshot content.
+let stateBiz = '';
 const listeners = new Set();
 
 export function getState() { return state; }
 export function getRev() { return rev; }
+export function getStateBiz() { return stateBiz; }
+export function setStateBiz(biz) { stateBiz = biz || ''; }
 
-export function setSnapshot(snap) {
+export function setSnapshot(snap, biz) {
   state = { meta: snap.meta || null, entities: snap.entities || {}, seq: snap.seq || 0 };
+  stateBiz = biz || '';   // UNCONDITIONAL: a no-arg call clears it so routing falls back safely, never a stale-truthy wrong value
   bump();
 }
 

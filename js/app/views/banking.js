@@ -2,9 +2,9 @@
 // Bank accounts are created HERE (not in Accounts): each one is a bankacct
 // entity PLUS its linked ledger account (qbType BANK/CCARD), created together.
 import { el, clear, toast, modal, fmtMoney, acctAmount, prettyDesc } from '../ui.js';
-import { entities, subscribe } from '../store.js';
+import { entities, subscribe, getStateBiz } from '../store.js';
 import { dispatch, api } from '../sync.js';
-import { getActiveBiz, canEdit, roleFor } from '../session.js';
+import { canEdit, roleFor } from '../session.js';
 import { startPlaidConnect, syncPlaid, disconnectPlaid, linkExistingAccount } from '../plaid-connect.js';
 import { accountBalance } from '../lib/posting.js';
 import { plaidErrorText } from '../lib/plaid-feed.js';
@@ -60,7 +60,7 @@ function feedOfferStrip(bankacct, candidates) {
 // else would only 403. A failed/403/501 fetch degrades silently — the strips are additive
 // over today's cards, never load-bearing.
 async function maybeLoadFeedIntel(draw) {
-  const biz = getActiveBiz();
+  const biz = getStateBiz();
   if (!['owner', 'manager'].includes(roleFor(biz))) return;
   try {
     const r = await api(`/b/${biz}/plaid/accounts`);
@@ -77,7 +77,7 @@ let unsub = null;
 let plaidItems = null;
 
 export function render(root, detail) {
-  const editable = canEdit(getActiveBiz());
+  const editable = canEdit(getStateBiz());
   plaidItems = null;
   const body = el('div');
   root.append(
@@ -111,7 +111,7 @@ function drawBody(body, editable) {
     return el('div', { class: 'card', style: 'display:flex;flex-direction:column;margin:0' },
       el('div', { class: 'cardtitle' }, b.name),
       el('div', { class: 'sub', style: 'margin:0 0 6px' }, `${KINDS[b.kind] || b.kind}${b.institution ? ' · ' + b.institution : ''}`),
-      el('a', { class: 'kpi', href: `#/b/${getActiveBiz()}/ledger/${b.accountId}`, title: 'Open this account’s register in the Ledger', style: 'display:block;text-decoration:none;color:inherit' }, fmtMoney(bal)),
+      el('a', { class: 'kpi', href: `#/b/${getStateBiz()}/ledger/${b.accountId}`, title: 'Open this account’s register in the Ledger', style: 'display:block;text-decoration:none;color:inherit' }, fmtMoney(bal)),
       pending ? el('span', { class: 'pill amber' }, `${pending} in Review`) : el('span', { class: 'pill green' }, 'Up to date'),
       openLine ? el('div', { class: 'sub', style: 'margin:6px 0 0' }, `Opening ${fmtMoney(openLine.amountCents)} as of ${opening.date}`) : null,
       b.plaid ? feedHealth(b) : null,
@@ -120,7 +120,7 @@ function drawBody(body, editable) {
         el('button', { class: 'btn sm', onclick: () => importWizard(b) }, 'Import CSV'),
         el('button', { class: 'btn sm ghost', onclick: () => openingBalanceModal(b) }, openLine ? 'Opening balance' : 'Set opening balance'),
         b.plaid
-          ? el('button', { class: 'btn sm', onclick: () => syncPlaid(getActiveBiz()) }, 'Sync now')
+          ? el('button', { class: 'btn sm', onclick: () => syncPlaid(getStateBiz()) }, 'Sync now')
           : el('button', { class: 'btn sm', onclick: () => startPlaidConnect(b) }, 'Connect feed'),
         b.plaid ? el('button', { class: 'btn sm ghost', onclick: () => disconnectPlaid(b) }, 'Disconnect') : null) : el('span'),
     );
@@ -382,7 +382,7 @@ function importWizard(bankacct) {
           }
           toast(`${values.length} rows staged for review`);
           m.close();
-          location.hash = `#/b/${getActiveBiz()}/review`;
+          location.hash = `#/b/${getStateBiz()}/review`;
         } }, `Stage ${fresh.length} rows for review`)),
     );
   };

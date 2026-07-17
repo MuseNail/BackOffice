@@ -7,7 +7,7 @@
 //  • Fee split — a deposit where the processor kept a cut: posts gross income,
 //    the fee as its own expense, and the net into the bank, in one balanced txn.
 import { el, clear, toast, fmtMoney, acctAmount, modal, prettyDesc } from '../ui.js';
-import { entities, subscribe, getState, usesInvoices, usesMuseSync } from '../store.js';
+import { entities, subscribe, getState, usesInvoices, usesMuseSync, getStateBiz } from '../store.js';
 import { dispatch, api } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { validateTxn, simpleTxn } from '../lib/posting.js';
@@ -1119,7 +1119,7 @@ async function askAI(rows, categories, body, editable) {
   aiBusy = true;
   drawBody(body, editable);
   try {
-    const res = await api(`/b/${getActiveBiz()}/ai/categorize`, {
+    const res = await api(`/b/${getStateBiz()}/ai/categorize`, {
       method: 'POST',
       body: JSON.stringify({
         rows: rows.slice(0, 40).map(r => ({ id: r.id, desc: r.desc, amountCents: r.amountCents, date: r.date })),
