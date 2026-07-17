@@ -148,6 +148,37 @@ export async function handlePlaidExchange(req, env, bizId) {
   return json({ itemId, accounts });
 }
 
+// A stored item, minus everything that must never leave the DO. The DO's /_plaid/items
+// hands back access TOKENS (and is 404'd at the router because of it — until 2026-07-17
+// any member could read the production token). This is the half that may be exposed, so
+// it is an ALLOW-LIST: a field added to the item later cannot leak by default.
+export const publicItem = (i = {}) => ({
+  itemId: i.itemId,
+  institution: i.institution || 'Bank',
+  startDate: i.startDate || null,
+  lastSyncAt: i.lastSyncAt || null,
+  lastError: i.lastError || null,
+  accounts: (i.accounts || []).map(a => ({
+    plaidAccountId: a.plaidAccountId,
+    name: a.name,
+    mask: a.mask,
+    subtype: a.subtype,
+    mappedTo: (i.bankacctByPlaidAcct || {})[a.plaidAccountId] || null,
+  })),
+});
+
+// GET /b/:biz/plaid/accounts → what each bank actually offered, and where each account
+// is mapped. Answers the question the UI otherwise can't: when an account is missing
+// from a feed, is the bank withholding it, or did we drop it? Also the data a
+// "connect another account from this feed" flow needs — today the only way to attach a
+// second account is to re-link the whole bank, which mints a duplicate Item.
+export async function handlePlaidAccounts(req, env, bizId) {
+  if (!configured(env)) return json({ error: 'plaid_not_configured' }, 501);
+  const itemsRes = await toDO(env, bizId, '/_plaid/items');
+  const { items } = await itemsRes.json().catch(() => ({ items: [] }));
+  return json({ items: (items || []).map(publicItem) });
+}
+
 // POST /b/:biz/plaid/map { itemId, plaidAccountId, bankacctId } → ok
 // Links one Plaid account to a Back Office bank account the owner already set up.
 export async function handlePlaidMap(req, env, bizId) {

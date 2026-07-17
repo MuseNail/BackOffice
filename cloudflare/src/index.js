@@ -4,7 +4,7 @@ import { RegistryDO } from './do/registry.js';
 import { handleCategorize, handleMatchInvoices } from './routes/ai.js';
 import { handleSyncInbound } from './routes/sync.js';
 import { handleHelcimTransactions, handleHelcimBatches } from './routes/processors.js';
-import { handlePlaidLinkToken, handlePlaidExchange, handlePlaidMap, handlePlaidSync, handlePlaidDisconnect } from './routes/plaid.js';
+import { handlePlaidLinkToken, handlePlaidExchange, handlePlaidMap, handlePlaidSync, handlePlaidDisconnect, handlePlaidAccounts } from './routes/plaid.js';
 export { BusinessDO, RegistryDO };
 
 const CORS = {
@@ -113,6 +113,13 @@ export default {
       }
       if (m[2] === '/processor/helcim/transactions' && req.method === 'GET') return withCors(await handleHelcimTransactions(req, env));
       if (m[2] === '/processor/helcim/batches' && req.method === 'GET') return withCors(await handleHelcimBatches(req, env));
+      // Read-only, but gated the same as the rest of /plaid/*: it names the accounts a
+      // bank holds. The generic read-only gate below only blocks NON-GET, so a client
+      // would otherwise reach this — it needs its own check.
+      if (m[2] === '/plaid/accounts' && req.method === 'GET') {
+        if (role !== 'owner' && role !== 'manager') return json({ error: 'forbidden' }, 403);
+        return withCors(await handlePlaidAccounts(req, env, bizId));
+      }
       // Plaid bank feed — connecting/syncing changes state, so owner/manager only.
       if (m[2].startsWith('/plaid/') && req.method === 'POST') {
         if (role !== 'owner' && role !== 'manager') return json({ error: 'forbidden' }, 403);
