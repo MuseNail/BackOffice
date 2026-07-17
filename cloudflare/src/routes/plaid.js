@@ -40,6 +40,17 @@ export function plaidHost(env) {
 // misconfigured env must still let the owner detach a feed.
 export const configured = (env) => !!(env.PLAID_CLIENT_ID && env.PLAID_SECRET);
 
+// What Link offers, and what we accept back. Credit cards ride the same `transactions`
+// product and the same sign convention as a bank account (Plaid: positive = money out of
+// the account, so a charge is positive and a payment is negative), which plaid-map.js
+// already flips — see the card cases in tests/plaid-map.test.mjs. Everything else (loans,
+// investments) is refused: the app has no register to post it to.
+export const ACCOUNT_FILTERS = {
+  depository: { account_subtypes: ['checking', 'savings'] },
+  credit: { account_subtypes: ['credit card'] },
+};
+export const isSupportedAccount = (a) => Object.hasOwn(ACCOUNT_FILTERS, a?.type ?? '');
+
 // 501 for the routes that actually reach Plaid, so a bad env disables the feed loudly
 // instead of silently sourcing data from somewhere else. Logs, because the client toast
 // buckets every 501 as "not configured" — `wrangler tail` is where the cause is legible.
@@ -78,7 +89,7 @@ export async function handlePlaidLinkToken(req, env, bizId) {
     country_codes: ['US'],
     user: { client_user_id: bizId },
     products: ['transactions'],
-    account_filters: { depository: { account_subtypes: ['checking', 'savings'] } },
+    account_filters: ACCOUNT_FILTERS,
   };
   if (env.PLAID_REDIRECT_URI) body.redirect_uri = env.PLAID_REDIRECT_URI;
   if (env.PLAID_WEBHOOK_URL) body.webhook = env.PLAID_WEBHOOK_URL;
@@ -88,8 +99,8 @@ export async function handlePlaidLinkToken(req, env, bizId) {
 }
 
 // POST /b/:biz/plaid/exchange { public_token, institution } → { itemId, accounts }
-// Exchanges for the access token, stores it server-side, and returns the bank's
-// depository accounts so the client can map one to the bank account being connected.
+// Exchanges for the access token, stores it server-side, and returns the bank/card
+// accounts so the client can map one to the bank account being connected.
 export async function handlePlaidExchange(req, env, bizId) {
   if (!configured(env)) return json({ error: 'plaid_not_configured' }, 501);
   const bad = envInvalid(env); if (bad) return bad;
@@ -106,8 +117,12 @@ export async function handlePlaidExchange(req, env, bizId) {
 
   const acc = await plaid(env, '/accounts/get', { access_token: accessToken });
   if (!acc.ok) return json({ error: 'accounts_failed', detail: acc.data.error_message || '' }, 502);
+  // Link's account_filters are a UI hint — /accounts/get returns the whole item, so
+  // re-filter here. By TYPE only, deliberately: some institutions return a null subtype,
+  // and enforcing the subtype list would reject working accounts. The picker shows the
+  // owner the name/mask/subtype, so they choose the exact account.
   const accounts = (acc.data.accounts || [])
-    .filter(a => a.type === 'depository')
+    .filter(isSupportedAccount)
     .map(a => ({ plaidAccountId: a.account_id, name: a.name || a.official_name || 'Account', mask: a.mask || '', subtype: a.subtype || '' }));
 
   const res = await toDO(env, bizId, '/_plaid/save-item', { accessToken, itemId, institution, accounts, startDate });

@@ -44,6 +44,27 @@ test('zero amount, blank name, bad date, or missing id are skipped', () => {
   assert.equal(shapePlaidTxn(tx({ transaction_id: '' }), 'bank1'), null);
 });
 
+// CREDIT CARDS (2026-07). Plaid uses the same "positive = money out of the account"
+// convention for credit as for depository: a charge is positive, a payment/refund is
+// negative. So the existing flip is already right — these lock that in, because a sign
+// error here would post every charge as a refund on a live card. The expected values
+// match how the books already record Muse Ink - 7978 from CSV (charge = card line
+// NEGATIVE, e.g. T J MAXX -71.07 / Repairs +71.07).
+test('a card CHARGE stays a charge (negative on the card line)', () => {
+  const r = shapePlaidTxn(tx({ transaction_id: 'cc1', amount: 71.07, name: 'T J MAXX #1397' }), 'ba-ink');
+  assert.equal(r.amountCents, -7107);
+});
+
+test('paying the card DOWN is positive (reduces what is owed)', () => {
+  const r = shapePlaidTxn(tx({ transaction_id: 'cc2', amount: -500, name: 'AUTOMATIC PAYMENT - THANK YOU' }), 'ba-ink');
+  assert.equal(r.amountCents, 50000);
+});
+
+test('a refund to the card is positive, like a payment', () => {
+  const r = shapePlaidTxn(tx({ transaction_id: 'cc3', amount: -133.84, name: 'THE HOME DEPOT #1013 RETURN' }), 'ba-ink');
+  assert.equal(r.amountCents, 13384);
+});
+
 test('batch skips pending, dedups within the batch and against known hashes', () => {
   const dupHash = dedupHash({ date: '2026-06-12', desc: 'SQ *MUSE NAILS', amountCents: -4250 });
   const txns = [
