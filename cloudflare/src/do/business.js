@@ -175,9 +175,11 @@ export class BusinessDO {
       const { accessToken, itemId, institution, accounts, startDate } = await req.json();
       if (!accessToken || !itemId) return json({ error: 'bad' }, 400);
       const existing = await this.state.storage.get('plaid:' + itemId);
-      // Cutoff for what gets staged — keep an existing one; else the passed date; else
-      // today (never re-pull an account's whole history as duplicates by default).
-      const sd = existing?.startDate || (/^\d{4}-\d{2}-\d{2}$/.test(startDate || '') ? startDate : new Date().toISOString().slice(0, 10));
+      // Cutoff for what gets staged. NO DEFAULT: this used to fall back to today, i.e.
+      // "skip every transaction this feed holds" — which silently emptied Honey - 8002
+      // and burned its cursor. The route validates it; refuse rather than guess.
+      if (!existing?.startDate && !/^\d{4}-\d{2}-\d{2}$/.test(startDate || '')) return json({ error: 'startDate required' }, 400);
+      const sd = existing?.startDate || startDate;
       await this.state.storage.put('plaid:' + itemId, {
         accessToken, itemId, institution: institution || 'Bank',
         accounts: Array.isArray(accounts) ? accounts : [],
@@ -217,10 +219,9 @@ export class BusinessDO {
     }
 
     // internal: write a sync batch. Idempotent like _sync/inbound — an already-
-    // approved staged row is never reverted to pending. Advances the cursor and
-    // stamps lastSyncAt on the item + its mapped bank accounts.
+    // approved staged row is never reverted to pending.
     if (path === '/_plaid/apply-sync' && req.method === 'POST') {
-      const { itemId, values, cursor } = await req.json();
+      const { itemId, values, cursor, ok = true, error = null } = await req.json();
       const now = Date.now();
       const fresh = [];
       for (const r of (values || [])) {
@@ -235,11 +236,22 @@ export class BusinessDO {
       const item = await this.state.storage.get('plaid:' + itemId);
       if (item) {
         if (cursor != null) item.cursor = cursor;
-        item.lastSyncAt = now;
+        // lastSyncAt means "we know this feed is current", so only a CLEAN sync may
+        // stamp it — otherwise a feed that died months ago keeps reading as fresh.
+        // lastError is the state a toast can't carry: the Banking card reads it long
+        // after the toast is gone, which is the only way the owner finds out at all
+        // (there is no cron, no webhook, and no sync on load).
+        if (ok) { item.lastSyncAt = now; delete item.lastError; }
+        else item.lastError = { ...(error || {}), at: now };
         await this.state.storage.put('plaid:' + itemId, item);
         for (const baId of Object.values(item.bankacctByPlaidAcct || {})) {
           const ba = await this.state.storage.get('bankacct:' + baId);
-          if (ba) { ba.plaid = { ...(ba.plaid || {}), lastSyncAt: now }; ba.updatedAt = now; await this.apply({ op: 'entity.upsert', kind: 'bankacct', value: ba, device: '' }); }
+          if (!ba) continue;
+          const plaid = { ...(ba.plaid || {}) };
+          if (ok) { plaid.lastSyncAt = now; delete plaid.lastError; }
+          else plaid.lastError = { code: error?.code || 'PLAID_ERROR', at: now };
+          ba.plaid = plaid; ba.updatedAt = now;
+          await this.apply({ op: 'entity.upsert', kind: 'bankacct', value: ba, device: '' });
         }
       }
       return json({ ok: true, created: fresh.length });

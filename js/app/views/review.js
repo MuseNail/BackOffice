@@ -258,6 +258,29 @@ function drawBody(body, editable) {
           el('div', { class: 'revside-top' }, el('span', { class: 'pill blue', title: 'Your client proposed splitting this across accounts' }, '💬 Client suggested a split'), amtEl),
           editable ? el('div', { class: 'revside-actions' }, ...actions) : null)));
   };
+  // A staged row whose money is ALREADY posted to this account. Usual cause: a transfer
+  // was imported from the OTHER account's statement and posted, and now this account's
+  // own feed offers its side of the same movement. matchCounterpart (below) only retires
+  // a still-PENDING row on the far side, so it cannot see an already-posted one —
+  // approving this would move the money twice, and both copies look legitimate.
+  // Restricted to TRANSFERS — the twin's other side must itself be a bank/card account.
+  // Without that it fires on any two genuine same-amount charges a few days apart (a
+  // recurring bill, two coffees), and it becomes self-inflicted: approve row A, and an
+  // unrelated row B now matches the txn A just became. A warning that cries wolf gets
+  // ignored, which is worse than not having it.
+  const DUP_DAYS = 3;
+  const bankAcctIds = new Set(entities('bankacct').map(b => b.accountId));
+  const postedTwin = (row) => {
+    const ba = entities('bankacct').find(b => b.id === row.bankacctId);
+    if (!ba || !/^\d{4}-\d{2}-\d{2}$/.test(row.date || '')) return null;
+    const when = new Date(row.date + 'T12:00:00').getTime();
+    return entities('txn').find(t => t.status === 'posted'
+      && /^\d{4}-\d{2}-\d{2}$/.test(t.date || '')
+      && Math.abs(new Date(t.date + 'T12:00:00').getTime() - when) <= DUP_DAYS * 86400000
+      && (t.lines || []).some(l => l.accountId === ba.accountId && l.amountCents === row.amountCents)
+      && (t.lines || []).some(l => l.accountId !== ba.accountId && bankAcctIds.has(l.accountId))) || null;
+  };
+
   const rowCard = (row) => {
     if (row.suggestedSplit && row.suggestedSplit.length >= 2) return splitSuggestionCard(row);
     const aiSug = aiSuggestions.get(row.id);
@@ -355,6 +378,7 @@ function drawBody(body, editable) {
     // Two-column row: a LEFT block (description + the field row) and a RIGHT rail
     // (chip + amount on top, action buttons below). The fields fill the left block, so
     // the wrapped description ends exactly where the Note column ends — clean alignment.
+    const twin = postedTwin(row);
     const amtEl = el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 }));
     return el('div', { class: 'revrow' },
       el('div', { class: 'revbody' },
@@ -364,6 +388,9 @@ function drawBody(body, editable) {
               onchange: (e) => { if (selectedBank !== row.bankacctId) { selected.clear(); selectedBank = row.bankacctId; } e.target.checked ? selected.add(row.id) : selected.delete(row.id); drawBody(body, editable); } }) : null,
             el('span', { class: 'revdate' }, row.date),
             el('span', { class: 'revdesc' }, prettyDesc(row.desc))),
+          twin ? el('div', { class: 'client-note', style: 'background:var(--amber-soft);border-color:#f0dca0;color:var(--amber)' },
+            el('span', { class: 'ms', style: 'font-size:15px' }, 'content_copy'),
+            el('span', {}, `Possible duplicate — a transfer for the same amount${twin.payee ? ` (“${prettyDesc(twin.payee)}”)` : ''} is already in your books on ${twin.date}, from the other account’s statement. If it’s the same one, approving this would count it twice — check the date and amount.`)) : null,
           // The client's note — shown here only when it isn't already pre-filled into the
           // editable Note field below (so it's never hidden and never duplicated).
           (row.clientNote && !noteFromClient) ? el('div', { class: 'client-note' }, el('span', { class: 'ms', style: 'font-size:15px' }, 'chat'), el('span', {}, row.clientNote)) : null,

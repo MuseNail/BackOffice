@@ -3,8 +3,11 @@
 // outflow) — the OPPOSITE of Back Office (and of bank CSVs), where negative = out.
 // So we FLIP the sign. We stage only settled rows (`pending === false`); the
 // staged-row id is derived from Plaid's stable transaction_id so a re-sync is
-// idempotent, and the dedupHash is the SAME content hash the CSV importer uses, so
-// a Plaid row and a hand-imported CSV row for the same transaction collapse to one.
+// idempotent. The dedupHash is the SAME content hash the CSV importer uses, so a CSV
+// import checks itself against Plaid rows already staged (banking.js) — but NOT the
+// reverse: routes/plaid.js calls shapePlaidBatch without knownHashes, so a Plaid row
+// and an existing CSV row for the same transaction both survive. Don't read the
+// knownHashes parameter as a guarantee the sync path makes; today nothing passes it.
 // `/transactions/sync` returns added/modified/removed arrays of these objects. No DOM/IO.
 
 import { dedupHash } from './csv.js';

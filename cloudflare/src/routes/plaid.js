@@ -9,6 +9,7 @@
 // ledger link), so we never auto-create orphan accounts.
 
 import { shapePlaidBatch } from '../../../js/app/lib/plaid-map.js';
+import { farBackCutoff, PLAID_DAYS_REQUESTED } from '../../../js/app/lib/plaid-feed.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
@@ -89,6 +90,11 @@ export async function handlePlaidLinkToken(req, env, bizId) {
     country_codes: ['US'],
     user: { client_user_id: bizId },
     products: ['transactions'],
+    // Plaid's default is 90 DAYS, and this binds when the Item is created — an Item
+    // linked without it can never be widened, only replaced. Honey - 8002 was linked
+    // with a 2026-04-01 cutoff and its oldest row still landed at 88 days, because the
+    // cutoff only filters what already arrived; it can't ask for more.
+    transactions: { days_requested: PLAID_DAYS_REQUESTED },
     account_filters: ACCOUNT_FILTERS,
   };
   if (env.PLAID_REDIRECT_URI) body.redirect_uri = env.PLAID_REDIRECT_URI;
@@ -109,7 +115,19 @@ export async function handlePlaidExchange(req, env, bizId) {
   if (!publicToken) return json({ error: 'public_token required' }, 400);
   const institution = String(b.institution || 'Bank').slice(0, 80);
 
-  const startDate = /^\d{4}-\d{2}-\d{2}$/.test(b.startDate || '') ? b.startDate : null;
+  // A missing/invalid cutoff used to fall through to the DO, which defaulted it to
+  // TODAY — i.e. "skip every transaction you have". That silently emptied Honey - 8002
+  // and burned its cursor. Refuse instead: there is no safe guess here.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(b.startDate || '')) return json({ error: 'startDate required (YYYY-MM-DD)' }, 400);
+  // The client offers ITS local day, which can be a day ahead of the server's UTC day
+  // (up to UTC+14), so allow that much slack — this guard is here to catch a nonsense
+  // future date, not to police a timezone.
+  const latest = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  if (b.startDate > latest) return json({ error: 'startDate cannot be in the future' }, 400);
+  // Older than the Item can hold is harmless (nothing that old exists to skip), so
+  // clamp rather than reject.
+  const floor = farBackCutoff(new Date());
+  const startDate = b.startDate < floor ? floor : b.startDate;
 
   const ex = await plaid(env, '/item/public_token/exchange', { public_token: publicToken });
   if (!ex.ok) return json({ error: 'exchange_failed', detail: ex.data.error_message || '' }, 502);
@@ -153,29 +171,48 @@ export async function handlePlaidDisconnect(req, env, bizId) {
   return json({ ok: true });
 }
 
-// POST /b/:biz/plaid/sync → { synced, items } — pull new settled rows into Review.
+// POST /b/:biz/plaid/sync → { synced, items, errors } — pull new settled rows into
+// Review. `errors` is what stops a dead feed reading as "No new transactions": a
+// caller that reads `synced` without reading `errors` cannot tell them apart.
 export async function handlePlaidSync(req, env, bizId) {
   if (!configured(env)) return json({ error: 'plaid_not_configured' }, 501);
   const bad = envInvalid(env); if (bad) return bad;
   const itemsRes = await toDO(env, bizId, '/_plaid/items');
   const { items } = await itemsRes.json();
-  if (!items || !items.length) return json({ synced: 0, items: 0 });
+  if (!items || !items.length) return json({ synced: 0, items: 0, errors: [] });
 
   let total = 0;
+  const errors = [];
   for (const item of items) {
     // Walk every page from the stored cursor (added/modified only return what's new).
     let cursor = item.cursor || null, hasMore = true, guard = 0;
     const added = [];
+    let failure = null;
     while (hasMore && guard++ < 50) {
       const r = await plaid(env, '/transactions/sync', { access_token: item.accessToken, ...(cursor ? { cursor } : {}), count: 500 });
-      if (!r.ok) { hasMore = false; break; }
+      if (!r.ok) { failure = { code: r.data?.error_code || 'PLAID_ERROR', message: r.data?.error_message || '' }; break; }
       added.push(...(r.data.added || []), ...(r.data.modified || []));
       cursor = r.data.next_cursor;
       hasMore = !!r.data.has_more;
     }
+    // Exiting with pages still outstanding is silent truncation — report it rather
+    // than let a partial pull look like a complete one.
+    if (!failure && hasMore) failure = { code: 'PARTIAL_SYNC', message: 'too many pages in one sync' };
+    // `cursor` always corresponds exactly to the pages accumulated in `added`, so a
+    // mid-walk failure still applies what did arrive without losing or repeating rows.
+    if (failure) {
+      errors.push({
+        itemId: item.itemId,
+        institution: item.institution || 'Bank',
+        bankacctIds: [...new Set(Object.values(item.bankacctByPlaidAcct || {}))],
+        ...failure,
+      });
+    }
     // Group new rows by their Plaid account, map each to its bank account, shape.
-    // The cursor still advanced past ALL history above; we just don't STAGE anything
-    // before the cutoff, so transactions already imported by CSV aren't duplicated.
+    // ⚠️ The cursor advances past ALL history regardless of the cutoff — pre-cutoff
+    // rows are consumed for this Item and never offered again. That is why a wrong
+    // cutoff can only be undone by disconnecting and re-connecting (a new Item), and
+    // why handlePlaidExchange refuses to guess one.
     const since = item.startDate || '0000-00-00';
     const byAcct = new Map();
     for (const t of added) {
@@ -188,9 +225,11 @@ export async function handlePlaidSync(req, env, bizId) {
     const values = [];
     for (const { bankacctId, txns } of byAcct.values()) values.push(...shapePlaidBatch(txns, bankacctId));
 
-    const writeRes = await toDO(env, bizId, '/_plaid/apply-sync', { itemId: item.itemId, values, cursor });
+    const writeRes = await toDO(env, bizId, '/_plaid/apply-sync', {
+      itemId: item.itemId, values, cursor, ok: !failure, error: failure || null,
+    });
     const w = await writeRes.json().catch(() => ({}));
     total += w.created || 0;
   }
-  return json({ synced: total, items: items.length });
+  return json({ synced: total, items: items.length, errors });
 }

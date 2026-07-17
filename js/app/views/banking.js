@@ -7,11 +7,38 @@ import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { startPlaidConnect, syncPlaid, disconnectPlaid } from '../plaid-connect.js';
 import { accountBalance } from '../lib/posting.js';
+import { plaidErrorText } from '../lib/plaid-feed.js';
 import { parseCsv, detectColumns, normalizeRows, dedupHash } from '../lib/csv.js';
 import { looksLikeOfx, parseOfx } from '../lib/ofx.js';
 import { parseMoney } from '../lib/money.js';
 
 const KINDS = { checking: 'Checking', savings: 'Savings', card: 'Credit card', cash: 'Cash' };
+
+const STALE_DAYS = 7;
+
+// A broken feed is STATE, not an event. Nothing here polls — no cron, no webhook, no
+// sync on load — so unless this line says so, the only way the owner learns a feed died
+// is by happening to press Sync. It used to render green "synced <date>" unconditionally,
+// which stayed green forever on a dead feed because lastSyncAt was stamped even when the
+// pull failed. lastError/lastSyncAt are now only written by a sync that actually worked.
+function feedHealth(b) {
+  const p = b.plaid || {};
+  const label = `${p.institution || 'Bank'}${p.mask ? ' ••' + p.mask : ''}`;
+  const sty = (c) => ({ class: 'sub', style: `margin:6px 0 0;color:var(--${c})` });
+  if (p.lastError) {
+    // Say what THIS failure needs. "Sign in at your bank" is right for exactly one code
+    // and wrong for the rest — a partial pull (likely on a first two-year sync) just
+    // wants another Sync, and a bank outage wants patience.
+    const text = plaidErrorText({ code: p.lastError.code, name: label });
+    const partial = p.lastError.code === 'PARTIAL_SYNC';
+    return el('div', sty(partial ? 'amber' : 'red'), `⚠️ ${text.charAt(0).toUpperCase()}${text.slice(1)}`);
+  }
+  if (!p.lastSyncAt) return el('div', sty('mut'), `🔗 ${label} · not synced yet — press Sync now`);
+  const days = (Date.now() - p.lastSyncAt) / 86400000;
+  const when = new Date(p.lastSyncAt).toLocaleDateString();
+  if (days > STALE_DAYS) return el('div', sty('amber'), `🔗 ${label} · last synced ${when} — press Sync now`);
+  return el('div', sty('green'), `🔗 ${label} · synced ${when}`);
+}
 
 let unsub = null;
 
@@ -50,8 +77,7 @@ function drawBody(body, editable) {
       el('a', { class: 'kpi', href: `#/b/${getActiveBiz()}/ledger/${b.accountId}`, title: 'Open this account’s register in the Ledger', style: 'display:block;text-decoration:none;color:inherit' }, fmtMoney(bal)),
       pending ? el('span', { class: 'pill amber' }, `${pending} in Review`) : el('span', { class: 'pill green' }, 'Up to date'),
       openLine ? el('div', { class: 'sub', style: 'margin:6px 0 0' }, `Opening ${fmtMoney(openLine.amountCents)} as of ${opening.date}`) : null,
-      b.plaid ? el('div', { class: 'sub', style: 'margin:6px 0 0;color:var(--green)' },
-        `🔗 ${b.plaid.institution || 'Bank'}${b.plaid.mask ? ' ••' + b.plaid.mask : ''}${b.plaid.lastSyncAt ? ' · synced ' + new Date(b.plaid.lastSyncAt).toLocaleDateString() : ''}`) : null,
+      b.plaid ? feedHealth(b) : null,
       editable ? el('div', { style: 'margin-top:auto;padding-top:10px;display:flex;gap:6px;flex-wrap:wrap' },
         el('button', { class: 'btn sm', onclick: () => importWizard(b) }, 'Import CSV'),
         el('button', { class: 'btn sm ghost', onclick: () => openingBalanceModal(b) }, openLine ? 'Opening balance' : 'Set opening balance'),
