@@ -5,7 +5,7 @@ import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { normalizeDesc } from '../lib/match.js';
-import { txnHasVendor, hasAnyVendor, expenseForVendor, vendorLinesOf } from '../lib/vendor-attribution.js';
+import { txnHasVendor, hasAnyVendor, expenseForVendor } from '../lib/vendor-attribution.js';
 import { renderRegister } from '../register.js';
 import { dateRangeControl, inRange } from '../daterange.js';
 import { ruleConditionsEditor, buildMatchers, ruleSummary } from '../rule-editor.js';

@@ -506,11 +506,12 @@ export function editTxnModal(t) {
   // expense/income account never moves a reconciled balance. A transfer's "other side"
   // IS a bank account, so that one stays locked while reconciled.
   const catIsBank = catLine && bankish(byId.get(catLine.accountId));
-  // Ordinary (non-transfer) txns that aren't reconciled get the split editor: a 2-line txn's
-  // single category can be divided, and an already-split txn re-opens with its lines (each
-  // with its vendor/note) so per-split vendors stay editable. A split needs exactly one bank
-  // line and all other lines to be real categories (no transfer). Reconciled txns keep the
-  // single re-point (the reconciled bank line stays locked).
+  // A non-reconciled, uniform-sign, one-bank txn gets the split editor: a 2-line txn's single
+  // category can be divided, and an already-split txn re-opens with its lines (each with its
+  // vendor/note) so per-split vendors stay editable (splitParts enforces this). Everything else
+  // — reconciled, transfers (two bank lines), and mixed-sign fee-splits/journals — falls to the
+  // metadata-only path below (date/payee/memo/vendor only; a simple reconciled txn still gets a
+  // single account re-point via catSel). No editor path ever rewrites those lines on save.
   const canSplit = !isRecon && isSplittable;
   let split = null;
   let catSel = null;
