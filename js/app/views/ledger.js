@@ -1,5 +1,6 @@
 // ── view: ledger — posted transactions, manual entry, journal entries ────────────────
 import { el, clear, toast, modal, fmtMoney, acctAmount, prettyDesc } from '../ui.js';
+import { todayLocal } from '../lib/day.js';
 import { entities, subscribe, usesInvoices } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -551,7 +552,7 @@ export function editTxnModal(t) {
   setTimeout(() => payee.focus(), 0);
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayLocal();
 const txnId = () => 't-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const ctx = () => ({ accountsById: new Map(entities('account').map(a => [a.id, a])), locks: new Set(entities('lock').map(l => l.id)) });
 

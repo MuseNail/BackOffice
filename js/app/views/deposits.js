@@ -10,6 +10,7 @@
 // Deposit↔batch matching + posting the fee is Phase 3 — nothing here writes.
 
 import { el, clear, fmtMoney } from '../ui.js';
+import { todayLocal } from '../lib/day.js';
 import { entities, subscribe, usesMuseSync } from '../store.js';
 import { api } from '../sync.js';
 import { getActiveBiz, roleFor } from '../session.js';
@@ -38,7 +39,7 @@ export function render(root) {
     unsub = subscribe(() => { if (usesMuseSync()) { unsub?.(); unsub = null; root.replaceChildren(); render(root); } });
     return;
   }
-  const today = iso(new Date());
+  const today = todayLocal();   // the owner's local day, not the UTC one (evening PST would read tomorrow)
   s = { from: addDays(today, -13), to: today, helcim: null, helcimState: 'idle', fetchSeq: 0 };
   const body = el('div');
   root.append(

@@ -2,6 +2,7 @@
 // Bank accounts are created HERE (not in Accounts): each one is a bankacct
 // entity PLUS its linked ledger account (qbType BANK/CCARD), created together.
 import { el, clear, toast, modal, fmtMoney, acctAmount, prettyDesc } from '../ui.js';
+import { todayLocal } from '../lib/day.js';
 import { entities, subscribe, getStateBiz } from '../store.js';
 import { dispatch, api } from '../sync.js';
 import { canEdit, roleFor } from '../session.js';
@@ -165,7 +166,7 @@ function addBankModal() {
   const kind = el('select', { class: 'field-input' }, ...Object.entries(KINDS).map(([v, l]) => el('option', { value: v }, l)));
   const inst = el('input', { class: 'field-input', placeholder: 'optional' });
   const openAmt = el('input', { class: 'field-input', inputmode: 'decimal', placeholder: 'optional — current balance' });
-  const openDate = el('input', { class: 'field-input', type: 'date', value: new Date().toISOString().slice(0, 10) });
+  const openDate = el('input', { class: 'field-input', type: 'date', value: todayLocal() });
   m.body.append(
     el('label', { class: 'field-label' }, 'Account name'), name,
     el('label', { class: 'field-label' }, 'Type'), kind,
@@ -230,7 +231,7 @@ function openingBalanceModal(bankacct) {
   const exVal = exLine ? ((isLia ? -exLine.amountCents : exLine.amountCents) / 100).toFixed(2) : '';
   const m = modal('Opening balance — ' + bankacct.name);
   const amt = el('input', { class: 'field-input', inputmode: 'decimal', value: exVal, placeholder: '0.00' });
-  const date = el('input', { class: 'field-input', type: 'date', value: ex?.date || new Date().toISOString().slice(0, 10) });
+  const date = el('input', { class: 'field-input', type: 'date', value: ex?.date || todayLocal() });
   m.body.append(
     el('p', { class: 'sub' }, `Set this account's starting balance ${isLia ? '(amount owed) ' : ''}as of a date. It posts a balanced entry to Opening Balance Equity so the displayed balance matches your statement.`),
     el('label', { class: 'field-label' }, isLia ? 'Balance owed' : 'Current balance'), amt,

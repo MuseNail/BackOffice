@@ -4,6 +4,7 @@
 // every posted txn sums to zero, so assets always equal liabilities + equity
 // + net income to date.
 import { el, clear, fmtMoney, acctAmount, prettyDesc, modal } from '../ui.js';
+import { todayLocal } from '../lib/day.js';
 import { entities, subscribe, getStateBiz } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -20,7 +21,7 @@ let plExpanded = new Set();
 
 export function render(root) {
   s = {
-    asOf: new Date().toISOString().slice(0, 10),
+    asOf: todayLocal(),
     range: presetRange('month'),
     compare: 'none',       // 'none' | 'prev' | 'ly' | 'trend'
     pctOfIncome: false,    // common-size column (each line as % of total income)

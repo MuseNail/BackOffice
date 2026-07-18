@@ -4,6 +4,7 @@
 // to the ledger and bank reconciliation are later phases — this view tracks, it
 // does not post.
 import { el, clear, toast, fmtMoney, acctAmount, prettyDesc, modal } from '../ui.js';
+import { todayLocal } from '../lib/day.js';
 import { entities, subscribe, getState, usesInvoices, getStateBiz } from '../store.js';
 import { dispatch, api } from '../sync.js';
 import { combobox } from '../combobox.js';
@@ -63,7 +64,7 @@ const sourceOf = (inv) => inv.source?.app === 'manual'
   ? { label: 'Manual', cls: 'blue' }
   : { label: 'Imported', cls: 'gray' };
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => todayLocal();
 const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
 
 // Which A/R aging bucket an invoice's open balance falls in (−1 = none/paid).

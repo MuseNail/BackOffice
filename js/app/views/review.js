@@ -7,6 +7,7 @@
 //  • Fee split — a deposit where the processor kept a cut: posts gross income,
 //    the fee as its own expense, and the net into the bank, in one balanced txn.
 import { el, clear, toast, fmtMoney, acctAmount, modal, prettyDesc } from '../ui.js';
+import { todayLocal } from '../lib/day.js';
 import { entities, subscribe, getState, usesInvoices, usesMuseSync, getStateBiz } from '../store.js';
 import { dispatch, api } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -1014,7 +1015,7 @@ async function matchDepositModal(row, accountsById) {
   if (!match && usesHelcim) {
     const back = new Date(row.date + 'T12:00:00Z'); back.setUTCDate(back.getUTCDate() - 10);
     try {
-      const res = await api(`/b/${getActiveBiz()}/processor/helcim/transactions?dateFrom=${back.toISOString().slice(0, 10)}&dateTo=${row.date}`);
+      const res = await api(`/b/${getActiveBiz()}/processor/helcim/transactions?dateFrom=${todayLocal(back)}&dateTo=${row.date}`);
       if (res.status === 501) { drawNoMatch(m, row, 'Helcim isn’t connected (the owner adds the HELCIM_API_TOKEN secret to the Worker) and the books have no matching clearing activity.'); return; }
       if (res.ok) {
         const txns = await res.json();

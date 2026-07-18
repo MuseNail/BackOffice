@@ -4,6 +4,7 @@
 // ways). Quantity adjustments (usage, shrinkage) change the count only — no
 // money moves without a real transaction.
 import { el, clear, toast, modal, fmtMoney, acctAmount } from '../ui.js';
+import { todayLocal } from '../lib/day.js';
 import { entities, byId, subscribe, getState } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -184,7 +185,7 @@ function restockModal() {
   const itemSel = el('select', { class: 'field-input' }, ...items.map(i => el('option', { value: i.id }, i.name)));
   const qty = el('input', { class: 'field-input', inputmode: 'numeric', placeholder: 'e.g. 24' });
   const unitCost = el('input', { class: 'field-input', inputmode: 'decimal', placeholder: 'per unit, e.g. 8.40' });
-  const date = el('input', { class: 'field-input', type: 'date', value: new Date().toISOString().slice(0, 10) });
+  const date = el('input', { class: 'field-input', type: 'date', value: todayLocal() });
   const bank = el('select', { class: 'field-input' }, ...bankish.map(a => el('option', { value: a.id }, a.name)));
   const accountsMap = new Map(accounts.map(a => [a.id, a]));
   const cat = el('select', { class: 'field-input' }, ...postable

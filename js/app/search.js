@@ -2,6 +2,7 @@
 // In-memory scan of the active business's store, grouped results, jumps to the item.
 // Transactions have no detail route, so they deep-link the Ledger's text filter.
 import { entities } from './store.js';
+import { todayLocal } from './lib/day.js';
 import { getActiveBiz } from './session.js';
 import { setLedgerQuery } from './views/ledger.js';
 import { setReviewQuery } from './views/review.js';
@@ -60,7 +61,7 @@ function dateFrom(preset) {
   const d = new Date();
   if (preset === 'month') return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
   if (preset === 'year') return `${d.getFullYear()}-01-01`;
-  if (preset === '90') return new Date(d.getTime() - 90 * 864e5).toISOString().slice(0, 10);
+  if (preset === '90') return todayLocal(new Date(d.getTime() - 90 * 864e5));
   return '';
 }
 function txnPasses(t) {

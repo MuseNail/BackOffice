@@ -1,5 +1,6 @@
 // ── view: dashboard ────────────────
 import { el, fmtMoney, acctAmount, modal } from '../ui.js';
+import { todayLocal, monthLocal } from '../lib/day.js';
 import { getState, subscribe, entities } from '../store.js';
 import { getActiveBiz } from '../session.js';
 import { industryLabel, accountLabel } from '../lib/coa-templates.js';
@@ -22,7 +23,7 @@ const balanceAsOf = (txns, accountId, asOf) => txns.reduce((s, t) =>
   (t.status === 'posted' && (!asOf || t.date <= asOf))
     ? s + (t.lines || []).reduce((a, l) => a + (l.accountId === accountId ? l.amountCents : 0), 0)
     : s, 0);
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => todayLocal();
 
 export function render(root) {
   let asOf = todayIso();
@@ -51,7 +52,7 @@ export function render(root) {
     const cashAccts = banks.filter(a => a.type === 'asset' && a.qbType === 'BANK');
     const cash = cashAccts.reduce((sum, a) => sum + balanceAsOf(txns, a.id, asOf), 0);
 
-    const month = new Date().toISOString().slice(0, 7);
+    const month = monthLocal();
     const prev = prevMonthKey(month);
     const pl = profitAndLoss(txns, accountsById, monthRange(month));
     const plPrev = profitAndLoss(txns, accountsById, monthRange(prev));

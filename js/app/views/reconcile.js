@@ -4,6 +4,7 @@
 // txn with reconciledIn (it leaves the uncleared list forever) and records a
 // recon entity for the audit trail.
 import { el, clear, toast, modal, fmtMoney, acctAmount, prettyDesc } from '../ui.js';
+import { todayLocal } from '../lib/day.js';
 import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -16,7 +17,7 @@ let s = null; // { bankacctId, endDate, stmtCents, checked:Set }
 
 export function render(root) {
   const first = entities('bankacct')[0];
-  s = { bankacctId: first?.id || '', endDate: new Date().toISOString().slice(0, 10), stmtCents: null, checked: new Set() };
+  s = { bankacctId: first?.id || '', endDate: todayLocal(), stmtCents: null, checked: new Set() };
   const body = el('div');
   root.append(
     el('h2', {}, 'Reconcile'),

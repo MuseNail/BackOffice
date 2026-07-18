@@ -2,6 +2,7 @@
 // Management UI renders only for owner/manager sessions; the server enforces
 // the same rule, this is just honest UI. Muse sync + IIF export land M11/M12.
 import { el, clear, toast, fmtMoney, acctAmount, modal } from '../ui.js';
+import { todayLocal, monthLocal } from '../lib/day.js';
 import { api, dispatch, saveOrphanTo } from '../sync.js';
 import { getBusinesses, roleFor, getUser } from '../session.js';
 import { describeWrite } from '../lib/orphan-recovery.js';
@@ -337,8 +338,8 @@ function drawMuseCard(card, biz) {
 // stamped qbExportedAt so a later overlapping export warns — QB will happily
 // import the same journal entries twice and double the books.
 function drawQbCard(card, biz) {
-  const monthStart = new Date().toISOString().slice(0, 8) + '01';
-  const today = new Date().toISOString().slice(0, 10);
+  const monthStart = monthLocal() + '-01';
+  const today = todayLocal();
   const from = el('input', { class: 'field-input', type: 'date', style: 'margin:0;max-width:170px', value: monthStart });
   const to = el('input', { class: 'field-input', type: 'date', style: 'margin:0;max-width:170px', value: today });
   const result = el('p', { class: 'sub', style: 'margin-top:8px' });

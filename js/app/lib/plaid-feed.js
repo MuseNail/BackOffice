@@ -17,9 +17,10 @@ export function suggestedCutoff(date) {
   return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
 }
 
-// The owner's calendar day, NOT the UTC one: at 21:33 in California, toISOString()
-// already says tomorrow, and pre-filling tomorrow as a cutoff means "skip everything".
-export const todayLocal = (now = new Date()) => now.toLocaleDateString('en-CA');
+// The owner's calendar day, NOT the UTC one (at 21:33 in California toISOString() already
+// says tomorrow). Now lives in lib/day.js (one shared local-day impl); re-exported here so
+// this module's existing importers + plaid-feed.test.mjs keep resolving it.
+export { todayLocal } from './day.js';
 
 // Exactly the 730 days the link token asks Plaid for — same number, so the cutoff can
 // never be narrower than what the Item actually holds. Day arithmetic, not month
