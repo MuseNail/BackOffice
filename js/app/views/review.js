@@ -12,7 +12,8 @@ import { entities, subscribe, getState, usesInvoices, usesMuseSync, getStateBiz 
 import { dispatch, api } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { validateTxn, simpleTxn } from '../lib/posting.js';
-import { suggestFor, guessVendorName, matchesRule, vendorForRow } from '../lib/match.js';
+import { suggestFor, guessVendorName, matchesRule } from '../lib/match.js';
+import { resolveRowSuggestion, sourceMatches, SOURCE_META } from '../lib/review-source.js';
 import { ruleConditionsEditor, buildMatchers, matchersToConditions, rulePreview } from '../rule-editor.js';
 import { bindSuggest } from '../suggest.js';
 import { accountLabel } from '../lib/coa-templates.js';
@@ -32,14 +33,14 @@ let aiBusy = false;
 let showSkipped = false;
 // Review filter/sort (bank-row sections only). dir: all|in|out · status: all|needs|ready
 // · bank: all|<bankId> · sort: date-desc|date-asc|amount-desc|amount-asc.
-let reviewFilter = { dir: 'all', status: 'all', bank: 'all', sort: 'date-desc', amountMin: '', amountMax: '', from: '', to: '', q: '' };
+let reviewFilter = { dir: 'all', status: 'all', source: 'all', bank: 'all', sort: 'date-desc', amountMin: '', amountMax: '', from: '', to: '', q: '' };
 // The shared date picker + search box, built once (the filter bar is rebuilt on every
 // redraw; the search box lives ABOVE the body so typing never loses focus).
 let reviewDateCtl = null;
 let reviewSearchEl = null;
 let reviewFiltersHost = null;   // sticky-header slots filled by drawBody (filters + action buttons)
 let reviewActionsHost = null;
-const REVIEW_FILTER_DEFAULT = () => ({ dir: 'all', status: 'all', bank: 'all', sort: 'date-desc', amountMin: '', amountMax: '', from: '', to: '', q: '' });
+const REVIEW_FILTER_DEFAULT = () => ({ dir: 'all', status: 'all', source: 'all', bank: 'all', sort: 'date-desc', amountMin: '', amountMax: '', from: '', to: '', q: '' });
 // Preserve per-row category / vendor / invoice / note edits across drawBody re-renders
 // (store changes — e.g. creating a rule — trigger a full redraw, so we save the user's
 // in-progress picks here and restore them; otherwise the invoice + note would reset).
@@ -128,6 +129,10 @@ function applyReviewFilter(rows, matchCtx, accountsById) {
     if (reviewFilter.dir === 'out' && !(r.amountCents < 0)) return false;
     if (reviewFilter.status === 'ready' && !rowReady(r, matchCtx, accountsById)) return false;
     if (reviewFilter.status === 'needs' && rowReady(r, matchCtx, accountsById)) return false;
+    if (reviewFilter.source !== 'all') {
+      const src = resolveRowSuggestion(r, { vendors: matchCtx.vendors, history: matchCtx.history, accountsById, aiSug: aiSuggestions.get(r.id) }).source;
+      if (!sourceMatches(reviewFilter.source, src)) return false;
+    }
     if (reviewFilter.from && r.date < reviewFilter.from) return false;
     if (reviewFilter.to && r.date > reviewFilter.to) return false;
     const absC = Math.abs(r.amountCents);
@@ -285,26 +290,11 @@ function drawBody(body, editable) {
   const rowCard = (row) => {
     if (row.suggestedSplit && row.suggestedSplit.length >= 2) return splitSuggestionCard(row);
     const aiSug = aiSuggestions.get(row.id);
-    let sug = suggestFor(row, matchCtx);
-    if (sug && (!accountsById.has(sug.accountId) || accountsById.get(sug.accountId).active === false)) sug = null;
-    if (!sug) {
-      if (aiSug?.accountId && accountsById.has(aiSug.accountId) && accountsById.get(aiSug.accountId).active !== false) sug = { accountId: aiSug.accountId, by: 'ai', confidence: aiSug.confidence };
-      else unmatched.push(row);
-    }
-    if (sug) suggested.push({ row, sug });
-
-    // A vendor rule with NO account still tags the vendor — surface it even when there's
-    // no account suggestion, so "memorized vendor, pick the account yourself" rules work.
-    let vendorTag = sug?.vendorId ? { vendorId: sug.vendorId, vendorName: sug.vendorName }
-      : vendorForRow(row, matchCtx.vendors);
-    // AI extracts a clean vendor name from the description — reuse an existing vendor if
-    // it matches one, else prefill the field with the name (created on approve).
-    let vendPrefillText = '';
-    if (!vendorTag && aiSug?.vendorName) {
-      const match = matchCtx.vendors.find(v => (v.name || '').toLowerCase() === aiSug.vendorName.toLowerCase());
-      if (match) vendorTag = { vendorId: match.id, vendorName: match.name };
-      else vendPrefillText = aiSug.vendorName;
-    }
+    // ONE resolution shared with the source filter (lib/review-source.js) so the chip and the
+    // filter can never disagree — it reproduces the account-null / AI-fold / vendor-tag steps.
+    const { sug, vendorTag, vendPrefillText, source } = resolveRowSuggestion(
+      row, { vendors: matchCtx.vendors, history: matchCtx.history, accountsById, aiSug });
+    if (sug) suggested.push({ row, sug }); else unmatched.push(row);
 
     // A client's suggestion (from the client app) pre-fills the fields too.
     const preselect = lastCategory.get(row.id) || row.suggestedAccountId || sug?.accountId;
@@ -334,17 +324,19 @@ function drawBody(body, editable) {
     if (focusVendorRow === row.id) { focusVendorRow = null; setTimeout(() => vendSel.focusNoOpen?.(), 0); }
     const invSel = showInvoices ? invoiceSelect(invoicesList, lastInvoice.has(row.id) ? lastInvoice.get(row.id) : row.suggestedInvoiceId) : null;
     if (invSel) { invSel.style.margin = '0'; invSel.addEventListener('change', () => lastInvoice.set(row.id, invSel.value)); }
-    const chip = row.suggestedAt
-      ? el('span', { class: 'pill blue', title: 'Filled in by your client — review and approve' }, '💬 Client suggested')
-      : sug
-        ? (sug.by === 'rule' ? el('span', { class: 'pill blue' }, `⚡ ${sug.vendorName}`)
-          : sug.by === 'ai' ? el('span', { class: 'pill amber' }, `✨ AI ${sug.confidence}%`)
-          : el('span', { class: 'pill green' }, '🕘 Seen before'))
-        : vendorTag
-          ? el('span', { class: 'pill blue', title: 'Vendor matched — choose an account' }, `⚡ ${vendorTag.vendorName} · pick account`)
-          : vendPrefillText
-            ? el('span', { class: 'pill amber', title: 'AI-suggested vendor — saved when you approve' }, `✨ ${vendPrefillText} · pick account`)
-            : el('span', { class: 'pill gray' }, 'No match');
+    // Chip text carries the source's dynamic detail (vendor name / confidence); its colour +
+    // icon come from SOURCE_META so the chip and the filter speak the same visual language.
+    const chipText = source === 'client' ? '💬 Client suggested'
+      : source === 'rule' ? `⚡ ${sug.vendorName || 'Rule'}`
+      : source === 'ai' ? `✨ AI ${sug.confidence}%`
+      : source === 'history' ? '🕘 Seen before'
+      : source === 'vendor-rule' ? `⚡ ${vendorTag.vendorName} · pick account`
+      : source === 'ai-vendor' ? `✨ ${vendPrefillText} · pick account`
+      : '◻ No match';
+    const chipTitle = source === 'client' ? 'Filled in by your client — review and approve'
+      : source === 'vendor-rule' ? 'Vendor matched — choose an account'
+      : source === 'ai-vendor' ? 'AI-suggested vendor — saved when you approve' : '';
+    const chip = el('span', { class: 'pill ' + SOURCE_META[source].cls, title: chipTitle }, chipText);
 
     const approve = el('button', { class: 'btn sm green', disabled: !preselect, onclick: () => {
       lastCategory.delete(row.id); lastVendor.delete(row.id); lastInvoice.delete(row.id); lastMemo.delete(row.id);
@@ -545,7 +537,7 @@ function drawBody(body, editable) {
     value: reviewFilter[key] ? (reviewFilter[key] / 100).toFixed(2) : '',
     onchange: (e) => { const c = parseMoney(e.target.value); reviewFilter[key] = (c != null && c > 0) ? c : ''; drawBody(body, editable); } });
   if (reviewDateCtl) reviewDateCtl.setRange({ from: reviewFilter.from || null, to: reviewFilter.to || null });
-  const filtersOn = reviewFilter.dir !== 'all' || reviewFilter.status !== 'all' || reviewFilter.bank !== 'all' || reviewFilter.sort !== 'date-desc' || reviewFilter.amountMin !== '' || reviewFilter.amountMax !== '' || reviewFilter.from !== '' || reviewFilter.to !== '' || reviewFilter.q !== '';
+  const filtersOn = reviewFilter.dir !== 'all' || reviewFilter.status !== 'all' || reviewFilter.source !== 'all' || reviewFilter.bank !== 'all' || reviewFilter.sort !== 'date-desc' || reviewFilter.amountMin !== '' || reviewFilter.amountMax !== '' || reviewFilter.from !== '' || reviewFilter.to !== '' || reviewFilter.q !== '';
   // Fixed two-row filter bar: row 1 = what to show / order; row 2 = amount, date, clear.
   const rowStyle = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap';
   const filterBar = el('div', { style: 'margin-bottom:12px' },
@@ -553,6 +545,7 @@ function drawBody(body, editable) {
       el('span', { class: 'sub', style: 'margin:0' }, 'Filter'),
       fsel('dir', [['all', 'All'], ['in', 'Money in'], ['out', 'Money out']]),
       fsel('status', [['all', 'Any status'], ['needs', 'Needs an account'], ['ready', 'Ready']]),
+      fsel('source', [['all', 'Any source'], ['client', '💬 Client'], ['ai', '✨ AI'], ['rule', '⚡ Rule'], ['history', '🕘 Seen before'], ['none', '◻ No suggestion']]),
       fsel('bank', [['all', 'All accounts'], ...entities('bankacct').map(b => [b.id, b.name])]),
       fsel('sort', [['date-desc', 'Newest first'], ['date-asc', 'Oldest first'], ['amount-desc', 'Largest first'], ['amount-asc', 'Smallest first']])),
     el('div', { style: rowStyle },
