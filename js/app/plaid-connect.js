@@ -63,7 +63,7 @@ async function mapPlaid(biz, bankacct, itemId, plaidAccountId) {
   // that is actually this account's — otherwise an unrelated broken feed would swallow
   // the very message this release exists to show.
   const mine = errors.some(e => (e.bankacctIds || []).includes(bankacct.id));
-  const rows = entities('staged').filter(s => s.bankacctId === bankacct.id).length;
+  const rows = entities('staged').filter(s => s.bankacctId === bankacct.id && s.status !== 'deleted').length;
   connectedModal(biz, bankacct, rows, mine);
 }
 
@@ -279,7 +279,7 @@ export function linkExistingAccount(bankacct, candidate) {
         // account so an unrelated feed's rows/errors can't be credited or blamed here.
         const { errors } = await syncPlaid(biz);
         const mine = (errors || []).some(e => (e.bankacctIds || []).includes(bankacct.id));
-        const rows = entities('staged').filter(s => s.bankacctId === bankacct.id).length;
+        const rows = entities('staged').filter(s => s.bankacctId === bankacct.id && s.status !== 'deleted').length;
         linkedModal(bankacct, rows, mine);
       } }, 'Link account')),
   );

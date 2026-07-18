@@ -81,6 +81,7 @@ async function loadHelcim(body) {
 function museCardByDay(from, to) {
   const byDay = new Map(); // date -> { cents, pending }
   for (const r of entities('staged')) {
+    if (r.status === 'deleted') continue;   // a deleted card sale must not inflate the day's recorded total
     if (r.syncType !== 'sales_card' && r.syncType !== 'gift_sold') continue;
     if (!r.date || r.date < from || r.date > to) continue;
     const cur = byDay.get(r.date) || { cents: 0, pending: false };

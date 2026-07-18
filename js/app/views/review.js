@@ -56,6 +56,9 @@ const REVIEW_PAGE = 50;
 // account starts a fresh selection there; the sticky bar acts on the selection.
 let selected = new Set();
 let selectedBank = null;
+// Saved-for-later multi-select — a DEDICATED set: the pending-selection cleanup drops any
+// non-pending id every redraw, which would purge saved rows if they shared `selected`.
+let savedSelected = new Set();
 // Deep-link from global search: stash a query to drop into the Review search box on the
 // next render (survives unmount, which resets reviewFilter — same pattern as the Ledger).
 let pendingReviewQuery = null;
@@ -98,7 +101,7 @@ export function render(root) {
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); lastInvoice = new Map(); lastMemo = new Map(); collapsedBanks = new Set(); bankPage = new Map(); selected = new Set(); selectedBank = null; reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; reviewSearchEl = null; reviewFiltersHost = null; reviewActionsHost = null; focusVendorRow = null; }
+export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); lastInvoice = new Map(); lastMemo = new Map(); collapsedBanks = new Set(); bankPage = new Map(); selected = new Set(); selectedBank = null; savedSelected = new Set(); reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; reviewSearchEl = null; reviewFiltersHost = null; reviewActionsHost = null; focusVendorRow = null; }
 
 // A row is "ready" if it has a resolved category — a valid rule/history suggestion,
 // an AI suggestion, or a manual pick (lastCategory). Drives the needs/ready filter.
@@ -206,7 +209,10 @@ function drawBody(body, editable) {
   if (!pending.length) {
     if (reviewFiltersHost) clear(reviewFiltersHost);
     if (reviewActionsHost) clear(reviewActionsHost);
-    clear(body).append(el('p', { class: 'sub' }, 'All caught up — nothing waiting. Import a CSV from Banking to fill this screen.'));
+    // Still render Saved-for-later (with its multi-select restore) when nothing is pending —
+    // otherwise "save everything for later" would leave the section unreachable.
+    const savedSection = savedForLaterSection(body, editable);
+    clear(body).append(savedSection || el('p', { class: 'sub' }, 'All caught up — nothing waiting. Import a CSV from Banking to fill this screen.'));
     return;
   }
   // Drop any selection that's no longer pending (approved/skipped elsewhere).
@@ -215,7 +221,7 @@ function drawBody(body, editable) {
   if (!selected.size) selectedBank = null;
   const accountsById = new Map(entities('account').map(a => [a.id, a]));
   const categories = entities('account').filter(a => a.active !== false && !bankish(a));
-  const matchCtx = { vendors: entities('vendor'), history: entities('staged') };
+  const matchCtx = { vendors: entities('vendor'), history: entities('staged').filter(s => s.status !== 'deleted') };
   const vendorsList = entities('vendor').slice().sort((a, b) => a.name.localeCompare(b.name));
   const showInvoices = usesInvoices();
   const invoicesList = showInvoices ? entities('invoice').slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')) : [];
@@ -249,7 +255,7 @@ function drawBody(body, editable) {
     const actions = editable ? [
       el('button', { class: 'btn sm', title: 'Open the split editor pre-filled with the client’s lines', onclick: () => splitModal(row, accountsById, { seed: lines }) }, '⊟ Review split'),
       el('button', { class: 'btn sm green', disabled: !canApprove, title: canApprove ? 'Post the split exactly as suggested' : 'Some lines need an account, or the amounts don’t add up — use Review split', onclick: () => approveSuggestedSplit(row) }, 'Approve split'),
-      el('button', { class: 'btn sm ghost', onclick: () => skipRow(row) }, 'Skip'),
+      el('button', { class: 'btn sm ghost', onclick: () => skipRow(row) }, 'Save for later'),
     ] : [];
     const amtEl = el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 }));
     return el('div', { class: 'revrow' },
@@ -355,7 +361,8 @@ function drawBody(body, editable) {
       }
     });
     const actions = [approve,
-      el('button', { class: 'btn sm ghost', onclick: () => skipRow(row) }, 'Skip'),
+      el('button', { class: 'btn sm ghost', title: 'Park it in Saved for later — restore it anytime', onclick: () => skipRow(row) }, 'Save for later'),
+      el('button', { class: 'btn sm ghost', title: 'Remove it — and keep it from coming back when your bank re-sends it', onclick: () => deleteRow(row) }, 'Delete'),
       el('button', { class: 'btn sm ghost', title: 'Auto-categorize this vendor from now on', onclick: () => makeRuleModal(row, sel.value, vendSel.value, categories, accountsById) }, '⚡ Rule'),
       el('button', { class: 'btn sm ghost', title: 'Split this transaction across several accounts', onclick: () => splitModal(row, accountsById) }, '⊟ Split')];
     // % Fee / $ Match are card-processor batch-deposit tools (split out the processing fee,
@@ -451,34 +458,9 @@ function drawBody(body, editable) {
     sections.push(el('div', { style: 'margin-bottom:18px' }, ...kids));
   }
 
-  // Skipped rows section
-  const skippedAll = entities('staged').filter(r => r.status === 'skipped');
-  if (skippedAll.length) {
-    const toggleLabel = showSkipped ? `Hide skipped (${skippedAll.length})` : `Show skipped (${skippedAll.length})`;
-    const skippedSection = el('div', { style: 'margin-bottom:18px' },
-      el('button', { class: 'btn sm ghost', style: 'margin-bottom:8px', onclick: () => { showSkipped = !showSkipped; drawBody(body, editable); } }, toggleLabel),
-    );
-    if (showSkipped) {
-      const skippedRows = skippedAll.slice(0, 50).map(row => el('tr', {},
-        el('td', {}, row.date),
-        el('td', {}, prettyDesc(row.desc).slice(0, 55)),
-        el('td', { class: 'num' }, acctAmount(row.amountCents, { colored: true, sign: row.amountCents > 0 })),
-        el('td', {}, el('span', { class: 'pill gray' }, 'Skipped')),
-        el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px' },
-          el('button', { class: 'btn sm ghost', onclick: () => {
-            dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'pending' } });
-            toast('Restored to pending');
-          } }, 'Restore'),
-          el('button', { class: 'btn sm ghost', onclick: () => deleteSkipped(row) }, 'Delete')) : ''),
-      ));
-      skippedSection.append(
-        el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
-          el('table', { class: 'data xl' },
-            el('thead', {}, el('tr', {}, el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Status'), el('th', {}, ''))),
-            el('tbody', {}, ...skippedRows))));
-    }
-    sections.push(skippedSection);
-  }
+  // Saved-for-later rows section (with multi-select restore / delete).
+  const savedSection = savedForLaterSection(body, editable);
+  if (savedSection) sections.push(savedSection);
 
   // Muse-synced rows (no bankacctId — they came from the salon, not a statement).
   // Each posts via the saved Muse mapping: the balancing side is fixed per type
@@ -510,7 +492,7 @@ function drawBody(body, editable) {
         el('td', {}, editable ? sel : '—'),
         el('td', {}, bal ? el('span', { class: 'pill blue' }, `↔ ${bal.name}`) : el('span', { class: 'pill red' }, 'Map in Settings')),
         el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px' }, approve,
-          el('button', { class: 'btn sm ghost', onclick: () => skipRow(row) }, 'Skip')) : ''),
+          el('button', { class: 'btn sm ghost', onclick: () => skipRow(row) }, 'Save for later')) : ''),
       );
     };
     sections.push(el('div', { style: 'margin-bottom:18px' },
@@ -564,7 +546,8 @@ function drawBody(body, editable) {
     el('button', { class: 'btn sm ghost', onclick: () => bulkSetField('category', selRows, categories, accountsById, vendorsList, body, editable) }, 'Set account'),
     el('button', { class: 'btn sm ghost', onclick: () => bulkSetField('vendor', selRows, categories, accountsById, vendorsList, body, editable) }, 'Set vendor'),
     el('button', { class: 'btn sm green', onclick: () => bulkApprove(byCat, body, editable) }, 'Approve'),
-    el('button', { class: 'btn sm ghost', onclick: () => bulkSkip(pending, body, editable) }, 'Skip'),
+    el('button', { class: 'btn sm ghost', onclick: () => bulkSkip(pending, body, editable) }, 'Save for later'),
+    el('button', { class: 'btn sm ghost', onclick: () => bulkDeletePending(pending, body, editable) }, 'Delete'),
     el('button', { class: 'btn sm ghost', onclick: () => { selected.clear(); selectedBank = null; drawBody(body, editable); } }, 'Clear')) : null;
   clear(reviewFiltersHost).append(filterBar);
   clear(reviewActionsHost).append(
@@ -722,24 +705,29 @@ function matchCounterpart(row, transferAccountId, txnId) {
   return true;
 }
 
+// "Save for later" — park a row in the Saved-for-later list (status stays 'skipped', the
+// stored value, so no migration). NO updatedAt: a staged status flip must never lose the
+// stale-guard to a peer's clock (the guard needs both stamps to fire; mirrors Restore).
 function skipRow(row) {
   dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'skipped' } });
-  toast('Skipped');
+  toast('Saved for later');
 }
 
-// Permanently remove a skipped Review row. Safe because a staged row never posted —
-// the ledger and reports are untouched — so this is the one place a duplicate/unwanted
-// bank row can be cleared for good (Skip alone only hides it in the Skipped section).
-function deleteSkipped(row) {
-  const m = modal('Delete skipped row?');
+// Soft-delete a Review row: mark it 'deleted' so it leaves Review for good AND won't come
+// back when the bank re-sends OR re-links it — a 'deleted' row still suppresses a re-synced
+// / re-imported copy exactly like a saved-for-later one (freshRows/_sync skip a non-pending
+// existing id; the content-dedup budget still counts it). Safe because a staged row never
+// posted: the ledger and reports are untouched. NO updatedAt stamp (same reason as skipRow).
+function deleteRow(row) {
+  const m = modal('Delete this transaction?');
   m.body.append(
     el('p', {}, `${row.date} · ${row.desc?.slice(0, 60) || '—'} — ${fmtMoney(row.amountCents, { sign: row.amountCents > 0 })}`),
-    el('p', { class: 'sub' }, 'This permanently removes the row from Review. It was never posted, so your ledger and reports are unaffected. This cannot be undone.'),
+    el('p', { class: 'sub' }, 'Removes it from Review and keeps it from coming back when your bank re-sends or re-links it. It was never posted, so your ledger and reports are unaffected.'),
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'),
       el('button', { class: 'btn', style: 'background:var(--red)', onclick: () => {
-        dispatch({ op: 'entity.delete', kind: 'staged', id: row.id });
-        logAudit('delete', { summary: `Deleted skipped row ${row.date} · ${row.desc || '—'}`, kind: 'staged', entityId: row.id, amountCents: row.amountCents });
+        dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'deleted' } });
+        logAudit('delete', { summary: `Deleted Review row ${row.date} · ${row.desc || '—'}`, kind: 'staged', entityId: row.id, amountCents: row.amountCents });
         toast('Deleted');
         m.close();
       } }, 'Delete')));
@@ -803,8 +791,79 @@ function bulkSkip(pending, body, editable) {
   let n = 0;
   for (const id of [...selected]) { const r = byId.get(id); if (r) { dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...r, status: 'skipped' } }); n++; } }
   selected.clear(); selectedBank = null;
-  toast(`${n} skipped`);
+  toast(`${n} saved for later`);
   drawBody(body, editable);
+}
+// "Delete selected" on the pending selection — soft-delete each (confirm first). Same
+// remembered-on-re-sync guarantee as a single Delete.
+function bulkDeletePending(pending, body, editable) {
+  const byId = new Map(pending.map(r => [r.id, r]));
+  const rows = [...selected].map(id => byId.get(id)).filter(Boolean);
+  if (!rows.length) return;
+  const m = modal(`Delete ${rows.length} transaction${rows.length === 1 ? '' : 's'}?`);
+  m.body.append(
+    el('p', { class: 'sub' }, 'Removes them from Review and keeps them from coming back when your bank re-sends or re-links them. They were never posted, so your ledger and reports are unaffected.'),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'),
+      el('button', { class: 'btn', style: 'background:var(--red)', onclick: () => {
+        for (const r of rows) dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...r, status: 'deleted' } });
+        const n = rows.length; selected.clear(); selectedBank = null; toast(`${n} deleted`); drawBody(body, editable); m.close();
+      } }, 'Delete')));
+}
+// Delete a multi-selection from the Saved-for-later list (soft-delete each; confirm first).
+function bulkDeleteSaved(shown, body, editable) {
+  const rows = shown.filter(r => savedSelected.has(r.id));
+  if (!rows.length) return;
+  const m = modal(`Delete ${rows.length} transaction${rows.length === 1 ? '' : 's'}?`);
+  m.body.append(
+    el('p', { class: 'sub' }, 'Removes them from Review and keeps them from coming back when your bank re-sends or re-links them. They were never posted, so your ledger and reports are unaffected.'),
+    el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
+      el('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'),
+      el('button', { class: 'btn', style: 'background:var(--red)', onclick: () => {
+        for (const r of rows) dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...r, status: 'deleted' } });
+        const n = rows.length; savedSelected.clear(); toast(`${n} deleted`); drawBody(body, editable); m.close();
+      } }, 'Delete')));
+}
+
+// The Saved-for-later section (parked rows), with multi-select Restore / Delete. Rendered
+// both in the normal flow and when there are zero pending rows (so restore-all is reachable
+// right after "save everything for later"). Returns an element, or null when nothing saved.
+function savedForLaterSection(body, editable) {
+  const savedAll = entities('staged').filter(r => r.status === 'skipped');
+  if (!savedAll.length) return null;
+  const savedIds = new Set(savedAll.map(r => r.id));
+  for (const id of [...savedSelected]) if (!savedIds.has(id)) savedSelected.delete(id);   // drop stale selections
+  const toggleLabel = showSkipped ? `Hide saved for later (${savedAll.length})` : `Show saved for later (${savedAll.length})`;
+  const section = el('div', { style: 'margin-bottom:18px' },
+    el('button', { class: 'btn sm ghost', style: 'margin-bottom:8px', onclick: () => { showSkipped = !showSkipped; drawBody(body, editable); } }, toggleLabel));
+  if (!showSkipped) return section;
+  const shown = savedAll.slice(0, 200);
+  const selN = shown.filter(r => savedSelected.has(r.id)).length;
+  const allChecked = shown.length > 0 && shown.every(r => savedSelected.has(r.id));
+  const restoreSelected = () => { let n = 0; for (const r of shown) if (savedSelected.has(r.id)) { dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...r, status: 'pending' } }); n++; } savedSelected.clear(); toast(`${n} restored to pending`); drawBody(body, editable); };
+  if (editable && selN) section.append(el('div', { class: 'review-bulkbar', style: 'position:static;margin-bottom:8px' },
+    el('span', {}, el('b', {}, `${selN} selected`)),
+    el('span', { style: 'flex:1' }),
+    el('button', { class: 'btn sm green', onclick: restoreSelected }, `Restore selected (${selN})`),
+    el('button', { class: 'btn sm ghost', onclick: () => bulkDeleteSaved(shown, body, editable) }, `Delete selected (${selN})`),
+    el('button', { class: 'btn sm ghost', onclick: () => { savedSelected.clear(); drawBody(body, editable); } }, 'Clear')));
+  const rowEl = (row) => el('tr', {},
+    editable ? el('td', {}, el('input', { type: 'checkbox', class: 'revchk', checked: savedSelected.has(row.id),
+      onchange: (e) => { e.target.checked ? savedSelected.add(row.id) : savedSelected.delete(row.id); drawBody(body, editable); } })) : el('td', {}),
+    el('td', {}, row.date),
+    el('td', {}, prettyDesc(row.desc).slice(0, 55)),
+    el('td', { class: 'num' }, acctAmount(row.amountCents, { colored: true, sign: row.amountCents > 0 })),
+    el('td', {}, editable ? el('div', { style: 'display:flex;gap:6px' },
+      el('button', { class: 'btn sm ghost', onclick: () => { dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'pending' } }); toast('Restored to pending'); } }, 'Restore'),
+      el('button', { class: 'btn sm ghost', onclick: () => deleteRow(row) }, 'Delete')) : ''));
+  section.append(el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
+    el('table', { class: 'data xl' },
+      el('thead', {}, el('tr', {},
+        editable ? el('th', { style: 'width:32px' }, el('input', { type: 'checkbox', class: 'revchk', checked: allChecked,
+          onchange: (e) => { if (e.target.checked) for (const r of shown) savedSelected.add(r.id); else savedSelected.clear(); drawBody(body, editable); } })) : el('th', {}),
+        el('th', {}, 'Date'), el('th', {}, 'Description'), el('th', { class: 'num' }, 'Amount'), el('th', {}, 'Actions'))),
+      el('tbody', {}, ...shown.map(rowEl)))));
+  return section;
 }
 // Apply one category or vendor across the whole selection (they then approve as usual).
 function bulkSetField(kind, selRows, categories, accountsById, vendorsList, body, editable) {
@@ -1177,7 +1236,7 @@ function makeRuleModal(row, pickedCategoryId, pickedVendorId, categories, accoun
   const updatePreview = () => {
     const sp = editor.get();
     if (!sp.conditions.length) { preview.set({ n: 0, samples: [] }); return; }
-    const hits = entities('staged').filter(r => matchesRule(buildMatchers(sp), r));
+    const hits = entities('staged').filter(r => r.status !== 'deleted' && matchesRule(buildMatchers(sp), r));
     preview.set({ n: hits.length, samples: hits.map(r => r.desc).filter(Boolean) });
   };
   // Bank/card accounts are offered as transfer destinations (a rule can auto-categorize

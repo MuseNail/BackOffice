@@ -146,6 +146,20 @@ test('stagedIndex counts repeats of the same fingerprint', async () => {
   assert.equal([...m.values()][0], 2, 'two held, so two must be spent before a third stages');
 });
 
+// v0.71.11 "remembered delete": a soft-deleted row (status:'deleted') stays counted by
+// stagedIndex — in byId (so a same-id re-sync is skipped) AND in countByAcct (so a re-LINKED
+// copy with a new id but the same content is skipped too). This is why Delete stays gone.
+test('a soft-deleted staged row still suppresses re-sync (same id AND re-linked content)', async () => {
+  const deleted = { id: 'plaid-old', bankacctId: 'ba-honey-8002', date: '2026-06-08', desc: 'COSTCO WHSE', amountCents: -8042, status: 'deleted' };
+  const { byId, countByAcct } = await stagedIndex(fakeStorage([['staged:plaid-old', deleted]]));
+  assert.ok(byId.has('plaid-old'), 'deleted row must stay in byId to block a same-id re-sync');
+  // same id → byId suppresses
+  assert.deepEqual(freshRows([{ ...deleted, status: 'pending' }], byId, countByAcct, 2), []);
+  // re-link (new id, same content) → the counted deleted row suppresses it via the budget
+  assert.deepEqual(freshRows([{ ...deleted, id: 'plaid-relinked', status: 'pending' }], new Map(), countByAcct, 2), [],
+    'a re-linked copy of a deleted row must not come back');
+});
+
 test('stagedIndex ignores rows with no bank account (Muse-sync rows)', async () => {
   const { byId, countByAcct } = await stagedIndex(fakeStorage([
     ['staged:sync-musenail-1', { id: 'sync-musenail-1', syncApp: 'musenail', date: '2026-06-08', desc: 'Cash sales', amountCents: 5000 }],
