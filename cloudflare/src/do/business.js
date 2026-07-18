@@ -5,6 +5,7 @@
 // (The '__system__' instance also holds Web Push subs + the error-report ring buffer.)
 import { sendPush, pushKeyHash } from '../push.js';
 import { freshRows, stagedIndex } from './plaid-dedup.js';
+import { wrongBusiness } from './wrong-biz.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -73,6 +74,10 @@ export class BusinessDO {
         device: url.searchParams.get('device') || '',
         role: req.headers.get('X-Bo-Role') || 'viewer',
         user: req.headers.get('X-Bo-User') || '',
+        // Layer-3 seal check for WS writes (dormant path — the client sends only pings —
+        // but a future re-enable must not silently bypass the seal). Pre-deploy sockets'
+        // attachments lack this field ⇒ '' ⇒ the check skips, additively safe.
+        biz: req.headers.get('X-Bo-Biz') || '',
       });
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
@@ -304,7 +309,7 @@ export class BusinessDO {
     if (path === '/state' && req.method === 'GET') return this.snapshot();
     if (path === '/state' && req.method === 'POST') {
       const op = await req.json();
-      const result = await this.apply(op, req.headers.get('X-Bo-User') || '');
+      const result = await this.apply(op, req.headers.get('X-Bo-User') || '', req.headers.get('X-Bo-Biz') || '');
       return json(result, result.rejected ? 409 : 200);
     }
     // Audit log of transaction changes (who/what/when). Newest first; not in the
@@ -444,7 +449,14 @@ export class BusinessDO {
 
   // op: { op:'entity.upsert'|'entity.delete'|'meta.set', kind?, value?, id?, device? }
   // actor = the acting user's id (from X-Bo-User / the WS attachment) for the audit log.
-  async apply(op, actor = '') {
+  // expectedBiz = the Worker's unspoofable X-Bo-Biz stamp (URL business) — external writes
+  // only; internal callers pass nothing and the seal check skips (wrong-biz.js).
+  async apply(op, actor = '', expectedBiz = '') {
+    // Layer-3 seal check, FIRST — above meta.set too (a misrouted meta.set would overwrite
+    // another company's profile). WRONG_BIZ_CHECK='off' is the no-redeploy kill switch.
+    if (this.env?.WRONG_BIZ_CHECK !== 'off' && wrongBusiness(op, expectedBiz)) {
+      return { rejected: true, reason: 'wrong-business' };
+    }
     if (op.op === 'meta.set') {
       await this.state.storage.put('meta', op.value);
       return this.commit(op);
@@ -575,7 +587,7 @@ export class BusinessDO {
     if (msg.type === 'op' && msg.op) {
       const att = (() => { try { return ws.deserializeAttachment() || {}; } catch { return {}; } })();
       if (att.role === 'viewer') { ws.send(JSON.stringify({ type: 'ack', clientId: msg.clientId, rejected: true, reason: 'read only' })); return; }
-      const result = await this.apply(msg.op, att.user || '');
+      const result = await this.apply(msg.op, att.user || '', att.biz || '');
       ws.send(JSON.stringify({ type: 'ack', clientId: msg.clientId, ...result }));
     }
     if (msg.type === 'ping') ws.send('{"type":"pong"}');

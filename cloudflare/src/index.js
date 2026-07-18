@@ -144,6 +144,10 @@ export default {
       const fwd = new Request(req);
       fwd.headers.set('X-Bo-Role', role);
       fwd.headers.set('X-Bo-User', sess.userId);
+      // Layer-3 seal check (SYNC-MISROUTE-PLAN.md): the URL business, stamped AFTER the
+      // membership gate. `.set` overwrites anything a client sent ⇒ unspoofable. The DO
+      // compares it against the op's client seal (_sealBiz) and refuses a mismatch.
+      fwd.headers.set('X-Bo-Biz', bizId);
       return withCors(await env.BUSINESS_DO.get(env.BUSINESS_DO.idFromName(bizId)).fetch(fwd));
     }
 

@@ -151,13 +151,27 @@ function drawFailedOps(card, biz) {
 
   // An orphan needs the owner to say which books it belongs to — then it's filed exactly there.
   const orphanRow = (e) => {
+    const bizName = id => businesses.find(b => b.id === id)?.name || id || 'unknown';
+    // Layer 3: a wrong-business refusal carries the write's SEAL (the books that were open
+    // when it was made) — pre-point the picker there and SAY so; the generic "no business
+    // was set" copy would be false for it (a business WAS set; the server refused it).
+    const sealed = e.op?._sealBiz || '';
+    const sealedKnown = sealed && businesses.some(b => b.id === sealed);
+    const refused = e.reason === 'wrong-business';
     const sel = el('select', { class: 'field-input', style: 'max-width:220px;margin:0' },
       el('option', { value: '' }, 'Choose its books…'),
       ...businesses.map(b => el('option', { value: b.id }, b.name || b.id)));
+    if (sealedKnown) sel.value = sealed;
+    const caption = refused
+      ? (sealedKnown
+        ? `${fmtWhen(e.rejectedAt)} · refused — headed for ${bizName(e.attempted)}’s books but made in ${bizName(sealed)}’s`
+        : `${fmtWhen(e.rejectedAt)} · refused — headed for ${bizName(e.attempted)}’s books; made in “${sealed || '?'}” — no longer in your list, pick where it belongs now`)
+      : `${fmtWhen(e.rejectedAt)} · held because no business was set`;
     return el('div', { class: 'card', style: 'border:1px solid var(--amber);margin:0 0 8px;box-shadow:none' },
-      el('div', { style: 'font-weight:700;color:var(--amber);font-size:12px;margin-bottom:3px' }, '⚠️ Not saved yet — choose its books'),
+      el('div', { style: 'font-weight:700;color:var(--amber);font-size:12px;margin-bottom:3px' },
+        refused ? '⚠️ Refused — it was headed into the wrong books; choose where to file it' : '⚠️ Not saved yet — choose its books'),
       el('div', { style: 'font-weight:600' }, label(e.op)),
-      el('div', { class: 'sub', style: 'margin:2px 0 8px' }, `${fmtWhen(e.rejectedAt)} · held because no business was set`),
+      el('div', { class: 'sub', style: 'margin:2px 0 8px' }, caption),
       el('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, sel,
         el('button', { class: 'btn sm', onclick: async () => {
           const b = sel.value;

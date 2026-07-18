@@ -5,7 +5,7 @@
 // that keeps orphans OUT of the retry loop.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { describeWrite, partitionFailed, requeueRoutable } from '../js/app/lib/orphan-recovery.js';
+import { describeWrite, partitionFailed, requeueRoutable, orphanizeRejected, capFailedLog } from '../js/app/lib/orphan-recovery.js';
 
 test('describeWrite summarizes a txn as date / payee / amount', () => {
   const op = { op: 'entity.upsert', kind: 'txn', value: { id: 't-1', date: '2026-06-22', payee: 'AMERICAN HOME DE', lines: [{ accountId: 'chase-chk-0116', amountCents: -400000 }, { accountId: 'draping', amountCents: 400000 }] } };
@@ -70,4 +70,75 @@ test('requeueRoutable with only orphans moves nothing', () => {
   assert.equal(r.moved, 0);
   assert.deepEqual(r.outbox, [{ a: 1 }]);
   assert.equal(r.failed.length, 2);
+});
+
+// ── Layer 3 (SYNC-MISROUTE-PLAN.md): the seal must survive a Sync-now round trip ──
+// (regression pin — requeueRoutable strips ONLY the one-shot _healed retry flag; the
+// _sealBiz seal is the integrity stamp the server compares, so losing it here would
+// silently disarm the server check on every retried write)
+test('requeueRoutable preserves _sealBiz while stripping _healed', () => {
+  const failed = [{ biz: 'muse', op: { op: 'entity.upsert', _sealBiz: 'muse', _healed: true } }];
+  const r = requeueRoutable(failed, []);
+  assert.equal(r.outbox[0].op._sealBiz, 'muse');
+  assert.equal('_healed' in r.outbox[0].op, false);
+});
+
+// ── orphanizeRejected — a server-refused wrong-business write becomes an ORPHAN entry ──
+// biz:'' routes it into the recovery UI's per-row picker (a stamped entry would render
+// view-only under the WRONG business); `attempted` preserves which books it almost hit.
+test('orphanizeRejected builds an orphan entry keeping the op (and its seal) plus the attempted business', () => {
+  const item = { biz: 'muse', op: { op: 'entity.upsert', kind: 'vendor', _sealBiz: 'tie-corp', value: { id: 'v1' } } };
+  const e = orphanizeRejected(item, 'wrong-business');
+  assert.equal(e.biz, '', 'must be an orphan so the recovery picker renders');
+  assert.equal(e.attempted, 'muse');
+  assert.equal(e.reason, 'wrong-business');
+  assert.equal(e.op._sealBiz, 'tie-corp', 'the seal must survive for the pre-select hint');
+  assert.deepEqual(e.op.value, { id: 'v1' });
+  assert.equal(typeof e.rejectedAt, 'number');
+});
+
+test('orphanizeRejected tolerates a junk item without throwing', () => {
+  const e = orphanizeRejected({}, 'wrong-business');
+  assert.equal(e.biz, '');
+  assert.equal(e.attempted, '');
+});
+
+// ── capFailedLog — independent budgets so piled-up orphans can't blind the rejection log
+// and routable pressure can NEVER evict an orphan (the only copy of a never-saved write) ──
+const mkRoutable = (n) => Array.from({ length: n }, (_, i) => ({ biz: 'muse', op: { i }, reason: 'stale' }));
+const mkOrphans = (n) => Array.from({ length: n }, (_, i) => ({ biz: '', op: { o: i }, reason: 'no-business' }));
+
+test('capFailedLog leaves a small log untouched, preserving order', () => {
+  const log = [...mkOrphans(3), ...mkRoutable(5)];
+  const r = capFailedLog(log);
+  assert.deepEqual(r.log, log);
+  assert.deepEqual(r.evictedOrphans, []);
+  assert.notEqual(r.log, log, 'caller\'s array must not be shared/mutated');
+});
+
+test('capFailedLog keeps the newest 100 routable and ALL orphans (orphans never evicted by routable pressure)', () => {
+  // newest-first log: 150 orphans interleaved after 500 routable would be unrealistic;
+  // build newest-first with orphans scattered at both ends to prove order-preserving filters.
+  const log = [...mkOrphans(50), ...mkRoutable(500), ...mkOrphans(100)];
+  const r = capFailedLog(log);
+  const routable = r.log.filter(e => e.biz);
+  const orphans = r.log.filter(e => !e.biz);
+  assert.equal(routable.length, 100);
+  assert.equal(orphans.length, 150);
+  assert.deepEqual(routable, mkRoutable(500).slice(0, 100), 'newest routable kept');
+  assert.deepEqual(r.evictedOrphans, []);
+});
+
+test('capFailedLog hard-caps orphans at 200 newest and RETURNS the evicted ones so the caller can sound the siren', () => {
+  const log = mkOrphans(250);   // newest-first
+  const r = capFailedLog(log);
+  assert.equal(r.log.length, 200);
+  assert.deepEqual(r.log, log.slice(0, 200), 'newest 200 kept');
+  assert.equal(r.evictedOrphans.length, 50);
+  assert.deepEqual(r.evictedOrphans, log.slice(200), 'the oldest orphans are the evicted ones');
+});
+
+test('capFailedLog tolerates a non-array', () => {
+  assert.deepEqual(capFailedLog(null), { log: [], evictedOrphans: [] });
+  assert.deepEqual(capFailedLog(undefined), { log: [], evictedOrphans: [] });
 });

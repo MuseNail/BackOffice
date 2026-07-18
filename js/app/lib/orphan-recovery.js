@@ -40,8 +40,35 @@ export function partitionFailed(failed) {
 // retry flag), leaving orphans in the failed log. Pure so the money-safety property — an
 // orphan is NEVER re-queued (it would dead-letter again → loop + a push per tap) — is pinned
 // by a test. `moved` = how many routable writes were re-queued (0 ⇒ the caller skips the write).
+// (`_sealBiz` — the Layer-3 integrity seal — must SURVIVE the round trip; only `_healed` is stripped.)
 export function requeueRoutable(failed, outbox) {
   const { routable, orphans } = partitionFailed(failed);
   const requeued = routable.slice().reverse().map(f => { const op = { ...f.op }; delete op._healed; return { biz: f.biz, op }; });
   return { outbox: (Array.isArray(outbox) ? outbox.slice() : []).concat(requeued), failed: orphans, moved: routable.length };
+}
+
+// Layer 3: a write the SERVER refused as wrong-business becomes an ORPHAN entry — biz:''
+// routes it into the recovery UI's per-row "Save to these books" picker (kept stamped, it
+// would render view-only under the WRONG business). `attempted` preserves which books it
+// almost hit, for diagnosis; the op (with its `_sealBiz` seal) passes through untouched so
+// the picker can pre-point at the books it was made in.
+export function orphanizeRejected(item, reason) {
+  const it = item && typeof item === 'object' ? item : {};
+  return { biz: '', op: it.op, attempted: it.biz || '', reason, rejectedAt: Date.now() };
+}
+
+// The dead-letter log's cap, with INDEPENDENT budgets per class: newest 100 routable
+// rejections AND newest 200 orphans (the log is newest-first). A shared budget would let
+// piled-up orphans starve the rejection log — and routable pressure must NEVER evict an
+// orphan, because an orphan is the only copy of a never-saved write. Evicted orphans are
+// RETURNED (not dropped silently) so the caller can report each loss loudly.
+export function capFailedLog(log) {
+  const list = Array.isArray(log) ? log : [];
+  let routableKept = 0, orphansKept = 0;
+  const kept = [], evictedOrphans = [];
+  for (const e of list) {
+    if (e && e.biz) { if (routableKept < 100) { kept.push(e); routableKept++; } }
+    else { if (orphansKept < 200) { kept.push(e); orphansKept++; } else evictedOrphans.push(e); }
+  }
+  return { log: kept, evictedOrphans };
 }

@@ -3,7 +3,7 @@ import { ORIGIN, LS } from './config.js';
 import { getToken, deviceId, getActiveBiz, clearSession } from './session.js';
 import { setSnapshot, applyChange, getStateBiz, setStateBiz } from './store.js';
 import { reportError } from './reporter.js';   // log rejected writes to Diagnostics
-import { requeueRoutable } from './lib/orphan-recovery.js';
+import { requeueRoutable, orphanizeRejected, capFailedLog, describeWrite } from './lib/orphan-recovery.js';
 
 let ws = null;
 let wsBiz = '';
@@ -81,7 +81,16 @@ export async function dispatch(op) {
   // after an await so it's last (it would shadow the correct answer for the whole load window).
   // If all three are empty (no business loaded), the write queues with biz='' and the flusher
   // dead-letters it for the recovery UI — it is NEVER guessed into whatever books are open.
-  const biz = getStateBiz() || getActiveBiz() || wsBiz;
+  // ONE read feeds both the route and the Layer-3 seal, so item.biz ≡ op._sealBiz is true by
+  // construction (a false server 409 is impossible). The seal is ONLY the data-derived value
+  // — sealing from the fallbacks would compare the guess to itself. (`_sealBiz`, not `_biz`:
+  // that name already means the snapshot-cache stamp above.) A fallback-routed write can't be
+  // sealed, so it's at least made VISIBLE in Diagnostics — if this ever fires, a stateBiz gap
+  // like the idle-lock hole is back.
+  const sb = getStateBiz();
+  const biz = sb || getActiveBiz() || wsBiz;
+  if (sb) op._sealBiz = sb;
+  else if (biz) reportError('sync.unsealed-route', `no loaded-business stamp; routed to '${biz}' by ${getActiveBiz() ? 'the shared active-business marker' : 'the socket business'}`);
   op.device = deviceId();
   if (op.op === 'entity.upsert') { op.value.updatedAt = Date.now(); op.value.updatedBy = op.device; }
   applyChange(op);
@@ -136,6 +145,9 @@ export function syncNow() {
 // the owner chose, never a guess.
 export function saveOrphanTo(biz, op) {
   if (!biz || !op) return;
+  // The owner's explicit pick IS the write's new authority — re-seal to it. Without this, a
+  // wrong-business orphan whose old seal disagrees with the picked books would 409 forever.
+  op._sealBiz = biz;
   const ob = readOutbox();
   ob.push({ biz, op });
   localStorage.setItem(LS.outbox, JSON.stringify(ob));
@@ -149,15 +161,47 @@ export function saveOrphanTo(biz, op) {
 
 // Move a write the server refused (or an unroutable one) to the dead-letter log so it's
 // preserved + recoverable (Settings → Data recovery) instead of silently dropped OR left
-// to jam the queue forever.
-function deadLetter(item, reason) {
+// to jam the queue forever. `orphanize` (a Layer-3 wrong-business refusal) stores it as an
+// ORPHAN — biz:'' + attempted — so the recovery picker renders instead of a view-only row
+// under the WRONG business. Caps are per-class (capFailedLog): routable pressure can never
+// evict an orphan, and every loss path is LOUD — an evicted orphan and a quota-failed write
+// each fire their own serious report, because for a never-saved write the log IS the data.
+function deadLetter(item, reason, { orphanize = false } = {}) {
+  const what = (op) => { const d = describeWrite(op); return d.kind === 'txn' ? `${d.date} ${d.payee} ${(d.cents / 100).toFixed(2)}` : (d.fallback || 'write'); };
   try {
     const log = JSON.parse(localStorage.getItem(LS.failed) || '[]');
-    log.unshift({ biz: item.biz, op: item.op, reason, rejectedAt: Date.now() });
-    localStorage.setItem(LS.failed, JSON.stringify(log.slice(0, 100)));
+    log.unshift(orphanize ? orphanizeRejected(item, reason) : { biz: item.biz, op: item.op, reason, rejectedAt: Date.now() });
+    const capped = capFailedLog(log);
+    try {
+      localStorage.setItem(LS.failed, JSON.stringify(capped.log));
+    } catch {
+      // Storage quota — the entry could not be held. Never a bare swallow: name the write.
+      try { reportError('sync.deadletter-quota', `couldn't hold a refused write (${what(item.op)})`, { serious: true }); } catch (e) {}
+    }
+    for (const o of capped.evictedOrphans) {
+      try { reportError('sync.orphan-evicted', `orphan cap evicted an un-filed write (${what(o?.op)})`, { serious: true }); } catch (e) {}
+    }
   } catch { /* best-effort */ }
   // A rejected write is data-loss-adjacent — surface it in Diagnostics + alert the owner.
-  try { reportError('sync.rejected-write', ((item.op?.op || 'write') + ' ' + (item.op?.kind || '')).trim() + ' rejected: ' + reason, { serious: true }); } catch (e) {}
+  // For a wrong-business refusal name all three businesses in the MESSAGE: the report's
+  // structured `biz` field is the SHARED marker (reporter.js) — untrustworthy here.
+  try {
+    const detail = orphanize ? ` (made in '${item.op?._sealBiz || '?'}', sent to '${item.biz || '?'}', loaded '${getStateBiz() || 'none'}')` : '';
+    reportError('sync.rejected-write', ((item.op?.op || 'write') + ' ' + (item.op?.kind || '')).trim() + ' rejected: ' + reason + detail, { serious: true });
+  } catch (e) {}
+}
+
+// Drop the queue head ONLY if it is still the item this tab just processed. `flushing` is
+// per-tab over the SHARED outbox, so two tabs can process the same head; a blind shift in
+// the second tab would remove the NEXT item — unsent, silently lost. On a mismatch, skip:
+// the duplicate send behind it is harmless (by-id upsert + stale guard), the lost write
+// would not have been.
+function shiftIfHead(item) {
+  const cur = readOutbox();
+  if (cur.length && JSON.stringify(cur[0]) === JSON.stringify(item)) {
+    cur.shift();
+    localStorage.setItem(LS.outbox, JSON.stringify(cur));
+  }
 }
 
 async function flushOutbox() {
@@ -176,7 +220,7 @@ async function flushOutbox() {
       // maintenance → Save to these books). It still unjams the queue (it shifts).
       if (!item.biz) {
         deadLetter(item, 'no-business');
-        const c = readOutbox(); c.shift(); localStorage.setItem(LS.outbox, JSON.stringify(c));
+        shiftIfHead(item);
         continue;
       }
       let res;
@@ -207,7 +251,11 @@ async function flushOutbox() {
             const cur = readOutbox(); cur[0] = item; localStorage.setItem(LS.outbox, JSON.stringify(cur));
             continue;               // retry the head with the healed stamp
           }
-          deadLetter(item, reason);   // real conflict — preserve it for recovery, don't jam
+          // Layer 3: the server refused this write because its seal names a DIFFERENT
+          // business than the books it was sent to — a routing bug is back. Hold it as an
+          // ORPHAN so the recovery picker (pre-pointed at its seal) can file it right.
+          if (reason === 'wrong-business') deadLetter(item, reason, { orphanize: true });
+          else deadLetter(item, reason);   // real conflict — preserve it for recovery, don't jam
         } else if (res.status >= 500) {
           emitStatus('offline');      // transient server error — keep + retry, never discard good work
           return;
@@ -219,11 +267,9 @@ async function flushOutbox() {
         }
       }
       if (res.ok) sent++;   // the server accepted this write — it's durably saved
-      // Re-read before dropping the head: a concurrent dispatch may have appended to the tail
-      // while this POST was in flight, and we must not clobber it by writing back a stale array.
-      const cur = readOutbox();
-      cur.shift();
-      localStorage.setItem(LS.outbox, JSON.stringify(cur));
+      // Re-read before dropping the head (a concurrent dispatch may have appended) and drop
+      // it only if it's still OUR item (a concurrent tab may have already shifted it).
+      shiftIfHead(item);
     }
     emitStatus(undefined, sent > 0);   // sent>0 → a brief "Saved" confirmation
   } finally {
