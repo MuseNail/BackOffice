@@ -5,7 +5,7 @@ import { el, clear, toast, fmtMoney, acctAmount, modal } from '../ui.js';
 import { todayLocal, monthLocal } from '../lib/day.js';
 import { api, dispatch, saveOrphanTo } from '../sync.js';
 import { getBusinesses, roleFor, getUser } from '../session.js';
-import { describeWrite } from '../lib/orphan-recovery.js';
+import { describeWrite, dedupeOrphans } from '../lib/orphan-recovery.js';
 import { getState, entities, byId, subscribe, usesInvoices, usesMuseSync, getStateBiz } from '../store.js';
 import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
@@ -139,7 +139,9 @@ function drawFailedOps(card, biz) {
   // Orphans surface under every business (they need the owner to choose their books); a
   // business-stamped rejection shows only under its own business.
   const mine = log.filter(e => !e.biz || e.biz === biz);
-  const orphans = mine.filter(e => !e.biz);
+  // Collapse duplicate orphan rows a two-tab race dead-lettered twice, so the same write
+  // can't be filed to two businesses (filing clears EVERY copy of the op — below).
+  const orphans = dedupeOrphans(mine.filter(e => !e.biz));
   const stamped = mine.filter(e => e.biz);
   const header = el('div', { class: 'cardtitle' }, `Held & rejected writes${mine.length ? ` (${mine.length})` : ''}`);
   if (!mine.length) {
@@ -181,12 +183,12 @@ function drawFailedOps(card, biz) {
           // isn't clobbered), then file it to the chosen books.
           let cur = []; try { cur = JSON.parse(localStorage.getItem(LS.failed) || '[]'); } catch { /* empty */ }
           const os = JSON.stringify(e.op);
-          const idx = cur.findIndex(x => !x.biz && x.rejectedAt === e.rejectedAt && JSON.stringify(x.op) === os);
-          // Claim-then-file: only file if THIS click removed the orphan from the log. If it was
-          // already filed (another tab, or a double-click), bail — filing it again would land the
-          // same write in a SECOND company's books, the exact hole this fix exists to close.
-          if (idx < 0) { toast('Already filed', 'err'); drawFailedOps(card, biz); return; }
-          cur.splice(idx, 1); localStorage.setItem(LS.failed, JSON.stringify(cur));
+          // Claim-then-file: remove EVERY un-filed copy of this exact write (a two-tab race can
+          // dead-letter it more than once), then file it ONCE. If none remain, it was already
+          // filed (another tab / double-click) — bail rather than land it in a 2nd company's books.
+          const next = cur.filter(x => !(!x.biz && JSON.stringify(x.op) === os));
+          if (next.length === cur.length) { toast('Already filed', 'err'); drawFailedOps(card, biz); return; }
+          localStorage.setItem(LS.failed, JSON.stringify(next));
           await saveOrphanTo(b, e.op);
           toast('Saved to ' + (businesses.find(x => x.id === b)?.name || b));
           drawFailedOps(card, biz);

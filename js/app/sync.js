@@ -108,14 +108,17 @@ function readOutbox() {
 // The status pill must reflect server-rejected (dead-lettered) work so it can never falsely
 // read "Synced" while writes were dropped — `attention` surfaces them (see flushOutbox).
 function failedCount() { try { return JSON.parse(localStorage.getItem(LS.failed) || '[]').length; } catch { return 0; } }
+// Orphans (un-filed writes with no business) can't be retried by "Sync now" — the banner
+// points the owner to Settings → Data & maintenance instead when EVERY failure is an orphan.
+function orphanCount() { try { return JSON.parse(localStorage.getItem(LS.failed) || '[]').filter(e => e && !e.biz).length; } catch { return 0; } }
 
 // Compute + broadcast the sync status from the ACTUAL queue state, so the pill can never
 // read "Synced" while writes are still queued (unsynced) or dead-lettered. `forced` pins
 // 'offline' (network down) regardless of the counts. Listeners get the counts for a banner.
 function emitStatus(forced, justSaved) {
-  const pending = readOutbox().length, failed = failedCount();
+  const pending = readOutbox().length, failed = failedCount(), orphan = orphanCount();
   const state = forced || ((pending || failed) ? 'attention' : 'synced');
-  onStatus(state, { pending, failed, justSaved: !!justSaved });
+  onStatus(state, { pending, failed, orphan, justSaved: !!justSaved });
 }
 export function pendingCount() { return readOutbox().length; }
 export function failedOpsCount() { return failedCount(); }

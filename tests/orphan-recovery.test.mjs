@@ -5,7 +5,7 @@
 // that keeps orphans OUT of the retry loop.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { describeWrite, partitionFailed, requeueRoutable, orphanizeRejected, capFailedLog } from '../js/app/lib/orphan-recovery.js';
+import { describeWrite, partitionFailed, requeueRoutable, orphanizeRejected, capFailedLog, dedupeOrphans } from '../js/app/lib/orphan-recovery.js';
 
 test('describeWrite summarizes a txn as date / payee / amount', () => {
   const op = { op: 'entity.upsert', kind: 'txn', value: { id: 't-1', date: '2026-06-22', payee: 'AMERICAN HOME DE', lines: [{ accountId: 'chase-chk-0116', amountCents: -400000 }, { accountId: 'draping', amountCents: 400000 }] } };
@@ -148,4 +148,40 @@ test('capFailedLog drops falsy junk entries — they occupy no orphan slot and f
   const r = capFailedLog(log);
   assert.deepEqual(r.log, [...mkOrphans(2), ...mkRoutable(2)]);
   assert.deepEqual(r.evictedOrphans, [], 'junk must never be reported as an evicted write');
+});
+
+// ── dedupeOrphans — collapse duplicate orphan ROWS a two-tab race dead-lettered twice ──
+// so the owner sees one row and can't file the same write to two different businesses.
+test('dedupeOrphans collapses orphans with an identical op, keeping the newest rejectedAt', () => {
+  const op = { op: 'entity.upsert', kind: 'txn', value: { id: 't1' } };
+  const log = [
+    { biz: '', op, reason: 'wrong-business', rejectedAt: 300 },   // newest (log is newest-first)
+    { biz: '', op, reason: 'wrong-business', rejectedAt: 100 },   // dup of the same write
+  ];
+  const r = dedupeOrphans(log);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].rejectedAt, 300, 'keep the newest copy');
+});
+
+test('dedupeOrphans keeps orphans whose ops differ', () => {
+  const log = [
+    { biz: '', op: { value: { id: 'a' } }, rejectedAt: 2 },
+    { biz: '', op: { value: { id: 'b' } }, rejectedAt: 1 },
+  ];
+  assert.equal(dedupeOrphans(log).length, 2);
+});
+
+test('dedupeOrphans never collapses stamped (routable) entries, even with an identical op', () => {
+  const op = { value: { id: 'x' } };
+  const log = [
+    { biz: 'muse', op, reason: 'stale', rejectedAt: 2 },
+    { biz: 'muse', op, reason: 'stale', rejectedAt: 1 },
+  ];
+  assert.equal(dedupeOrphans(log).length, 2, 'a business-stamped rejection is a real per-attempt record');
+});
+
+test('dedupeOrphans preserves order and tolerates junk', () => {
+  assert.deepEqual(dedupeOrphans(null), []);
+  const log = [{ biz: 'muse', op: { v: 1 } }, { biz: '', op: { v: 2 }, rejectedAt: 5 }];
+  assert.deepEqual(dedupeOrphans(log), log);
 });

@@ -57,6 +57,27 @@ export function orphanizeRejected(item, reason) {
   return { biz: '', op: it.op, attempted: it.biz || '', reason, rejectedAt: Date.now() };
 }
 
+// Collapse duplicate ORPHAN rows for the recovery UI: a two-tab flush race can dead-letter
+// the SAME un-filed write twice (two entries, same op, different rejectedAt), and the owner
+// could then file each copy to a DIFFERENT business. Show one row per distinct orphan op
+// (newest kept — the log is newest-first). Stamped (business-tagged) rejections are per-
+// attempt diagnostics and are never collapsed. Display-only; the caller clears every copy
+// of an op when it's filed. Order preserved.
+export function dedupeOrphans(log) {
+  const list = Array.isArray(log) ? log : [];
+  const seen = new Set();
+  const out = [];
+  for (const e of list) {
+    if (e && !e.biz) {
+      const key = JSON.stringify(e.op);
+      if (seen.has(key)) continue;   // an older copy of a write already shown newest-first
+      seen.add(key);
+    }
+    out.push(e);
+  }
+  return out;
+}
+
 // The dead-letter log's cap, with INDEPENDENT budgets per class: newest 100 routable
 // rejections AND newest 200 orphans (the log is newest-first). A shared budget would let
 // piled-up orphans starve the rejection log — and routable pressure must NEVER evict an

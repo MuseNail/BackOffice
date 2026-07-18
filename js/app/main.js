@@ -77,7 +77,7 @@ let workspaceMode = false; // true while the MDI windowed workspace is mounted
 //  • work merely in-flight → debounced ~2s, so a normal post (which syncs in well under a
 //    second) never flashes a warning — it just confirms "Saved".
 let syncBannerTimer = null, syncSavedTimer = null;
-function renderSyncBanner(state, pending, failed, justSaved) {
+function renderSyncBanner(state, pending, failed, justSaved, orphan = 0) {
   const bar = () => { let b = document.getElementById('sync-banner'); if (!b) { b = document.createElement('div'); b.id = 'sync-banner'; document.body.appendChild(b); } return b; };
   const hide = () => document.getElementById('sync-banner')?.remove();
   const ic = (name) => { const s = document.createElement('span'); s.className = 'ms'; s.textContent = name; return s; };
@@ -88,12 +88,18 @@ function renderSyncBanner(state, pending, failed, justSaved) {
   if (state === 'offline' || failed) {
     clearTimeout(syncBannerTimer); syncBannerTimer = null;
     const b = bar(), n = pending + failed;
+    // Every failure is an ORPHAN (a write with no business) — "Sync now" can't retry those;
+    // they're filed by hand. Point there instead of offering a button that does nothing.
+    const allOrphans = state !== 'offline' && failed > 0 && orphan >= failed;
     b.className = 'sync-banner ' + (state === 'offline' ? 'offline' : 'attention');
-    b.replaceChildren(ic(state === 'offline' ? 'cloud_off' : 'sync_problem'),
-      tx(state === 'offline'
-        ? `You’re offline — ${n} change${n === 1 ? '' : 's'} waiting to sync. They’ll save automatically when you reconnect.`
-        : `${failed} change${failed === 1 ? '' : 's'} couldn’t be saved — tap Sync now to retry.`, true),
-      syncBtn());
+    const msg = state === 'offline'
+      ? `You’re offline — ${n} change${n === 1 ? '' : 's'} waiting to sync. They’ll save automatically when you reconnect.`
+      : allOrphans
+        ? `${failed} change${failed === 1 ? '' : 's'} held for filing — open Settings → Data & maintenance to file ${failed === 1 ? 'it' : 'them'}.`
+        : `${failed} change${failed === 1 ? '' : 's'} couldn’t be saved — tap Sync now to retry.`;
+    const kids = [ic(state === 'offline' ? 'cloud_off' : 'sync_problem'), tx(msg, true)];
+    if (!allOrphans) kids.push(syncBtn());   // "Sync now" can't file an orphan, so omit it
+    b.replaceChildren(...kids);
     return;
   }
   // Work queued but nothing refused → debounce; a normal post syncs first and this never shows.
@@ -300,13 +306,13 @@ function boot() {
   ver.title = 'Back Office v' + APP_VERSION + ' — what’s new';
   ver.onclick = () => showWhatsNew();   // checkAppVersion swaps this to a hard-reload when an update is waiting
   setStatusListener((s, info) => {
-    const pending = info?.pending || 0, failed = info?.failed || 0, n = pending + failed;
+    const pending = info?.pending || 0, failed = info?.failed || 0, orphan = info?.orphan || 0, n = pending + failed;
     const pill = document.getElementById('syncpill');
     if (pill) {
       pill.textContent = s === 'synced' ? 'Synced' : s === 'offline' ? (n ? `Offline · ${n}` : 'Offline') : `Unsynced · ${n}`;
       pill.className = 'syncpill ' + (s === 'synced' ? 'synced' : s === 'attention' ? 'attention' : 'offline');
     }
-    renderSyncBanner(s, pending, failed, info?.justSaved);
+    renderSyncBanner(s, pending, failed, info?.justSaved, orphan);
   });
   document.querySelectorAll('#sidebar .navitem').forEach(n =>
     n.addEventListener('click', () => {
