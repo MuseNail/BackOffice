@@ -26,7 +26,7 @@ import * as inventory from './views/inventory.js';
 import * as audit from './views/audit.js';
 import * as settings from './views/settings.js';
 import * as windows from './windows.js';
-import { subscribe } from './store.js';
+import { subscribe, getStateBiz } from './store.js';
 import { entities, usesInvoices, usesMuseSync } from './store.js';
 import { openGuide, openQuickRef, openProcedure } from './guide.js';
 import { showWhatsNew, maybeShowWhatsNew } from './changelog.js';
@@ -130,7 +130,13 @@ function route() {
   const m = hash.match(/^#\/b\/([a-z0-9-]+)\/(\w+)(?:\/(.+))?$/);
   if (m) {
     const [, biz, viewName, detail] = m;
-    if (opened !== biz) { opened = biz; setActiveBiz(biz); windows.closeAll(); openBusiness(biz).catch(console.error); }
+    // `opened` alone is not enough: the idle lock's clearSession() clears stateBiz (and the
+    // shared active-biz marker) WITHOUT a reload, so after re-login into the SAME business
+    // `opened` still matches while the tab's routing authority is empty — writes would go
+    // unsealed/guessed and the broadcast gate (socketBiz===getStateBiz()) would drop every
+    // live frame. Re-open whenever the routing authority disagrees; openBusiness is
+    // idempotent for an already-open business (re-stamp, cached snapshot, same-socket).
+    if (opened !== biz || getStateBiz() !== biz) { opened = biz; setActiveBiz(biz); windows.closeAll(); openBusiness(biz).catch(console.error); }
     setNav(viewName, biz);
     enterWorkspace(root);
     windows.openView(viewName, detail);   // opens/focuses a window; detail = drill-down/new token

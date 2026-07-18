@@ -74,7 +74,13 @@ async function submit(path, body, err, btn) {
     setBusinesses(data.businesses);
     markSignedIn();   // start a fresh live session for the close/idle auto-lock
     // 3b UI shaping: one business → straight in, no selector.
-    location.hash = data.businesses.length === 1 ? `#/b/${data.businesses[0].id}/dashboard` : '#/businesses';
+    const target = data.businesses.length === 1 ? `#/b/${data.businesses[0].id}/dashboard` : '#/businesses';
+    // A post-idle-lock login can land on the SAME hash it locked on (a single-business user
+    // always does) — an identical assignment fires no hashchange, which would leave this
+    // login screen mounted forever. Nudge the router by hand in that case.
+    const changed = location.hash !== target;
+    location.hash = target;
+    if (!changed) window.dispatchEvent(new Event('hashchange'));
   } catch {
     err.textContent = 'Can’t reach the server.';
     if (btn) { btn.disabled = false; btn.textContent = 'Sign in'; }
