@@ -142,3 +142,10 @@ test('capFailedLog tolerates a non-array', () => {
   assert.deepEqual(capFailedLog(null), { log: [], evictedOrphans: [] });
   assert.deepEqual(capFailedLog(undefined), { log: [], evictedOrphans: [] });
 });
+
+test('capFailedLog drops falsy junk entries — they occupy no orphan slot and fire no siren', () => {
+  const log = [null, ...mkOrphans(2), undefined, ...mkRoutable(2)];
+  const r = capFailedLog(log);
+  assert.deepEqual(r.log, [...mkOrphans(2), ...mkRoutable(2)]);
+  assert.deepEqual(r.evictedOrphans, [], 'junk must never be reported as an evicted write');
+});

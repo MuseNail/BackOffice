@@ -357,3 +357,22 @@ containment (pre-existing silent loss, same family). MODIFIED (not taken as prop
 the sole routing authority" — deferred; the fallback chain is kept for availability (item 0 proves stateBiz
 gaps happen) with new unsealed-route telemetry (item 2) to build the evidence for a later sole-authority
 release. Nothing else rejected — the committee's line refs were spot-checked and held.
+
+### Review record (Layer 3 — CODE, 3-lens + fixes)
+Built TDD (commits `37218eb` item 0 + `454544d` L3; 27 test files green; boots clean). 3-lens review verdicts:
+ship-after-fixes / ship / ship. FIXED in the follow-up commit: **[med] client.js had the identical idle-lock
+guard** — the deaf-tab half of item 0 persisted for client-role users (mirrored the main.js fix); **[med] the
+stale-heal branch still blind-overwrote the shared outbox head** (`cur[0]=item`) — same silent-loss family
+item 9 closed; now guarded on a pre-mutation snapshot, heal abandoned if the head moved; **[low] deadLetter
+mis-reporting** — eviction sirens now fire only after the capped log actually persisted (no false loss alarms
+during a quota crisis), a corrupt stored log no longer blocks holding the new entry, quota wording neutral
+('a write', not 'a refused write' — 4xx/no-business items land here too), alert summaries formatted like the
+recovery rows ($ + (no payee) guards); **[low] changelog overclaim** softened ('Every change made while a
+company's books are open…', 'a sealed change'); capFailedLog drops falsy junk (no phantom orphan slots or
+sirens, TDD-pinned); missing-business caption tightened; mixed-window 'wrong-business' reason rendered in
+words; the phantom `flushOutbox(bizId)` arg dropped (it drains the one shared outbox — now says so).
+**Recorded, deliberately NOT fixed** (pre-existing, non-blocking): two tabs racing one head can each
+dead-letter it → duplicate recovery rows (filing both to the SAME books is idempotent; a dedupe-by-op-JSON in
+drawFailedOps is a candidate follow-up); the sync banner says 'tap Sync now' even when the failed count is
+all orphans whose real path is Settings → Data & maintenance (cosmetic pass). Ergonomics lens verified: a
+refused row can never read 'headed for X but made in X' (seal≠route by construction of the 409).

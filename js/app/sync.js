@@ -61,7 +61,7 @@ export async function openBusiness(bizId) {
   // pending change look lost (that "looks unsaved" gap is what prompted re-entry → a duplicate).
   replayOutboxLocal(bizId);
   connectWS(bizId);
-  await flushOutbox(bizId);
+  await flushOutbox();   // drains the ONE shared outbox — every business, not just this one
 }
 
 // Replay queued (not-yet-acked) ops for this business onto local state — keeps optimistic
@@ -167,19 +167,30 @@ export function saveOrphanTo(biz, op) {
 // evict an orphan, and every loss path is LOUD — an evicted orphan and a quota-failed write
 // each fire their own serious report, because for a never-saved write the log IS the data.
 function deadLetter(item, reason, { orphanize = false } = {}) {
-  const what = (op) => { const d = describeWrite(op); return d.kind === 'txn' ? `${d.date} ${d.payee} ${(d.cents / 100).toFixed(2)}` : (d.fallback || 'write'); };
+  const what = (op) => {
+    const d = describeWrite(op);
+    return d.kind === 'txn' ? `${d.date ? d.date + ' · ' : ''}${d.payee || '(no payee)'} · $${(d.cents / 100).toFixed(2)}` : (d.fallback || 'write');
+  };
   try {
-    const log = JSON.parse(localStorage.getItem(LS.failed) || '[]');
+    // Parse in its own try: a corrupt stored log must not stop the NEW entry being held.
+    let log = []; try { log = JSON.parse(localStorage.getItem(LS.failed) || '[]'); } catch { log = []; }
     log.unshift(orphanize ? orphanizeRejected(item, reason) : { biz: item.biz, op: item.op, reason, rejectedAt: Date.now() });
     const capped = capFailedLog(log);
+    let saved = false;
     try {
       localStorage.setItem(LS.failed, JSON.stringify(capped.log));
+      saved = true;
     } catch {
       // Storage quota — the entry could not be held. Never a bare swallow: name the write.
-      try { reportError('sync.deadletter-quota', `couldn't hold a refused write (${what(item.op)})`, { serious: true }); } catch (e) {}
+      try { reportError('sync.deadletter-quota', `couldn't hold a write (${what(item.op)})`, { serious: true }); } catch (e) {}
     }
-    for (const o of capped.evictedOrphans) {
-      try { reportError('sync.orphan-evicted', `orphan cap evicted an un-filed write (${what(o?.op)})`, { serious: true }); } catch (e) {}
+    // Report evictions only when the capped log actually persisted — on a failed write the
+    // old log (evicted orphans included) still stands, and a false loss alarm would land at
+    // exactly the moment the owner is being told a different write was lost.
+    if (saved) {
+      for (const o of capped.evictedOrphans) {
+        try { reportError('sync.orphan-evicted', `orphan cap evicted an un-filed write (${what(o.op)})`, { serious: true }); } catch (e) {}
+      }
     }
   } catch { /* best-effort */ }
   // A rejected write is data-loss-adjacent — surface it in Diagnostics + alert the owner.
@@ -242,14 +253,22 @@ async function flushOutbox() {
           if (reason === 'stale' && item.op.op === 'entity.upsert' && item.op.kind === 'staged'
               && item.op.value?.status && item.op.value.status !== 'pending'
               && !item.op._healed && Number.isFinite(body.storedUpdatedAt)) {
+            // Snapshot BEFORE mutating: the head write-back below must be guarded like
+            // shiftIfHead (another tab may have shifted while our POST was in flight — a
+            // blind cur[0]=item would overwrite a DIFFERENT, unsent item). If the head
+            // moved, abandon the heal: the tab that shifted already handled this write.
+            const pre = JSON.stringify(item);
             item.op._healed = true;
             item.op.value = { ...item.op.value, updatedAt: body.storedUpdatedAt + 1 };
-            // Keep optimistic state in step with the re-stamp — but only when THIS item belongs
-            // to the loaded business; the shared outbox can hold another business's queued op, and
-            // applying it here would corrupt the loaded business's store.
-            if (item.biz === getStateBiz()) applyChange(item.op);
-            const cur = readOutbox(); cur[0] = item; localStorage.setItem(LS.outbox, JSON.stringify(cur));
-            continue;               // retry the head with the healed stamp
+            const cur = readOutbox();
+            if (cur.length && JSON.stringify(cur[0]) === pre) {
+              // Keep optimistic state in step with the re-stamp — but only when THIS item belongs
+              // to the loaded business; the shared outbox can hold another business's queued op, and
+              // applying it here would corrupt the loaded business's store.
+              if (item.biz === getStateBiz()) applyChange(item.op);
+              cur[0] = item; localStorage.setItem(LS.outbox, JSON.stringify(cur));
+            }
+            continue;               // retry the (healed) head — or the moved head another tab installed
           }
           // Layer 3: the server refused this write because its seal names a DIFFERENT
           // business than the books it was sent to — a routing bug is back. Hold it as an

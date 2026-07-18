@@ -7,7 +7,7 @@ import { ORIGIN } from './config.js';
 import { getToken, getActiveBiz, setActiveBiz, getUser, getBusinesses, clearSession } from './session.js';
 import { openBusiness, setStatusListener, api, syncNow } from './sync.js';
 import { initLock, sessionResumable } from './lock.js';
-import { entities, subscribe, usesInvoices } from './store.js';
+import { entities, subscribe, usesInvoices, getStateBiz } from './store.js';
 import { el, clear, toast, fmtMoney } from './ui.js';
 import { combobox } from './combobox.js';
 import { parseMoney } from './lib/money.js';
@@ -37,7 +37,10 @@ function route() {
   if (!biz) { current?.unmount?.(); current = null; tabs.style.display = 'none'; root.replaceChildren(el('p', { class: 'sub', style: 'padding:24px' }, 'No business is assigned to your account yet — ask the owner to add you.')); return; }
   let tab = m && m[2] ? m[2] : 'suggest';
   if (!TABS.some(t => t[0] === tab)) tab = 'suggest';
-  if (opened !== biz) { opened = biz; setActiveBiz(biz); openBusiness(biz).catch(console.error); }
+  // `opened` alone is not enough (mirrors main.js): the idle lock's clearSession() clears
+  // stateBiz WITHOUT a reload, so after re-login into the same business this tab would stay
+  // deaf — the broadcast gate (socketBiz===getStateBiz()) drops every live frame.
+  if (opened !== biz || getStateBiz() !== biz) { opened = biz; setActiveBiz(biz); openBusiness(biz).catch(console.error); }
 
   chip.style.display = 'flex';
   document.getElementById('clientname').textContent = getUser()?.name || '';

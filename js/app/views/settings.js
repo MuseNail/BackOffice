@@ -165,7 +165,7 @@ function drawFailedOps(card, biz) {
     const caption = refused
       ? (sealedKnown
         ? `${fmtWhen(e.rejectedAt)} · refused — headed for ${bizName(e.attempted)}’s books but made in ${bizName(sealed)}’s`
-        : `${fmtWhen(e.rejectedAt)} · refused — headed for ${bizName(e.attempted)}’s books; made in “${sealed || '?'}” — no longer in your list, pick where it belongs now`)
+        : `${fmtWhen(e.rejectedAt)} · refused — headed for ${bizName(e.attempted)}’s books; made in “${sealed || '?'}”, which is no longer in your list. Pick where it belongs now.`)
       : `${fmtWhen(e.rejectedAt)} · held because no business was set`;
     return el('div', { class: 'card', style: 'border:1px solid var(--amber);margin:0 0 8px;box-shadow:none' },
       el('div', { style: 'font-weight:700;color:var(--amber);font-size:12px;margin-bottom:3px' },
@@ -197,7 +197,9 @@ function drawFailedOps(card, biz) {
     el('tbody', {}, ...stamped.map(e => el('tr', {},
       el('td', {}, fmtWhen(e.rejectedAt)),
       el('td', {}, label(e.op)),
-      el('td', {}, String(e.reason || 'rejected'))))))) : null;
+      // 'wrong-business' appears here only via the mixed-version window (an old tab
+      // dead-lettering a Layer-3 refusal as a stamped row) — say it in words.
+      el('td', {}, e.reason === 'wrong-business' ? 'refused: made in a different company' : String(e.reason || 'rejected'))))))) : null;
 
   clear(card).append(
     header,

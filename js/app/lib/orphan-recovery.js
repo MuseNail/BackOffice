@@ -67,7 +67,8 @@ export function capFailedLog(log) {
   let routableKept = 0, orphansKept = 0;
   const kept = [], evictedOrphans = [];
   for (const e of list) {
-    if (e && e.biz) { if (routableKept < 100) { kept.push(e); routableKept++; } }
+    if (!e) continue;   // falsy junk holds no write — it must not occupy a slot or fire the eviction siren
+    if (e.biz) { if (routableKept < 100) { kept.push(e); routableKept++; } }
     else { if (orphansKept < 200) { kept.push(e); orphansKept++; } else evictedOrphans.push(e); }
   }
   return { log: kept, evictedOrphans };
