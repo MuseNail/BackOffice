@@ -210,7 +210,10 @@ function drawFailedOps(card, biz) {
       el('button', { class: 'btn sm ghost', onclick: () => {
         if (!confirm(`Clear ${stamped.length} rejected-write log entr${stamped.length === 1 ? 'y' : 'ies'} for this business? This removes only the diagnostic log for writes the server rejected — un-saved writes are kept, and no books data changes.`)) return;
         let all = []; try { all = JSON.parse(localStorage.getItem(LS.failed) || '[]'); } catch { /* empty */ }
-        const kept = all.filter(e => !e.biz || e.biz !== biz);   // keep orphans + other businesses
+        // Keep orphans + other businesses — and stamped wrong-business rows (an OLD tab can
+        // dead-letter a Layer-3 refusal stamped under this business during the mixed-version
+        // window; that row IS an un-saved write, which this button's copy promises to keep).
+        const kept = all.filter(e => !e.biz || e.biz !== biz || e.reason === 'wrong-business');
         localStorage.setItem(LS.failed, JSON.stringify(kept));
         toast('Cleared');
         drawFailedOps(card, biz);

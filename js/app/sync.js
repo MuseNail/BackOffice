@@ -88,9 +88,10 @@ export async function dispatch(op) {
   // sealed, so it's at least made VISIBLE in Diagnostics — if this ever fires, a stateBiz gap
   // like the idle-lock hole is back.
   const sb = getStateBiz();
-  const biz = sb || getActiveBiz() || wsBiz;
+  const ab = getActiveBiz();
+  const biz = sb || ab || wsBiz;
   if (sb) op._sealBiz = sb;
-  else if (biz) reportError('sync.unsealed-route', `no loaded-business stamp; routed to '${biz}' by ${getActiveBiz() ? 'the shared active-business marker' : 'the socket business'}`);
+  else if (biz) reportError('sync.unsealed-route', `no loaded-business stamp; routed to '${biz}' by ${ab ? 'the shared active-business marker' : 'the socket business'}`);
   op.device = deviceId();
   if (op.op === 'entity.upsert') { op.value.updatedAt = Date.now(); op.value.updatedBy = op.device; }
   applyChange(op);

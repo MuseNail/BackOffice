@@ -305,8 +305,9 @@ dead-letters a wrong-business 409 as a STAMPED view-only row under the wrong bus
 **Rollback (committee must-fix — the old claim was false):** after any wrong-business 409 has fired, a
 client-ONLY rollback strands the orphan (v0.71.9 `saveOrphanTo` doesn't re-seal ⇒ filing to a non-seal
 business 409s into a view-only stamped row). So: roll back the client only together with either the Worker or
-the **kill switch** — `wrangler secret/var WRONG_BIZ_CHECK=off` disables the DO check without a code revert.
-Default (unset) = ON.
+the **kill switch** — `wrangler secret put WRONG_BIZ_CHECK` (value `off`) disables the DO check without a code
+revert. Use the SECRET path, not a dashboard-set plain var — the toml has no `[vars]` entry for it, so a
+dashboard var would be wiped by the next `wrangler deploy`. Default (unset) = ON.
 
 ## Testing (TDD) + verification
 - `tests/wrong-biz.test.mjs` — predicate truth table (differ⇒reject; equal / no seal / no expected / neither ⇒
