@@ -5,6 +5,7 @@ import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { normalizeDesc } from '../lib/match.js';
+import { txnHasVendor, hasAnyVendor, expenseForVendor, vendorLinesOf } from '../lib/vendor-attribution.js';
 import { renderRegister } from '../register.js';
 import { dateRangeControl, inRange } from '../daterange.js';
 import { ruleConditionsEditor, buildMatchers, ruleSummary } from '../rule-editor.js';
@@ -31,8 +32,13 @@ export function vendorMatches(vendor, desc) {
   for (const k of vendor.matchers?.keywords || []) { const kk = normalizeDesc(k); if (kk && d.includes(kk)) return true; }
   return false;
 }
+// A txn belongs to a vendor if it references the vendor at the top level OR on any split
+// line, OR — for older/unstamped ones with no vendor anywhere — its payee matches the rule.
 export const txnsForVendor = (vendor) => entities('txn').filter(t =>
-  t.status === 'posted' && (t.vendorId === vendor.id || (!t.vendorId && vendorMatches(vendor, t.payee))));
+  t.status === 'posted' && (txnHasVendor(t, vendor.id) || (!hasAnyVendor(t) && vendorMatches(vendor, t.payee))));
+// Whether a txn is credited to a vendor ONLY by payee (a legacy untagged txn) → attribute
+// its whole expense (never drop a pre-per-line-vendor total to $0).
+const payeeOnly = (t, vendor) => !hasAnyVendor(t) && vendorMatches(vendor, t.payee);
 
 export function render(root, detail) {
   const openNew = detail === 'new';
@@ -72,6 +78,7 @@ function renderVendorRegister(root, vendorId) {
       el('a', { class: 'btn sm ghost', href: `#/b/${biz}/vendors` }, '← Back to vendors'));
     return;
   }
+  const expenseIds = new Set(entities('account').filter(a => EXPENSE_TYPES.has(a.type)).map(a => a.id));
   unsub = renderRegister({
     root,
     title: vendor.name,
@@ -80,11 +87,16 @@ function renderVendorRegister(root, vendorId) {
     backLabel: 'Vendors',
     filename: `${biz}-${slug(vendor.name)}-transactions.csv`,
     getTxns: () => txnsForVendor(vendor),
+    // Credit only THIS vendor's split lines so the register total matches the Vendors table
+    // (a split shared across vendors otherwise shows its full amount under each).
+    amountOf: (t) => expenseOf(t, expenseIds, vendor),
   });
 }
 
 const EXPENSE_TYPES = new Set(['expense', 'cogs', 'other-expense', 'personal-expense']);
-const expenseOf = (t, expenseIds) => (t.lines || []).reduce((a, l) => a + (expenseIds.has(l.accountId) ? l.amountCents : 0), 0);
+// Per-vendor expense: only the lines credited to THIS vendor (line vendor → txn vendor
+// fallback), or the whole expense for a legacy payee-only match.
+const expenseOf = (t, expenseIds, vendor) => expenseForVendor(t, vendor.id, expenseIds, { payeeMatch: payeeOnly(t, vendor) });
 
 function drawTable(body, editable) {
   const all = entities('vendor');
@@ -101,7 +113,7 @@ function drawTable(body, editable) {
   }
   const expenseIds = new Set(entities('account').filter(a => EXPENSE_TYPES.has(a.type)).map(a => a.id));
   const rows = sortBy(
-    vendors.map(v => { const tx = txnsForVendor(v).filter(t => inRange(t.date, vendorRange)); return { v, n: tx.length, total: tx.reduce((s, t) => s + expenseOf(t, expenseIds), 0) }; }),
+    vendors.map(v => { const tx = txnsForVendor(v).filter(t => inRange(t.date, vendorRange)); return { v, n: tx.length, total: tx.reduce((s, t) => s + expenseOf(t, expenseIds, v), 0) }; }),
     vendorSort, { vendor: r => r.v.name, rule: r => ruleSummary(r.v.matchers), txns: r => r.n, total: r => r.total });
   const redraw = () => drawTable(body, editable);
   const tbl = el('table', { class: 'data xl' },
@@ -163,7 +175,7 @@ function vendorDrilldown(v, refresh) {
     listHost,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap' },
       el('button', { class: 'btn ghost', style: 'color:var(--red)', onclick: () => { m.close(); confirmDeleteRule(v); } }, 'Delete'),
-      el('button', { class: 'btn ghost', onclick: () => { m.close(); const moves = entities('txn').filter(t => t.vendorId === v.id).length; openMergeModal({ title: 'vendor', source: v, candidates: entities('vendor'), labelOf: (x) => x.name, run: mergeVendor, onDone: refresh, note: `${moves} transaction${moves === 1 ? '' : 's'} tagged to “${v.name}” will move to the vendor you pick. None are deleted.` }); } }, 'Merge…'),
+      el('button', { class: 'btn ghost', onclick: () => { m.close(); const moves = entities('txn').filter(t => txnHasVendor(t, v.id)).length; openMergeModal({ title: 'vendor', source: v, candidates: entities('vendor'), labelOf: (x) => x.name, run: mergeVendor, onDone: refresh, note: `${moves} transaction${moves === 1 ? '' : 's'} tagged to “${v.name}” will move to the vendor you pick. None are deleted.` }); } }, 'Merge…'),
       el('button', { class: 'btn', onclick: () => { m.close(); ruleModal(v); } }, 'Edit'),
       el('button', { class: 'btn ghost', onclick: m.close }, 'Close')));
   drawList();

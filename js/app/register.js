@@ -39,7 +39,10 @@ function drawRegister(body, opts, state) {
   const isAcct = !!focusAccountId;
   const byId = new Map(entities('account').map(a => [a.id, a]));
   const filtered = (getTxns() || []).filter(t => inRange(t.date, state.from, state.to));
-  const amtOf = (t) => isAcct ? lineOn(t, focusAccountId) : magnitude(t);
+  // amountOf lets a caller (the per-vendor register) credit only THIS vendor's split lines,
+  // so a split shared across vendors doesn't show its full amount under each. Default: the
+  // focused account's line (account register) or the whole-txn magnitude (plain register).
+  const amtOf = (t) => opts.amountOf ? opts.amountOf(t) : (isAcct ? lineOn(t, focusAccountId) : magnitude(t));
 
   // Running balance is computed CHRONOLOGICALLY so it stays correct no matter how
   // the table is sorted for display.
@@ -117,7 +120,7 @@ function drawRegister(body, opts, state) {
       el('span', { style: 'flex:1' }),
       el('span', { class: 'field-label', style: 'margin:0' }, 'Period'), state.rangeCtl.el,
       el('button', { class: 'btn sm ghost', onclick: () => window.print() }, 'Print / PDF'),
-      el('button', { class: 'btn sm ghost', onclick: () => downloadCsv(filename, buildCsv(title, subtitle, rows, focusAccountId, byId)) }, 'Export CSV')),
+      el('button', { class: 'btn sm ghost', onclick: () => downloadCsv(filename, buildCsv(title, subtitle, rows, focusAccountId, byId, opts.amountOf)) }, 'Export CSV')),
     opts.modal ? null : el('h2', {}, title),   // the modal head already shows the title
     subtitle ? el('p', { class: 'sub' }, subtitle) : null,
     el('div', { class: 'card', style: 'padding:0;overflow-x:auto' },
@@ -142,7 +145,7 @@ function drawRegister(body, opts, state) {
   );
 }
 
-function buildCsv(title, subtitle, rows, focusAccountId, byId) {
+function buildCsv(title, subtitle, rows, focusAccountId, byId, amountOf) {
   const esc = (v) => { const t = String(v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
   const d = (c) => (c / 100).toFixed(2);
   const isAcct = !!focusAccountId;
@@ -157,7 +160,7 @@ function buildCsv(title, subtitle, rows, focusAccountId, byId) {
   } else {
     line('Date', 'Payee', 'Account', 'Memo', 'Spent');
     let total = 0;
-    for (const t of rows) { const a = magnitude(t); total += a; line(t.date, t.payee || '', otherSide(t, '', byId), t.memo || '', d(a)); }
+    for (const t of rows) { const a = amountOf ? amountOf(t) : magnitude(t); total += a; line(t.date, t.payee || '', otherSide(t, '', byId), t.memo || '', d(a)); }
     line('', '', '', 'Total', d(total));
   }
   return out.join('\n');

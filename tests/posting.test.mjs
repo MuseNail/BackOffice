@@ -12,6 +12,15 @@ const accounts = new Map([
 ]);
 const ctx = { accountsById: accounts, locks: new Set(['2026-01']) };
 
+test('validateTxn accepts a split whose lines carry a per-line vendorId and note', () => {
+  const t = { id: 't-split', date: '2026-06-12', status: 'posted', lines: [
+    { accountId: 'checking', amountCents: -10000 },
+    { accountId: 'supplies', amountCents: 6000, vendorId: 'v-a', note: 'paper' },
+    { accountId: 'supplies', amountCents: 4000, vendorId: 'v-b' },
+  ] };
+  assert.equal(validateTxn(t, ctx).ok, true, 'extra per-line fields must not break validation');
+});
+
 test('simpleTxn builds balanced entries both directions', () => {
   const out = simpleTxn({ id: 't1', date: '2026-06-12', amountCents: 8417, direction: 'out', bankAccountId: 'checking', categoryAccountId: 'supplies' });
   assert.deepEqual(out.lines, [{ accountId: 'checking', amountCents: -8417 }, { accountId: 'supplies', amountCents: 8417 }]);

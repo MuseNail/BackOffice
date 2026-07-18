@@ -23,6 +23,7 @@ const PRECACHE = [
   './js/app/lib/orphan-recovery.js',
   './js/app/lib/day.js',
   './js/app/lib/review-source.js',
+  './js/app/lib/vendor-attribution.js',
   './js/app/lib/plaid-map.js',
   './js/app/plaid-connect.js',
   './js/app/lib/posting.js',

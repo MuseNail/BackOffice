@@ -61,6 +61,32 @@ test('buildIif writes the ACCNT section then balanced TRNS/SPL blocks', () => {
   }
 });
 
+test('buildIif emits a per-split vendor NAME and note MEMO, falling back to payee/memo', () => {
+  const vendors = [{ id: 'v-costco', name: 'Costco' }, { id: 'v-staples', name: 'Staples' }];
+  const split = { id: 't5', date: '2026-06-15', payee: 'Office run', memo: 'errand', status: 'posted', lines: [
+    { accountId: 'checking', amountCents: -10000 },
+    { accountId: 'supplies', amountCents: 6000, vendorId: 'v-costco', note: 'paper' },
+    { accountId: 'salon-sub', amountCents: 4000, vendorId: 'v-staples' },   // no note → memo fallback
+  ] };
+  const { text } = buildIif({ accounts, txns: [split], vendors, from: '2026-06-01', to: '2026-06-30' });
+  const lines = text.split('\r\n');
+  const trns = lines.find(l => l.startsWith('TRNS') && l.includes('Office run'));
+  assert.ok(trns.includes('\tOffice run\t') && trns.endsWith('\terrand'), 'TRNS keeps the txn payee + memo');
+  const spls = lines.filter(l => l.startsWith('SPL'));
+  const costco = spls.find(l => l.includes('\tCostco\t'));
+  assert.ok(costco && costco.endsWith('\tpaper'), 'SPL carries the line vendor NAME + its own note');
+  const staples = spls.find(l => l.includes('\tStaples\t'));
+  assert.ok(staples && staples.endsWith('\terrand'), 'a note-less split line falls back to the txn memo');
+});
+
+test('buildIif without a vendors list leaves SPL NAME as the payee (backward-compatible)', () => {
+  const t = { id: 't6', date: '2026-06-16', payee: 'Shop', status: 'posted', vendorId: 'v-x',
+    lines: [{ accountId: 'checking', amountCents: -50 }, { accountId: 'supplies', amountCents: 50 }] };
+  const { text } = buildIif({ accounts, txns: [t], from: '2026-06-01', to: '2026-06-30' });
+  const spl = text.split('\r\n').find(l => l.startsWith('SPL'));
+  assert.ok(spl.includes('\tShop\t'), 'no vendors list → SPL NAME stays the payee');
+});
+
 test('buildIif sanitizes tabs/newlines and ends with CRLF', () => {
   const { text } = buildIif({ accounts, txns: [txns[0]], from: '2026-06-01', to: '2026-06-30' });
   assert.ok(!text.includes('includes\ttips'), 'tab inside memo flattened');

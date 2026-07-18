@@ -16,6 +16,8 @@ const QB_TYPE_FALLBACK = {
   'other-expense': 'EXP', 'personal-expense': 'EXP',
 };
 
+import { lineVendorId } from './vendor-attribution.js';
+
 const clean = (s) => String(s == null ? '' : s).replace(/[\t\r\n]+/g, ' ').trim();
 
 export function qbTypeFor(acct) {
@@ -57,9 +59,12 @@ const qbDate = (iso) => {
 const qbAmount = (cents) => (cents / 100).toFixed(2);
 
 // accounts: every account (QB creates the missing ones); txns: ledger txns —
-// only POSTED entries inside [from, to] (inclusive, 'YYYY-MM-DD') are written.
-export function buildIif({ accounts = [], txns = [], from, to }) {
+// only POSTED entries inside [from, to] (inclusive, 'YYYY-MM-DD') are written. vendors: used
+// to resolve a split line's vendor id to its QB NAME (omit → SPL NAME stays the payee, so old
+// callers are unchanged).
+export function buildIif({ accounts = [], txns = [], vendors = [], from, to }) {
   const accountsById = new Map(accounts.map(a => [a.id, a]));
+  const vendorsById = new Map(vendors.map(v => [v.id, v]));
   const nameFor = (id) => {
     const a = accountsById.get(id);
     return a ? qbAccountName(a, accountsById) : `Unknown ${id}`;
@@ -83,7 +88,13 @@ export function buildIif({ accounts = [], txns = [], from, to }) {
     const date = qbDate(t.date), payee = clean(t.payee), memo = clean(t.memo), doc = clean(t.checkNo);
     t.lines.forEach((l, i) => {
       const tag = i === 0 ? 'TRNS' : 'SPL';
-      lines.push(`${tag}\t\tGENERAL JOURNAL\t${date}\t${nameFor(l.accountId)}\t${payee}\t${qbAmount(l.amountCents)}\t${doc}\t${memo}`);
+      // The TRNS header carries the transaction payee/memo; each SPL (category) line carries
+      // its OWN vendor NAME + note when it has them (QB stores a name + memo per split),
+      // falling back to the transaction's payee/memo.
+      const vId = i === 0 ? null : lineVendorId(l, t);
+      const name = (vId && vendorsById.get(vId)?.name) ? clean(vendorsById.get(vId).name) : payee;
+      const lineMemo = (i > 0 && l.note) ? clean(l.note) : memo;
+      lines.push(`${tag}\t\tGENERAL JOURNAL\t${date}\t${nameFor(l.accountId)}\t${name}\t${qbAmount(l.amountCents)}\t${doc}\t${lineMemo}`);
     });
     lines.push('ENDTRNS');
   }

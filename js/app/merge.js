@@ -7,12 +7,15 @@ import { el, modal, toast } from './ui.js';
 import { entities } from './store.js';
 import { dispatch } from './sync.js';
 import { combobox } from './combobox.js';
+import { txnHasVendor, remapVendor } from './lib/vendor-attribution.js';
 
 const now = () => Date.now();
 
 export function mergeVendor(fromId, toId) {
-  const txns = entities('txn').filter(t => t.vendorId === fromId);
-  if (txns.length) dispatch({ op: 'entity.bulkUpsert', kind: 'txn', values: txns.map(t => ({ ...t, vendorId: toId, updatedAt: now() })) });
+  // Catch txns that reference the source vendor at the top level OR on a split line, and
+  // rewrite BOTH — a line-only tag left behind would dangle at the deleted vendor.
+  const txns = entities('txn').filter(t => txnHasVendor(t, fromId));
+  if (txns.length) dispatch({ op: 'entity.bulkUpsert', kind: 'txn', values: txns.map(t => ({ ...remapVendor(t, fromId, toId), updatedAt: now() })) });
   dispatch({ op: 'entity.delete', kind: 'vendor', id: fromId });
   return txns.length;
 }

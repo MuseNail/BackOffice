@@ -349,7 +349,7 @@ function drawQbCard(card, biz) {
   const doExport = () => {
     if (!from.value || !to.value || from.value > to.value) { toast('Pick a valid date range', 'err'); return; }
     const accounts = entities('account');
-    const { text, count, txns } = buildIif({ accounts: accounts.filter(a => a.active !== false), txns: entities('txn'), from: from.value, to: to.value });
+    const { text, count, txns } = buildIif({ accounts: accounts.filter(a => a.active !== false), txns: entities('txn'), vendors: entities('vendor'), from: from.value, to: to.value });
     if (!count) { toast('No posted transactions in that range', 'err'); return; }
     const already = txns.filter(t => t.qbExportedAt).length;
     if (already && !confirm(`${already} of these ${count} transactions were exported before — importing them into QuickBooks again will double them there. Export anyway?`)) return;
