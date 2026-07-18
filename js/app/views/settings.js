@@ -248,6 +248,8 @@ function drawFeaturesCard(card) {
 
 // ── AI usage & controls ──
 function drawAICard(card) {
+  // Intentionally UTC — mirrors the server's AI-usage month bucket (business.js/ai.js);
+  // localizing only the client would desync the two. Do NOT swap to monthLocal.
   const month = new Date().toISOString().slice(0, 7);
   const usage = entities('aiusage');
   const monthRows = usage.filter(u => u.month === month);

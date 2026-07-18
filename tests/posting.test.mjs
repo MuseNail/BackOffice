@@ -1,7 +1,7 @@
 // node --test tests/posting.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateTxn, simpleTxn, voidTxn, accountBalance, activityByAccount, profitAndLoss, periodKey, invoiceExpensesTotal } from '../js/app/lib/posting.js';
+import { validateTxn, simpleTxn, voidTxn, accountBalance, activityByAccount, profitAndLoss, periodKey, invoiceExpensesTotal, splitParts } from '../js/app/lib/posting.js';
 import { parseMoney, fmtCents } from '../js/app/lib/money.js';
 
 const accounts = new Map([
@@ -11,6 +11,31 @@ const accounts = new Map([
   ['old', { id: 'old', name: 'Old', type: 'expense', active: false }],
 ]);
 const ctx = { accountsById: accounts, locks: new Set(['2026-01']) };
+
+// splitParts decides whether the edit-modal split editor may open. A mixed-sign one-bank txn
+// (fee split / journal) must NOT be splittable, or the editor blocks editing and can flip signs.
+const isBank = (id) => id === 'checking';
+test('splitParts: a simple 2-line expense is splittable', () => {
+  const r = splitParts([{ accountId: 'checking', amountCents: -5000 }, { accountId: 'supplies', amountCents: 5000 }], isBank);
+  assert.equal(r.canSplit, true);
+  assert.equal(r.bankLine.amountCents, -5000);
+  assert.equal(r.catLines.length, 1);
+});
+test('splitParts: an already-split uniform-sign txn is splittable (re-editable)', () => {
+  const r = splitParts([{ accountId: 'checking', amountCents: -10000 }, { accountId: 'supplies', amountCents: 6000 }, { accountId: 'income', amountCents: 4000 }], isBank);
+  assert.equal(r.canSplit, true);
+  assert.equal(r.catLines.length, 2);
+});
+test('splitParts: a fee-split deposit (mixed-sign category lines) is NOT splittable', () => {
+  // bank +net, income −gross, fee +feeCents — the % Fee tool's shape.
+  const r = splitParts([{ accountId: 'checking', amountCents: 9700 }, { accountId: 'income', amountCents: -10000 }, { accountId: 'fees', amountCents: 300 }], isBank);
+  assert.equal(r.canSplit, false, 'a mixed-sign fee split must stay on the metadata-only edit path');
+});
+test('splitParts: a transfer (two bank lines) is NOT splittable', () => {
+  const r = splitParts([{ accountId: 'checking', amountCents: -5000 }, { accountId: 'checking', amountCents: 5000 }], isBank);
+  assert.equal(r.canSplit, false);
+  assert.equal(r.bankLine, null);
+});
 
 test('validateTxn accepts a split whose lines carry a per-line vendorId and note', () => {
   const t = { id: 't-split', date: '2026-06-12', status: 'posted', lines: [

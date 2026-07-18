@@ -706,8 +706,8 @@ function matchCounterpart(row, transferAccountId, txnId) {
 }
 
 // "Save for later" — park a row in the Saved-for-later list (status stays 'skipped', the
-// stored value, so no migration). NO updatedAt: a staged status flip must never lose the
-// stale-guard to a peer's clock (the guard needs both stamps to fire; mirrors Restore).
+// stored value, so no migration). dispatch stamps a fresh updatedAt; a pending→skipped flip
+// applies via the DO's staged-advance stale-guard carve-out (pending→any status). Mirrors Restore.
 function skipRow(row) {
   dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'skipped' } });
   toast('Saved for later');
@@ -717,7 +717,9 @@ function skipRow(row) {
 // back when the bank re-sends OR re-links it — a 'deleted' row still suppresses a re-synced
 // / re-imported copy exactly like a saved-for-later one (freshRows/_sync skip a non-pending
 // existing id; the content-dedup budget still counts it). Safe because a staged row never
-// posted: the ledger and reports are untouched. NO updatedAt stamp (same reason as skipRow).
+// posted: the ledger and reports are untouched. A pending→deleted flip applies via the DO's
+// staged-advance carve-out; a saved-for-later→deleted flip applies newer-wins (dispatch stamps
+// a fresh updatedAt). Client-only — no Worker change.
 function deleteRow(row) {
   const m = modal('Delete this transaction?');
   m.body.append(

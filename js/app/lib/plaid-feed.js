@@ -27,6 +27,8 @@ export { todayLocal } from './day.js';
 // arithmetic: Date.UTC(y-2, …) overflows a Feb-29 source into March. Asking for more
 // than the Item holds is harmless; asking for less silently drops rows.
 export const PLAID_DAYS_REQUESTED = 730;
+// Intentionally UTC — a lookback WINDOW bound, not a display day; a few hours of TZ slack is
+// harmless (asking for slightly more history than the Item holds is fine). Do NOT localize.
 export function farBackCutoff(now = new Date()) {
   return new Date(now.getTime() - PLAID_DAYS_REQUESTED * 86400000).toISOString().slice(0, 10);
 }

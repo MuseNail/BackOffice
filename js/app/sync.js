@@ -3,7 +3,7 @@ import { ORIGIN, LS } from './config.js';
 import { getToken, deviceId, getActiveBiz, clearSession } from './session.js';
 import { setSnapshot, applyChange, getStateBiz, setStateBiz } from './store.js';
 import { reportError } from './reporter.js';   // log rejected writes to Diagnostics
-import { requeueRoutable, orphanizeRejected, capFailedLog, describeWrite } from './lib/orphan-recovery.js';
+import { requeueRoutable, orphanizeRejected, capFailedLog, describeWrite, dedupeOrphans } from './lib/orphan-recovery.js';
 
 let ws = null;
 let wsBiz = '';
@@ -110,7 +110,9 @@ function readOutbox() {
 function failedCount() { try { return JSON.parse(localStorage.getItem(LS.failed) || '[]').length; } catch { return 0; } }
 // Orphans (un-filed writes with no business) can't be retried by "Sync now" — the banner
 // points the owner to Settings → Data & maintenance instead when EVERY failure is an orphan.
-function orphanCount() { try { return JSON.parse(localStorage.getItem(LS.failed) || '[]').filter(e => e && !e.biz).length; } catch { return 0; } }
+// Deduped so the banner's count matches the recovery UI (which also dedupes), when a two-tab
+// race dead-lettered the same write more than once.
+function orphanCount() { try { return dedupeOrphans(JSON.parse(localStorage.getItem(LS.failed) || '[]').filter(e => e && !e.biz)).length; } catch { return 0; } }
 
 // Compute + broadcast the sync status from the ACTUAL queue state, so the pill can never
 // read "Synced" while writes are still queued (unsynced) or dead-lettered. `forced` pins

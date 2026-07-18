@@ -5,7 +5,7 @@ import { entities, subscribe, usesInvoices } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseMoney } from '../lib/money.js';
-import { validateTxn, simpleTxn, voidTxn, periodKey, accountBalance } from '../lib/posting.js';
+import { validateTxn, simpleTxn, voidTxn, periodKey, accountBalance, splitParts } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { vendorMatches } from './vendors.js';
 import { accountCombo, vendorCombo, invoiceCombo } from '../pickers.js';
@@ -243,9 +243,12 @@ function drawTable(host, editable) {
       const vd = t.vendorId ? vendById.get(t.vendorId) : null;
       const iv0 = t.invoiceId ? invById.get(t.invoiceId) : null;
       catCell = el('span', { class: 'txi-static' }, categoryName(t) || d.category);
-      // A split tagged to 2+ distinct vendors shows a summary instead of one name.
+      // A split tagged to 2+ distinct vendors shows a summary; one line-tagged vendor with no
+      // top-level vendor shows that line's vendor (not a misleading '—').
       const lineVends = new Set((t.lines || []).map(l => l.vendorId).filter(Boolean));
-      vendCell = el('span', { class: 'txi-static' }, lineVends.size >= 2 ? `Split — ${lineVends.size} vendors` : (vd ? vd.name : '—'));
+      const oneLineVend = lineVends.size === 1 ? vendById.get([...lineVends][0]) : null;
+      vendCell = el('span', { class: 'txi-static' },
+        lineVends.size >= 2 ? `Split — ${lineVends.size} vendors` : (vd ? vd.name : (oneLineVend ? oneLineVend.name : '—')));
       memoCell = el('span', { class: 'txi-static' }, t.memo || '—');
       invCell = showInv ? el('span', { class: 'txi-static' }, iv0 ? `#${iv0.number || iv0.id}` : '—') : null;
     }
@@ -485,11 +488,11 @@ export function editTxnModal(t) {
   const m = modal(isRecon ? 'Edit transaction (reconciled)' : 'Edit transaction');
   const byId = new Map(entities('account').map(a => [a.id, a]));
 
-  // Identify the (single) bank line and the category lines — for a simple 2-line txn OR an
-  // already-split N-line one, so an existing split can be re-opened and re-edited.
-  const bankLines = t.lines.filter(l => { const a = byId.get(l.accountId); return a && bankish(a); });
-  const bankLine = bankLines.length === 1 ? bankLines[0] : null;
-  const catLines = bankLine ? t.lines.filter(l => l !== bankLine) : [];
+  // Identify the (single) bank line + category lines and whether this is a divisible split —
+  // a 2-line txn OR an already-split N-line one, but NOT a mixed-sign fee-split / journal
+  // (splitParts enforces uniform sign so those stay on the metadata-only path). Pure + tested.
+  const isBankAcct = (id) => { const a = byId.get(id); return !!(a && bankish(a)); };
+  const { bankLine, catLines, canSplit: isSplittable } = splitParts(t.lines, isBankAcct);
   const isSimple = t.lines.length === 2;
   const catLine = isSimple && bankLine ? catLines[0] : null;   // the single-repoint fallback (reconciled etc.)
 
@@ -508,8 +511,7 @@ export function editTxnModal(t) {
   // with its vendor/note) so per-split vendors stay editable. A split needs exactly one bank
   // line and all other lines to be real categories (no transfer). Reconciled txns keep the
   // single re-point (the reconciled bank line stays locked).
-  const allCatsNonBank = catLines.length >= 1 && catLines.every(l => !bankish(byId.get(l.accountId)));
-  const canSplit = !isRecon && !!bankLine && allCatsNonBank;
+  const canSplit = !isRecon && isSplittable;
   let split = null;
   let catSel = null;
   if (canSplit) {

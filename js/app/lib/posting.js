@@ -28,6 +28,23 @@ export function validateTxn(txn, { accountsById = new Map(), locks = new Set() }
   return { ok: true };
 }
 
+// Split eligibility for the edit modal: a txn is a divisible CATEGORY split when it has
+// exactly one bank line and every other line is a non-bank category on the side OPPOSITE the
+// bank line (uniform sign). A mixed-sign one-bank txn — a fee-split deposit (bank +net,
+// income −gross, fee +fee) or a journal — is NOT a divisible category; editing it must stay
+// on the metadata-only path, or the magnitude-based split editor would read it as unbalanced
+// and a uniform re-sign would silently flip income↔expense. `isBank(accountId) → bool`. Pure.
+export function splitParts(lines, isBank) {
+  const ls = Array.isArray(lines) ? lines : [];
+  const bankLines = ls.filter(l => isBank(l.accountId));
+  const bankLine = bankLines.length === 1 ? bankLines[0] : null;
+  const catLines = bankLine ? ls.filter(l => l !== bankLine) : [];
+  const catSign = bankLine ? -Math.sign(bankLine.amountCents) : 0;
+  const canSplit = !!bankLine && catLines.length >= 1
+    && catLines.every(l => !isBank(l.accountId) && Math.sign(l.amountCents) === catSign);
+  return { bankLine, catLines, canSplit };
+}
+
 // Single-entry UX → balanced double entry. direction 'out': money leaves the
 // bank/cash account into a category (expense etc). 'in': money arrives.
 export function simpleTxn({ id, date, payee, memo, checkNo, amountCents, direction, bankAccountId, categoryAccountId, source }) {

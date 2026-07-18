@@ -9,14 +9,14 @@
 // account type); subaccounts become QB's `Parent:Child` colon naming. Values are
 // sanitized because a literal tab or newline inside a field corrupts the file.
 
+import { lineVendorId } from './vendor-attribution.js';
+
 const QB_TYPE_FALLBACK = {
   asset: 'OCASSET', liability: 'OCLIAB', equity: 'EQUITY',
   income: 'INC', cogs: 'COGS', expense: 'EXP',
   // QB Desktop has no separate below-the-line type in IIF; export both as EXP.
   'other-expense': 'EXP', 'personal-expense': 'EXP',
 };
-
-import { lineVendorId } from './vendor-attribution.js';
 
 const clean = (s) => String(s == null ? '' : s).replace(/[\t\r\n]+/g, ' ').trim();
 

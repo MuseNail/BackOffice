@@ -155,14 +155,14 @@ function vendorDrilldown(v, refresh) {
   const txnSort = { key: 'date', dir: 'desc' };
   const drawList = () => {
     const txns = sortBy(txnsForVendor(v).filter(t => inRange(t.date, vendorRange)), txnSort,
-      { date: t => t.date, desc: t => t.payee || t.memo || '', account: t => catOf(t), amount: t => expenseOf(t, expenseIds) });
-    const total = txns.reduce((s, t) => s + expenseOf(t, expenseIds), 0);
+      { date: t => t.date, desc: t => t.payee || t.memo || '', account: t => catOf(t), amount: t => expenseOf(t, expenseIds, v) });
+    const total = txns.reduce((s, t) => s + expenseOf(t, expenseIds, v), 0);
     clear(listHost).append(
       el('div', { style: 'font-weight:800;font-size:18px;margin:12px 0 10px' }, fmtMoney(total), el('span', { class: 'sub', style: 'font-weight:400;margin-left:8px' }, `paid · ${txns.length} transactions`)),
       txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
         el('table', { class: 'data xl' },
           el('thead', {}, el('tr', {}, sortTh(txnSort, 'date', 'Date', drawList), sortTh(txnSort, 'desc', 'Description', drawList), sortTh(txnSort, 'account', 'Account', drawList), sortTh(txnSort, 'amount', 'Amount', drawList, { numeric: true, cls: 'num' }))),
-          el('tbody', {}, ...txns.map(t => el('tr', { style: 'cursor:pointer', title: 'Edit transaction', onclick: () => editTxnModal(t) }, el('td', {}, t.date), el('td', {}, prettyDesc(t.payee || t.memo) || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, acctAmount(expenseOf(t, expenseIds), { colored: false })))))))
+          el('tbody', {}, ...txns.map(t => el('tr', { style: 'cursor:pointer', title: 'Edit transaction', onclick: () => editTxnModal(t) }, el('td', {}, t.date), el('td', {}, prettyDesc(t.payee || t.memo) || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, acctAmount(expenseOf(t, expenseIds, v), { colored: false })))))))
         : el('p', { class: 'sub' }, 'No transactions yet.'));
   };
   const rangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { vendorRange = r; pageRangeCtl?.setRange(r); drawList(); refresh?.(); } });

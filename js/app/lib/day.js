@@ -6,8 +6,8 @@
 //
 // Decision (2026-07): calendar day/month follow the viewing device's local zone; there is
 // no per-business timezone setting (fine for the single PST owner — a future out-of-zone
-// bookkeeper would bucket to their own device's zone). Shared home so there's ONE local-day
-// implementation (daterange.js and plaid-feed.js delegate here).
+// bookkeeper would bucket to their own device's zone). plaid-feed.js delegates its todayLocal
+// here so there's one local-day implementation for the "today" defaults.
 const pad = (n) => String(n).padStart(2, '0');
 export const todayLocal = (now = new Date()) => `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 export const monthLocal = (now = new Date()) => todayLocal(now).slice(0, 7);
