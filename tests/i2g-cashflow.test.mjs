@@ -155,14 +155,68 @@ test('parseBundleInvoices returns null for a non-bundle file', () => {
   assert.equal(parseBundleInvoices({ cashflow: [] }), null);
 });
 
-test('cutoff drops invoices + cashflow before the start date (avoids double-counting QB)', () => {
+test('cutoff drops a pre-cutoff PARTIALLY-paid/unpaid invoice + pre-cutoff cashflow (avoids double-counting QB)', () => {
+  // bundleInv is partially paid (outstanding_balance 122000 < total 322000 but NOT fully paid) → a
+  // back-dated copy stays DROPPED: it's QuickBooks-era, and importing it would inject stale open A/R.
   const old = { ...bundleInv, id: 'old-uuid', content: { ...bundleInv.content, doc_date: '2025-09-15' } };
   const invs = parseBundleInvoices({ invoices: [old, bundleInv] }, 0, '2025-10-01');
   assert.equal(invs.length, 1);
-  assert.equal(invs[0].id, '267d2440-uuid'); // the 2026 one kept, the Sept-2025 one dropped
+  assert.equal(invs[0].id, '267d2440-uuid'); // the 2026 one kept, the partially-paid Sept-2025 one dropped
+  assert.equal(invs.skippedPreCutoff, 1, 'the pre-cutoff not-fully-paid invoice is counted as skipped');
   // cashflow: absorbedPay is 2026-03-01 (kept); a pre-cutoff payment is dropped
   const oldPay = { ...absorbedPay, id: 'pOld', created_date: '2025-08-01T00:00:00Z' };
   const r = buildCashflowImport([oldPay, absorbedPay], { existingInvoices: invoices, mapping, cutoff: '2025-10-01' });
   assert.equal(r.preview.payments, 1);
   assert.equal(r.txns.find(t => t.id === cashflowPaymentTxnId('pOld')), undefined);
+});
+
+test('a FULLY-PAID back-dated invoice is KEPT (the #3930 case: dated pre-cutoff, paid after)', () => {
+  // #3930 shape: converted from an estimate so it keeps the OLD creation date (2025-09), but it is paid
+  // in full in 2026 — must import (income posting is separate + unchanged; a $0-balance card adds no A/R).
+  const paidOld = { ...bundleInv, id: 'paid-old', content: { ...bundleInv.content, doc_date: '2025-09-09' },
+    states: { ...bundleInv.states, date_paid: '2026-03-31' },
+    latest_calculation_results: { total: 754000, payments: { is_fully_paid: true, outstanding_balance: 0 } } };
+  const invs = parseBundleInvoices({ invoices: [paidOld] }, 0, '2025-10-01');
+  assert.equal(invs.length, 1, 'a fully-paid back-dated invoice imports');
+  assert.equal(invs[0].id, 'paid-old');
+  assert.equal(invs[0].docStatus, 'fully_paid');
+  assert.equal(invs[0].balanceCents, 0);
+  assert.equal(invs.skippedPreCutoff, 0);
+});
+
+test('balance<=0 counts as fully paid even without the is_fully_paid flag; a pre-cutoff UNPAID invoice drops', () => {
+  const paidByBalance = { ...bundleInv, id: 'paid-bal', content: { ...bundleInv.content, doc_date: '2025-09-09' },
+    latest_calculation_results: { total: 500000, payments: { outstanding_balance: 0 } } }; // no is_fully_paid flag
+  const unpaidOld = { ...bundleInv, id: 'unpaid-old', content: { ...bundleInv.content, doc_date: '2025-09-09' },
+    latest_calculation_results: { total: 500000, payments: { is_fully_paid: false, outstanding_balance: 500000 } } };
+  const zeroTotal = { ...bundleInv, id: 'zero-old', content: { ...bundleInv.content, doc_date: '2025-09-09' },
+    latest_calculation_results: { total: 0, payments: { outstanding_balance: 0 } } }; // $0 draft: no real money → dropped
+  const invs = parseBundleInvoices({ invoices: [paidByBalance, unpaidOld, zeroTotal] }, 0, '2025-10-01');
+  assert.deepEqual(invs.map(i => i.id), ['paid-bal'], 'paid-by-balance kept; unpaid + $0-total pre-cutoff dropped');
+  assert.equal(invs[0].docStatus, 'fully_paid', 'kept-by-balance invoice is labeled fully paid, not partial');
+  assert.equal(invs.skippedPreCutoff, 2);
+});
+
+test('no cutoff → every invoice kept and skippedPreCutoff is 0', () => {
+  const old = { ...bundleInv, id: 'old-uuid', content: { ...bundleInv.content, doc_date: '2025-09-15' } };
+  const invs = parseBundleInvoices({ invoices: [old, bundleInv] }, 0, '');
+  assert.equal(invs.length, 2);
+  assert.equal(invs.skippedPreCutoff, 0);
+});
+
+test('is_fully_paid flag with a still-owed balance is NOT admitted (no stale A/R resurrected)', () => {
+  const flagButOwed = { ...bundleInv, id: 'flag-owed', content: { ...bundleInv.content, doc_date: '2025-09-09' },
+    latest_calculation_results: { total: 500000, payments: { is_fully_paid: true, outstanding_balance: 200000 } } };
+  const invs = parseBundleInvoices({ invoices: [flagButOwed] }, 0, '2025-10-01');
+  assert.equal(invs.length, 0, 'a pre-cutoff invoice with a nonzero balance is dropped even if is_fully_paid is set');
+  assert.equal(invs.skippedPreCutoff, 1);
+});
+
+test('SAFETY: importing more (fully-paid) invoice cards changes NO cashflow income or txn count', () => {
+  const base = buildCashflowImport(raw, { existingInvoices: invoices, mapping });
+  const extraCard = { id: 'i-extra', number: '9999', sourceId: 'doc-9999', totalCents: 100000, paidCents: 100000, balanceCents: 0 };
+  const withCard = buildCashflowImport(raw, { existingInvoices: [...invoices, extraCard], mapping });
+  assert.equal(withCard.txns.length, base.txns.length, 'same number of income txns — a card posts nothing');
+  assert.equal(withCard.preview.income, base.preview.income, 'same gross income');
+  assert.equal(withCard.preview.net, base.preview.net, 'same net to clearing');
 });

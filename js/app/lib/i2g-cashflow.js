@@ -56,17 +56,28 @@ export function parseBundleInvoices(raw, now = 0, cutoff = '') {
   const arr = raw && Array.isArray(raw.invoices) ? raw.invoices : null;
   if (!arr) return null;
   const out = [];
+  let skippedPreCutoff = 0;
   for (const v of arr) {
     if (!v || !v.id) continue;
     const docDate = String(v.content?.doc_date || '').slice(0, 10);
-    if (cutoff && (!docDate || docDate < cutoff)) continue; // older periods are owned by QuickBooks
     const lcr = v.latest_calculation_results || {};
     const pay = lcr.payments || {};
     const total = lcr.total | 0;
     const balance = (pay.outstanding_balance != null ? pay.outstanding_balance : total) | 0;
     const paid = Math.max(0, total - balance);
+    // Older periods are owned by QuickBooks — but keep a back-dated invoice that is FULLY PAID: real
+    // money paid AND a $0 balance (a $0-total draft or a still-owed balance never qualifies). An
+    // estimate→invoice conversion keeps the estimate's OLD creation date, so a recently-paid invoice
+    // (e.g. #3930: stamped 2025-09 yet paid in full 2026-03, balance $0) would otherwise be silently
+    // dropped. A card posts NO income (income keeps its own cutoff in buildCashflowImport below) and a
+    // $0-balance card adds no open A/R, so importing it neither double-counts income nor injects a stale
+    // receivable. We deliberately require balance<=0 (not the feed's is_fully_paid flag): the flag can
+    // disagree with a still-owed balance, and admitting that row would resurrect old A/R the cutoff exists
+    // to keep out — every genuinely paid-in-full invoice already has balance<=0.
+    const fullyPaid = paid > 0 && balance <= 0;
+    if (cutoff && docDate < cutoff && !fullyPaid) { skippedPreCutoff++; continue; }
     const st = v.states || {};
-    const docStatus = pay.is_fully_paid ? 'fully_paid'
+    const docStatus = fullyPaid ? 'fully_paid'
       : (paid > 0 ? 'partially_paid'
         : (st.list_category === 'unsent' || st.overall === 'unsent' ? 'unsent' : 'sent'));
     out.push({
@@ -83,6 +94,10 @@ export function parseBundleInvoices(raw, now = 0, cutoff = '') {
       source: { app: 'invoice2go-api', sourceId: v.id }, importedAt: now, updatedAt: now,
     });
   }
+  // Expose the count of pre-cutoff, not-fully-paid invoices we intentionally skipped — the import
+  // preview surfaces it so a dropped invoice is never silent (a property on the array keeps the
+  // Array return type intact for every existing caller/test).
+  out.skippedPreCutoff = skippedPreCutoff;
   return out;
 }
 

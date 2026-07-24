@@ -524,7 +524,10 @@ function postCard({ bare = false } = {}) {
       built = { invoiceValues, invNew, invUpd, cf, hasInvoices: !!parsedInv };
       const p = cf.preview || {};
       if (cf.errors.length) preview.append(el('p', { style: 'color:var(--red)' }, cf.errors.join(' ')));
-      if (parsedInv) preview.append(el('p', {}, el('b', {}, `${parsedInv.length} invoices`), ' — ', el('b', {}, `${invNew} new`), `, ${invUpd} updated`));
+      if (parsedInv) preview.append(el('p', {}, el('b', {}, `${parsedInv.length} invoices`), ' — ', el('b', {}, `${invNew} new`), `, ${invUpd} updated`,
+        // Surface the intentional pre-cutoff drops so an unimported invoice is never silent (parseBundleInvoices
+        // counts only the pre-cutoff, not-fully-paid skips — not malformed rows).
+        parsedInv.skippedPreCutoff ? ` · ${parsedInv.skippedPreCutoff} skipped (before your ${cutoff} cutoff and not fully paid)` : ''));
       if (p.payments != null) preview.append(
         el('p', {}, el('b', {}, `${p.payments} payments`), `, ${p.payouts} payouts (${p.payoutsWithFee} with a 1% fee) · `, el('b', {}, `${p.toPost} to post`), p.alreadyPosted ? `, ${p.alreadyPosted} already posted` : ''),
         el('p', { class: 'sub', style: 'margin:2px 0' }, `income ${fmtMoney(p.income)} · absorbed ${fmtMoney(p.absorbed)} (COGS) · passed ${fmtMoney(p.passed)} (contra-income) · payout fees ${fmtMoney(p.payoutFees)}`),
