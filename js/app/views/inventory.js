@@ -3,7 +3,7 @@
 // payment txn in one action, linked through a purchase entity (provenance both
 // ways). Quantity adjustments (usage, shrinkage) change the count only — no
 // money moves without a real transaction.
-import { el, clear, toast, modal, fmtMoney, acctAmount } from '../ui.js';
+import { el, clear, toast, modal, appendKids, fmtMoney, acctAmount } from '../ui.js';
 import { todayLocal } from '../lib/day.js';
 import { entities, byId, subscribe, getState } from '../store.js';
 import { dispatch } from '../sync.js';
@@ -17,7 +17,7 @@ let unsub = null;
 export function render(root) {
   const editable = canEdit(getActiveBiz());
   const body = el('div');
-  root.append(
+  appendKids(root,
     el('h2', {}, 'Inventory'),
     el('p', { class: 'sub' }, 'What’s on the shelf, what it cost, and when to reorder. Recording a restock posts the payment to your books automatically.'),
     editable ? el('div', { style: 'display:flex;gap:9px;margin-bottom:14px' },

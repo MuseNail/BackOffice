@@ -4,7 +4,7 @@
 // host view passes the already-filtered transactions; this renders the date-range
 // filter, the table, a total, and Print / CSV export. Reuses the @media print rules.
 
-import { el, clear, fmtMoney, acctAmount, prettyDesc } from './ui.js';
+import { el, clear, appendKids, fmtMoney, acctAmount, prettyDesc } from './ui.js';
 import { entities, subscribe, usesInvoices } from './store.js';
 import { canEdit, getActiveBiz } from './session.js';
 import { categoryField, vendorField, memoField, invoiceField, categoryName, stackedEditor } from './txn-inline.js';
@@ -107,7 +107,7 @@ function drawRegister(body, opts, state) {
     onclick: () => { if (state.sortKey === key) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc'; else { state.sortKey = key; state.sortDir = key === 'amount' ? 'desc' : 'asc'; } drawRegister(body, opts, state); } },
     label + arrow(key));
 
-  clear(body).append(
+  appendKids(clear(body),
     // Breadcrumb trail (kept alongside the ← Back button) — shows where you are and
     // lets you click the parent to step back. Skipped in modal mode (it has its own head).
     opts.modal ? null : el('div', { class: 'crumb no-print' },

@@ -7,7 +7,7 @@
 // touches our app — we only ever receive a public_token, which the Worker swaps for
 // a server-side access token.
 
-import { el, modal, toast } from './ui.js';
+import { el, modal, toast, appendKids } from './ui.js';
 import { api } from './sync.js';
 import { entities, getStateBiz } from './store.js';
 import { reportError } from './reporter.js';
@@ -73,7 +73,7 @@ async function mapPlaid(biz, bankacct, itemId, plaidAccountId) {
 // assumed the feed was broken, and only found the other 27 by pressing Sync again.
 function connectedModal(biz, bankacct, rows, hadError) {
   const m = modal(`${bankacct.name} is connected`);
-  m.body.append(
+  appendKids(m.body,
     el('p', {}, rows
       ? `${rows} transaction${rows === 1 ? '' : 's'} ${rows === 1 ? 'is' : 'are'} in Review so far.`
       : 'No transactions have arrived yet.'),
@@ -179,7 +179,7 @@ export function startPlaidConnect(bankacct, opts = {}) {
   const dateIn = el('input', { class: 'field-input', type: 'date', value: suggested, max: today, style: 'max-width:175px' });
   const pretty = (d) => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
 
-  m.body.append(
+  appendKids(m.body,
     opts.note ? el('p', { class: 'sub', style: 'color:var(--amber)' }, opts.note) : null,
     hasHistory
       ? el('p', {}, `Your books already have imported transactions for this account through ${pretty(lastImport)}. To avoid duplicates, only pull bank transactions dated on or after:`)
@@ -289,7 +289,7 @@ export function linkExistingAccount(bankacct, candidate) {
 // line is false for a map onto an existing (synced) Item.
 function linkedModal(bankacct, rows, hadError) {
   const m = modal(`${bankacct.name} is linked`);
-  m.body.append(
+  appendKids(m.body,
     el('p', {}, rows
       ? `${rows} transaction${rows === 1 ? '' : 's'} ${rows === 1 ? 'is' : 'are'} in Review so far.`
       : 'No transactions have arrived yet — press Sync now in a minute.'),

@@ -3,7 +3,7 @@
 // id), then list invoices with running open balances + aging. Posting payments
 // to the ledger and bank reconciliation are later phases — this view tracks, it
 // does not post.
-import { el, clear, toast, fmtMoney, acctAmount, prettyDesc, modal } from '../ui.js';
+import { el, clear, toast, fmtMoney, acctAmount, prettyDesc, modal, appendKids } from '../ui.js';
 import { todayLocal } from '../lib/day.js';
 import { entities, subscribe, getState, usesInvoices, getStateBiz } from '../store.js';
 import { dispatch, api } from '../sync.js';
@@ -849,7 +849,7 @@ function drawInvoiceTable(tableBox, count) {
     return tr;
   });
 
-  clear(tableBox).append(
+  appendKids(clear(tableBox),
     el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
       el('table', { class: 'data xl' },
         el('thead', {}, el('tr', {}, el('th', {}, 'Invoice'), el('th', {}, 'Invoice date'), el('th', {}, 'Client'), el('th', {}, 'Source'),

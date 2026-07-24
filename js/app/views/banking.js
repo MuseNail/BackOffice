@@ -1,7 +1,7 @@
 // ── view: banking — bank/card accounts, CSV import wizard, import history ────────────────
 // Bank accounts are created HERE (not in Accounts): each one is a bankacct
 // entity PLUS its linked ledger account (qbType BANK/CCARD), created together.
-import { el, clear, toast, modal, fmtMoney, acctAmount, prettyDesc } from '../ui.js';
+import { el, clear, toast, modal, appendKids, fmtMoney, acctAmount, prettyDesc } from '../ui.js';
 import { todayLocal } from '../lib/day.js';
 import { entities, subscribe, getStateBiz } from '../store.js';
 import { dispatch, api } from '../sync.js';
@@ -81,7 +81,7 @@ export function render(root, detail) {
   const editable = canEdit(getStateBiz());
   plaidItems = null;
   const body = el('div');
-  root.append(
+  appendKids(root,
     el('h2', {}, 'Banking'),
     el('p', { class: 'sub' }, 'Bank & card accounts, CSV imports, and import history. Imported rows land in Review — nothing posts without your approval.'),
     editable ? el('div', { style: 'margin-bottom:14px' },

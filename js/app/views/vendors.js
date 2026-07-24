@@ -1,5 +1,5 @@
 // ── view: vendors — vendors, their auto-categorize rules, and per-vendor register ─
-import { el, clear, toast, modal, fmtMoney, acctAmount, prettyDesc, sortTh, sortBy } from '../ui.js';
+import { el, clear, toast, modal, appendKids, fmtMoney, acctAmount, prettyDesc, sortTh, sortBy } from '../ui.js';
 import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
@@ -258,7 +258,7 @@ export function quickAddVendorModal(oncreate, prefillName = '') {
   };
   // Enter in the name field adds the vendor (hands stay on the keyboard).
   name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
-  m.body.append(
+  appendKids(m.body,
     prefillName ? el('p', { class: 'sub', style: 'margin-top:0' }, `“${prefillName}” isn’t a vendor yet — add it?`) : null,
     el('label', { class: 'field-label' }, 'Name'), name,
     el('p', { class: 'sub' }, 'Just tags this transaction with the vendor. To auto-categorize a vendor on future imports, use “⚡” in Review.'),

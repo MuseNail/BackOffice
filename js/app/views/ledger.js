@@ -1,5 +1,5 @@
 // ── view: ledger — posted transactions, manual entry, journal entries ────────────────
-import { el, clear, toast, modal, fmtMoney, acctAmount, prettyDesc } from '../ui.js';
+import { el, clear, toast, modal, appendKids, fmtMoney, acctAmount, prettyDesc } from '../ui.js';
 import { todayLocal } from '../lib/day.js';
 import { entities, subscribe, usesInvoices } from '../store.js';
 import { dispatch } from '../sync.js';
@@ -373,7 +373,7 @@ function confirmDelete(t) {
   const linkedPurchase = entities('purchase').find(p => p.txnId === t.id);
   const linkedItem = linkedPurchase ? entities('item').find(i => i.id === linkedPurchase.itemId) : null;
   const m = modal('Delete this transaction?');
-  m.body.append(
+  appendKids(m.body,
     el('p', {}, `${t.date} · ${t.payee || 'no payee'} — this permanently removes the entry.${t.status === 'void' ? '' : ' Use Void instead if you want to keep a record.'}`),
     linkedStaged ? el('p', { class: 'sub' }, 'The imported bank row it was posted from returns to Review as pending, so you can re-categorize and re-approve it.') : null,
     linkedPurchase ? el('p', { class: 'sub' }, `This was an inventory restock — deleting it also removes the purchase record${linkedItem ? ` and reduces “${linkedItem.name}” on-hand by ${linkedPurchase.qty}` : ''}.`) : null,
@@ -534,7 +534,7 @@ export function editTxnModal(t) {
   const invSel = useInv ? invoiceCombo({ selected: t.invoiceId || '' }) : null;
   if (invSel) invSel.style.cssText = 'display:block;width:100%';
 
-  m.body.append(
+  appendKids(m.body,
     isRecon ? el('p', { class: 'sub' }, catSel
       ? '⚠️ Reconciled — the date and amount stay locked (changing them would move the reconciled balance), but you can still update the account, vendor, payee, and memo.'
       : '⚠️ This transaction is reconciled — the date, accounts, and amounts are locked. You can still update the payee, vendor, and memo.') : null,

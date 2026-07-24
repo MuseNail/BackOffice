@@ -6,7 +6,7 @@
 //    account is auto-marked so the transfer is never double-counted.
 //  • Fee split — a deposit where the processor kept a cut: posts gross income,
 //    the fee as its own expense, and the net into the bank, in one balanced txn.
-import { el, clear, toast, fmtMoney, acctAmount, modal, prettyDesc } from '../ui.js';
+import { el, clear, toast, fmtMoney, acctAmount, modal, prettyDesc, appendKids } from '../ui.js';
 import { todayLocal } from '../lib/day.js';
 import { entities, subscribe, getState, usesInvoices, usesMuseSync, getStateBiz } from '../store.js';
 import { dispatch, api } from '../sync.js';
@@ -1033,7 +1033,7 @@ function splitModal(row, accountsById, opts = {}) {
     m.close();
   } }, 'Post split');
 
-  m.body.append(
+  appendKids(m.body,
     el('p', { class: 'sub' }, `${row.date} · ${row.desc || '—'} · ${fmtMoney(row.amountCents, { sign: row.amountCents > 0 })}. Split it across the accounts below — the amounts must add up to ${fmtMoney(total)}.`),
     seedNewNames.length ? el('p', { class: 'sub', style: 'color:var(--brand)' }, `Your client proposed new account${seedNewNames.length > 1 ? 's' : ''}: ${seedNewNames.join(', ')} — type ${seedNewNames.length > 1 ? 'them' : 'it'} into a line to add.`) : null,
     linesBox, addLine, remind,

@@ -7,14 +7,21 @@ export function el(tag, attrs = {}, ...children) {
     else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
     else if (v !== false && v != null) node.setAttribute(k, v === true ? '' : v);
   }
+  return appendKids(node, ...children);   // one source of truth for nullish-child skipping (below)
+}
+
+export function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); return node; }
+
+// Append children to a real DOM node, skipping nullish ones — mirrors el()'s child handling.
+// Native Node.append(x) coerces a null/undefined argument to the text node "null"/"undefined", so
+// `node.append(cond ? child : null)` renders a stray "null". Route such appends through this instead.
+export function appendKids(node, ...children) {
   for (const c of children.flat()) {
     if (c == null) continue;
     node.append(c.nodeType ? c : document.createTextNode(c));
   }
   return node;
 }
-
-export function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); return node; }
 
 // ── Sortable tables ────────────────────────────────────────────────────────────
 // Shared so every data table sorts the same way: a clickable <th> that toggles

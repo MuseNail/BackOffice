@@ -3,7 +3,7 @@
 // source. Vendor/customer merges only move a tag (vendorId/customerId). Account
 // merges rewrite transaction LINES (financial) — guarded against locked periods and
 // the source is archived (accounts keep history, never hard-deleted).
-import { el, modal, toast } from './ui.js';
+import { el, modal, toast, appendKids } from './ui.js';
 import { entities } from './store.js';
 import { dispatch } from './sync.js';
 import { combobox } from './combobox.js';
@@ -69,7 +69,7 @@ export function openMergeModal({ title, source, candidates, labelOf, run, note =
   }
   const sel = combobox({ groups: [{ label: '', items: others.map(c => ({ value: c.id, label: labelOf(c) })) }], placeholder: 'Search…', minWidth: 300 });
   sel.style.cssText = 'display:block;width:100%;max-width:360px';
-  m.body.append(
+  appendKids(m.body,
     el('p', {}, `Move everything from “${labelOf(source)}” onto another ${title}, then remove “${labelOf(source)}”. `,
       el('b', {}, 'No transactions are deleted'), ` — they’re re-pointed to the ${title} you pick. This can’t be undone.`),
     note ? el('p', { class: 'sub' }, note) : null,
