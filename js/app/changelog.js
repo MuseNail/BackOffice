@@ -6,6 +6,10 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.71.12', items: [
+    { icon: 'sync', t: 'Fixed: an “Unsynced” badge that “Sync now” could never clear', d: 'If you had your books open in two browser tabs at once, a change you saved could occasionally leave a stuck “Unsynced · 1” badge that tapping “Sync now” could never clear — even though the change itself had actually saved fine. That happened when the two tabs sent the same saved change a beat apart and the server, correctly, refused the duplicate. The app now recognizes when a refused change is just an exact duplicate of what the server already has, and quietly clears it instead of leaving the badge stuck. Nothing is lost: any change that is genuinely different is still kept and shown to you exactly as before.' },
+    { icon: 'edit_note', t: 'Fixed: a stray “null” in the Edit / Delete transaction dialogs', d: 'The transaction editor (and the delete confirmation) could show a small stray word “null” above the fields. It was purely cosmetic and never affected anything you saved — it’s gone now.' },
+  ] },
   { v: '0.71.11', items: [
     { icon: 'schedule', t: 'Dates now follow your own time zone', d: 'You’re in Pacific time, but a few places worked out “today” in a way that flipped to tomorrow’s date in the evening — so a transaction you added after about 4–5pm could default to the next day, and on the last evening of a month the dashboard could show the wrong month. Everywhere you enter or see “today” or “this month” now uses your local day. Nothing you’d already saved changes; imported and synced transactions were never affected.' },
     { icon: 'filter_alt', t: 'Review: see and filter where each suggestion came from', d: 'Each row in Review already showed a small tag for where its suggested account came from — 💬 from your client, ⚡ from a rule, ✨ from AI, or 🕘 because you approved the same thing before. Those tags are now clearer and consistent, and there’s a new “source” filter in the toolbar so you can show just client-suggested, AI-suggested, rule-matched, seen-before, or not-yet-suggested rows.' },
