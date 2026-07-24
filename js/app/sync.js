@@ -4,6 +4,7 @@ import { getToken, deviceId, getActiveBiz, clearSession } from './session.js';
 import { setSnapshot, applyChange, getStateBiz, setStateBiz } from './store.js';
 import { reportError } from './reporter.js';   // log rejected writes to Diagnostics
 import { requeueRoutable, orphanizeRejected, capFailedLog, describeWrite, dedupeOrphans } from './lib/orphan-recovery.js';
+import { decide409 } from './lib/sync-guards.js';   // pure 409 classifier (heal / drop-redundant / orphan / deadletter)
 
 let ws = null;
 let wsBiz = '';
@@ -172,11 +173,15 @@ export function saveOrphanTo(biz, op) {
 // under the WRONG business. Caps are per-class (capFailedLog): routable pressure can never
 // evict an orphan, and every loss path is LOUD — an evicted orphan and a quota-failed write
 // each fire their own serious report, because for a never-saved write the log IS the data.
+// A one-line human summary of a write op for Diagnostics: "date · payee · $amount" for a txn, else an
+// op/kind fallback. Shared by the dead-letter reports and the redundant-drop diagnostic so the $-format
+// (matching the recovery-log rows) never drifts between them.
+function summarizeWrite(op) {
+  const d = describeWrite(op);
+  return d.kind === 'txn' ? `${d.date ? d.date + ' · ' : ''}${d.payee || '(no payee)'} · $${(d.cents / 100).toFixed(2)}` : (d.fallback || 'write');
+}
+
 function deadLetter(item, reason, { orphanize = false } = {}) {
-  const what = (op) => {
-    const d = describeWrite(op);
-    return d.kind === 'txn' ? `${d.date ? d.date + ' · ' : ''}${d.payee || '(no payee)'} · $${(d.cents / 100).toFixed(2)}` : (d.fallback || 'write');
-  };
   try {
     // Parse in its own try: a corrupt stored log must not stop the NEW entry being held.
     let log = []; try { log = JSON.parse(localStorage.getItem(LS.failed) || '[]'); } catch { log = []; }
@@ -188,14 +193,14 @@ function deadLetter(item, reason, { orphanize = false } = {}) {
       saved = true;
     } catch {
       // Storage quota — the entry could not be held. Never a bare swallow: name the write.
-      try { reportError('sync.deadletter-quota', `couldn't hold a write (${what(item.op)})`, { serious: true }); } catch (e) {}
+      try { reportError('sync.deadletter-quota', `couldn't hold a write (${summarizeWrite(item.op)})`, { serious: true }); } catch (e) {}
     }
     // Report evictions only when the capped log actually persisted — on a failed write the
     // old log (evicted orphans included) still stands, and a false loss alarm would land at
     // exactly the moment the owner is being told a different write was lost.
     if (saved) {
       for (const o of capped.evictedOrphans) {
-        try { reportError('sync.orphan-evicted', `orphan cap evicted an un-filed write (${what(o.op)})`, { serious: true }); } catch (e) {}
+        try { reportError('sync.orphan-evicted', `orphan cap evicted an un-filed write (${summarizeWrite(o.op)})`, { serious: true }); } catch (e) {}
       }
     }
   } catch { /* best-effort */ }
@@ -252,35 +257,49 @@ async function flushOutbox() {
           let body = {};
           try { body = await res.json(); } catch { /* best-effort */ }
           const reason = body.reason || 'rejected';
-          // Self-heal: a staged row advancing out of 'pending' (approve/skip/match) that the
-          // server 409'd as 'stale' is a clock-skew race (edge-clock /suggest stamp vs the
-          // browser-clock approve), not a real conflict. Re-stamp once just above the server's
-          // stored stamp and retry the head — the _healed flag bounds it to a single retry.
-          if (reason === 'stale' && item.op.op === 'entity.upsert' && item.op.kind === 'staged'
-              && item.op.value?.status && item.op.value.status !== 'pending'
-              && !item.op._healed && Number.isFinite(body.storedUpdatedAt)) {
-            // Snapshot BEFORE mutating: the head write-back below must be guarded like
-            // shiftIfHead (another tab may have shifted while our POST was in flight — a
-            // blind cur[0]=item would overwrite a DIFFERENT, unsent item). If the head
-            // moved, abandon the heal: the tab that shifted already handled this write.
-            const pre = JSON.stringify(item);
-            item.op._healed = true;
-            item.op.value = { ...item.op.value, updatedAt: body.storedUpdatedAt + 1 };
-            const cur = readOutbox();
-            if (cur.length && JSON.stringify(cur[0]) === pre) {
-              // Keep optimistic state in step with the re-stamp — but only when THIS item belongs
-              // to the loaded business; the shared outbox can hold another business's queued op, and
-              // applying it here would corrupt the loaded business's store.
-              if (item.biz === getStateBiz()) applyChange(item.op);
-              cur[0] = item; localStorage.setItem(LS.outbox, JSON.stringify(cur));
+          // Classify the 409 (pure + tested: decide409). heal/orphan/deadletter keep their prior
+          // behavior; 'drop-redundant' is the belt that stops a byte-identical duplicate (a cross-tab
+          // out-of-order send) from stranding a permanent, un-clearable "Unsynced" badge.
+          switch (decide409(reason, item.op, body)) {
+            case 'heal': {
+              // A staged row advancing out of 'pending' (approve/skip/match) that the server 409'd as
+              // 'stale' is a clock-skew race (edge-clock /suggest stamp vs the browser-clock approve),
+              // not a real conflict. Re-stamp once just above the server's stored stamp and retry the
+              // head — the _healed flag bounds it to a single retry. Snapshot BEFORE mutating: the
+              // head write-back must be guarded like shiftIfHead (another tab may have shifted while
+              // our POST was in flight — a blind cur[0]=item would overwrite a DIFFERENT, unsent item).
+              const pre = JSON.stringify(item);
+              item.op._healed = true;
+              item.op.value = { ...item.op.value, updatedAt: body.storedUpdatedAt + 1 };
+              const cur = readOutbox();
+              if (cur.length && JSON.stringify(cur[0]) === pre) {
+                // Keep optimistic state in step with the re-stamp — but only when THIS item belongs
+                // to the loaded business; the shared outbox can hold another business's queued op, and
+                // applying it here would corrupt the loaded business's store.
+                if (item.biz === getStateBiz()) applyChange(item.op);
+                cur[0] = item; localStorage.setItem(LS.outbox, JSON.stringify(cur));
+              }
+              continue;             // retry the (healed) head — or the moved head another tab installed
             }
-            continue;               // retry the (healed) head — or the moved head another tab installed
+            case 'drop-redundant': {
+              // The server already holds a byte-identical copy of this write (a duplicate / out-of-
+              // order cross-tab send). Drop our redundant no-op — never dead-letter it into a
+              // permanent badge. No applyChange, no re-stamp: the server's copy stands. A NON-serious
+              // diagnostic report keeps the drop visible in Diagnostics (every other loss path here is
+              // loud) so a future deep-equal false-positive can't hide.
+              reportError('sync.redundant-dropped', 'dropped a stale duplicate the server already had: ' + summarizeWrite(item.op));
+              shiftIfHead(item);
+              continue;
+            }
+            case 'orphan':
+              // The server refused this write because its seal names a DIFFERENT business than the
+              // books it was sent to — a routing bug is back. Hold it as an ORPHAN so the recovery
+              // picker (pre-pointed at its seal) can file it right.
+              deadLetter(item, reason, { orphanize: true });
+              break;
+            default:                // 'deadletter' — a real conflict / any other 409: preserve it
+              deadLetter(item, reason);
           }
-          // Layer 3: the server refused this write because its seal names a DIFFERENT
-          // business than the books it was sent to — a routing bug is back. Hold it as an
-          // ORPHAN so the recovery picker (pre-pointed at its seal) can file it right.
-          if (reason === 'wrong-business') deadLetter(item, reason, { orphanize: true });
-          else deadLetter(item, reason);   // real conflict — preserve it for recovery, don't jam
         } else if (res.status >= 500) {
           emitStatus('offline');      // transient server error — keep + retry, never discard good work
           return;

@@ -7,13 +7,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BusinessDO } from '../cloudflare/src/do/business.js';
 
-function makeDO(seed = {}) {
+function makeDO(seed = {}, env = {}) {
   const store = new Map(Object.entries(seed));
   const state = { storage: {
     async get(k) { return store.get(k); },
     async put(k, v) { store.set(k, v); },
   } };
-  const bo = new BusinessDO(state, {});
+  const bo = new BusinessDO(state, env);
   bo.broadcast = () => {};        // no live sockets in a unit test
   bo.recordAudit = async () => {}; // skip audit-log storage churn
   return { bo, store };
@@ -74,6 +74,29 @@ test('a client suggestion is NOT dropped when the stored row\'s clock is ahead (
   assert.equal(row.clientNote, 'ours');
   assert.ok(row.updatedAt > ahead, `stamp must be monotonic (got ${row.updatedAt} vs stored ${ahead})`);
   assert.equal(row.status, 'pending', 'a suggestion never advances the status');
+});
+
+// The stale 409 now carries the STORED copy so the client can prove a refused write is a byte-
+// identical duplicate (a cross-tab out-of-order send) and drop it instead of stranding a permanent
+// "Unsynced" badge. It must NEVER re-apply/re-stamp — only expose what the server already holds.
+test('a stale single-upsert 409 returns the stored copy (for the redundant-drop client check)', async () => {
+  const stored = { id: 'v1', name: 'Sally Beauty', updatedAt: 1000, updatedBy: 'devA' };
+  const { bo } = makeDO({ 'vendor:v1': stored });
+  const res = await bo.apply({ op: 'entity.upsert', kind: 'vendor', value: { id: 'v1', name: 'Sally Beauty', updatedAt: 500, updatedBy: 'devB' } });
+  assert.equal(res.rejected, true);
+  assert.equal(res.reason, 'stale');
+  assert.equal(res.storedUpdatedAt, 1000, 'storedUpdatedAt still returned (staged self-heal reads it)');
+  assert.deepEqual(res.stored, stored, 'the full stored entity is exposed for the content comparison');
+});
+
+test('the kill switch REDUNDANT_DROP=off omits stored from the stale 409 (no-redeploy rollback)', async () => {
+  const stored = { id: 'v1', name: 'Sally Beauty', updatedAt: 1000 };
+  const { bo } = makeDO({ 'vendor:v1': stored }, { REDUNDANT_DROP: 'off' });
+  const res = await bo.apply({ op: 'entity.upsert', kind: 'vendor', value: { id: 'v1', name: 'Sally Beauty', updatedAt: 500 } });
+  assert.equal(res.rejected, true);
+  assert.equal(res.reason, 'stale');
+  assert.equal(res.storedUpdatedAt, 1000);
+  assert.equal('stored' in res, false, 'kill switch withholds the stored copy → client dead-letters as before');
 });
 
 test('a suggested split is stored only when it has 2+ real lines', async () => {

@@ -480,7 +480,14 @@ export class BusinessDO {
       const stagedAdvance = op.kind === 'staged' && existing?.status === 'pending'
         && op.value.status && op.value.status !== 'pending';
       if (!stagedAdvance && existing?.updatedAt && op.value.updatedAt && op.value.updatedAt < existing.updatedAt) {
-        return { rejected: true, reason: 'stale', storedUpdatedAt: existing.updatedAt };
+        // Expose the stored copy so the client can prove a refused write is a byte-identical duplicate
+        // (a cross-tab out-of-order send) and DROP it, instead of stranding a permanent "Unsynced"
+        // badge. The client never re-applies it — comparison only. Gated by a no-redeploy kill switch
+        // (REDUNDANT_DROP='off' withholds it ⇒ the client dead-letters as before). Independent of the
+        // WRONG_BIZ_CHECK gate above.
+        const stale = { rejected: true, reason: 'stale', storedUpdatedAt: existing.updatedAt };
+        if (this.env?.REDUNDANT_DROP !== 'off') stale.stored = existing;
+        return stale;
       }
       // Reconciliation guard: if a txn is reconciled, its lines (amounts + accounts)
       // and status are permanent — only metadata (payee, memo) may change.
