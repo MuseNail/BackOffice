@@ -106,3 +106,43 @@ the same `: null` pattern and fix them together (or fix `modal`/append centrally
   `SYNC-MISROUTE-PLAN.md` before touching `sync.js`/`business.js`. Don't regress any of it.
 - Live-verify safely: never post a test txn to the real ledger; compare/read-only where possible; the owner can
   drive a two-tab reproduction if needed.
+
+---
+
+## BUILD RECORD — v0.71.12 (rigorous-build, 2026-07-24) — Fix A + Fix B BUILT + COMMITTED, NOT pushed/deployed
+
+**Scope decision (owner sign-off):** ship **Fix A + Fix B** now; **DEFER Fix C** (the cross-tab flush lock) to a
+focused follow-up. The plan-review reframed Fix 1: a *drain* lock (as originally sketched) targets the wrong half
+— `dispatch`'s outbox enqueue (`sync.js` `readOutbox→push→setItem`) is itself an unguarded cross-tab
+read-modify-write, and a drain lock also adds cross-tab head-of-line blocking on a hung POST. The true root fix is
+serializing **all five** outbox-write sites (dispatch, saveOrphanTo, syncNow, staged-heal, shiftIfHead) — a real
+refactor of the single write path — so it was deferred as its own release. **Fix A is the load-bearing fix for the
+reported badge** (it clears it robustly regardless of the race), not a "belt."
+
+**Fix A — redundant-stale auto-resolve (client + Worker).** New pure `js/app/lib/sync-guards.js`:
+`isRedundantWrite(a,b)` (recursive deep-equal ignoring only top-level `updatedAt`/`updatedBy`) + `decide409(reason,
+op, body)` (`heal`/`drop-redundant`/`orphan`/`deadletter`). `sync.js` 409 branch refactored to switch on
+`decide409`; new `drop-redundant` arm drops a byte-identical duplicate (shiftIfHead + a NON-serious diagnostic
+report — never applyChange/re-stamp). Worker `business.js` stale 409 returns `stored: existing`, gated by a
+`REDUNDANT_DROP` kill switch (`wrangler secret put REDUNDANT_DROP` = `off` disables the drop with no client
+redeploy). Shared `summarizeWrite()` extracted in `sync.js`. Tests: `sync-guards.test.mjs` (18) + `stale-guard`
+returns-stored/kill-switch (2).
+
+**Fix B — the stray "null" (client).** New `ui.js appendKids(node, ...children)` (mirrors `el`'s nullish-skip;
+`el` now delegates to it). App-wide sweep found **15** native-`.append`-null sites (2 in `ledger.js` +
+merge/plaid-connect×3/register/banking/inventory/invoices/vendors/review) — all routed through `appendKids`. Test:
+`ui-append.test.mjs` (3).
+
+**Reviews:** 4-lens plan review (all ready-with-edits; drove the Fix-1 reframe + kill switch + recursive deep-equal
++ diagnostic breadcrumb + decide409 seam). 3-lens code review (correctness SHIP / necessity SHIP / cosmetics
+SHIP-after-3-low: el↔appendKids DRY, "breadcrumb"→"diagnostic report" wording, summarizeWrite extraction — all
+applied). Senior review: **SHIP** (3 low notes, none requiring change). 32 test files green; both edited source
+files parse.
+
+**Release:** version trio → **0.71.12** (config.js + version.json + sw.js CACHE_NAME); `sync-guards.js` precached;
+plain-English `changelog.js` entry. Commits on `main`: `5e8d6a9` (Fix A), `f3c29ff` (Fix B), `0f831b3` (release).
+**Pending owner OK:** `git push` + `wrangler deploy` (Worker changed — account info@musenailandspa.com, from
+`cloudflare/`). Deploy order is safe either way; Fix A's badge-clear activates once the Worker lands.
+
+**Deferred → Fix C (own release):** the cross-tab outbox WRITE-lock (all five mutation sites) closing the rare
+silent-loss enqueue race + the out-of-order-send race at the source.
