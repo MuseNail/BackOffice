@@ -298,16 +298,19 @@ function drawBody(body, editable) {
     const aiSug = aiSuggestions.get(row.id);
     // ONE resolution shared with the source filter (lib/review-source.js) so the chip and the
     // filter can never disagree — it reproduces the account-null / AI-fold / vendor-tag steps.
-    const { sug, vendorTag, vendPrefillText, source } = resolveRowSuggestion(
+    const { sug, vendorTag, vendPrefillText: resolvedPrefill, source } = resolveRowSuggestion(
       row, { vendors: matchCtx.vendors, history: matchCtx.history, accountsById, aiSug });
     if (sug) suggested.push({ row, sug }); else unmatched.push(row);
 
     // A client's suggestion (from the client app) pre-fills the fields too.
     const preselect = lastCategory.get(row.id) || row.suggestedAccountId || sug?.accountId;
     const vendPreselect = lastVendor.has(row.id) ? lastVendor.get(row.id) : (row.suggestedVendorId || vendorTag?.vendorId);
-    // The client typed a brand-new vendor/account name to add: prefill the field with it.
-    // The vendor is created on Approve (find-or-create); the account is one tap to add.
-    if (!vendPreselect && row.suggestedVendorName) vendPrefillText = row.suggestedVendorName;
+    // The client typed a brand-new vendor name to add → prefill the field with it (the vendor is
+    // created on Approve, find-or-create); otherwise keep the resolver's AI/rule prefill. Computed
+    // once as a const: an earlier version reassigned the destructured const above, which threw
+    // "Assignment to constant variable" and crashed the Review render on client-suggested-vendor rows.
+    const vendPrefillText = (!vendPreselect && row.suggestedVendorName) ? row.suggestedVendorName : resolvedPrefill;
+    // The client may also type a brand-new account name to add: prefill it (one tap to add).
     const acctPrefill = !preselect ? (row.suggestedAccountName || '') : '';
     // A client-suggested account/vendor that's no longer in the pickable list shows BLANK
     // in the combobox — surface it explicitly (chips below) so the suggestion isn't lost.

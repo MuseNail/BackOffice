@@ -11,6 +11,7 @@ import { combobox } from '../combobox.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseInvoices } from '../lib/invoice2go.js';
 import { buildCashflowImport, cashflowPaymentTxnId, parseBundleInvoices } from '../lib/i2g-cashflow.js';
+import { ledgerIncomeStart, classifyInvoiceLedger, ledgerStateFor, incomeCreditsByInvoice, LEDGER_STATES } from '../lib/invoice-ledger-status.js';
 import { reconcilePayouts } from '../lib/i2g-reconcile.js';
 import { validateTxn, invoiceExpensesTotal, simpleTxn } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
@@ -835,9 +836,21 @@ function drawInvoiceTable(tableBox, count) {
   }
   if (count) count.textContent = `${shown.length} ${shown.length === 1 ? 'invoice' : 'invoices'}`;
 
+  // Ledger-recognition dot (Fix B): a single O(txns) pass tallies net income tagged per invoice,
+  // then each row classifies in O(1) (never O(invoices×txns) — this list can be 1,600+ rows).
+  const allTxns = entities('txn');
+  const incomeIds = new Set(entities('account').filter(a => a.type === 'income').map(a => a.id));
+  const incomeStart = ledgerIncomeStart(allTxns, incomeIds);
+  const recByInv = incomeCreditsByInvoice(allTxns, incomeIds);
+  // Only show the ledger column once the ledger actually recognizes income — otherwise every paid
+  // invoice would read amber "Not linked" (nothing to compare against). el() skips null children.
+  const showLedgerCol = incomeStart != null;
+
   const rows = shown.map(inv => {
     const st = statusOf(inv);
     const src = sourceOf(inv);
+    const led = ledgerStateFor(inv, recByInv.get(inv.id) || 0, incomeStart);
+    const ledMeta = LEDGER_STATES[led.state];
     const tr = el('tr', { style: 'cursor:pointer' },
       el('td', {}, el('span', { style: 'font-weight:700;color:var(--brand)' }, '#' + (inv.number || '—'))),
       el('td', {}, inv.date || '—'),
@@ -847,6 +860,7 @@ function drawInvoiceTable(tableBox, count) {
       el('td', { class: 'num' }, acctAmount(inv.paidCents, { colored: false })),
       el('td', { class: 'num ' + (inv.balanceCents > 0 ? 'neg' : '') }, acctAmount(inv.balanceCents, { colored: false })),
       el('td', {}, el('span', { class: 'pill ' + st.cls }, st.label)),
+      showLedgerCol ? el('td', {}, led.state === 'unpaid' ? '' : el('span', { class: 'pill ' + ledMeta.cls, title: ledMeta.title, style: 'white-space:nowrap' }, ledMeta.short)) : null,
     );
     tr.addEventListener('click', () => { location.hash = `#/b/${biz}/invoices/${inv.id}`; });
     return tr;
@@ -856,7 +870,7 @@ function drawInvoiceTable(tableBox, count) {
     el('div', { class: 'card', style: 'padding:0;overflow:hidden' },
       el('table', { class: 'data xl' },
         el('thead', {}, el('tr', {}, el('th', {}, 'Invoice'), el('th', {}, 'Invoice date'), el('th', {}, 'Client'), el('th', {}, 'Source'),
-          el('th', { class: 'num' }, 'Total'), el('th', { class: 'num' }, 'Paid'), el('th', { class: 'num' }, 'Open'), el('th', {}, 'Status'))),
+          el('th', { class: 'num' }, 'Total'), el('th', { class: 'num' }, 'Paid'), el('th', { class: 'num' }, 'Open'), el('th', {}, 'Status'), showLedgerCol ? el('th', {}, 'In your books') : null)),
         el('tbody', {}, ...rows))),
     !rows.length ? el('p', { class: 'sub', style: 'margin:12px 0 0' }, q ? 'No invoices match your search.' : 'No open invoices in this aging bucket.') : null,
   );
@@ -1146,6 +1160,17 @@ function renderInvoiceDetail(root, id) {
   const expensesTotal = invoiceExpensesTotal(allTxns, accountsById, inv.id);
   const marginCents = inv.totalCents - expensesTotal;
   const marginPct = inv.totalCents > 0 ? Math.round((marginCents / inv.totalCents) * 100) : null;
+  // Ledger recognition (Fix B): is this invoice's revenue actually in OUR ledger (a posted income
+  // txn tagged to it) vs merely reported paid by Invoice2go? Read-only classifier — posts nothing.
+  const incomeIds = new Set(entities('account').filter(a => a.type === 'income').map(a => a.id));
+  const incomeStart = ledgerIncomeStart(allTxns, incomeIds);
+  const ledger = classifyInvoiceLedger(inv, { txns: allTxns, incomeIds, incomeStart });
+  const ledgerMeta = LEDGER_STATES[ledger.state];
+  // Invoice2go-specific wording (reconcile hint, "as reported by Invoice2go", the QuickBooks-history
+  // note) only for an i2g-sourced invoice on a business that actually has a CONFIGURED Invoice2go
+  // mapping (a bare {} doesn't count) — never claimed for manual invoices or non-i2g businesses.
+  const isI2g = (inv.source?.app || '').startsWith('invoice2go') && Object.keys(getState().meta?.i2gMapping || {}).length > 0;
+
   // Break the tagged costs into card-fee-absorbed (COGS), payout fee, and the rest
   // (job costs), and read the fee passed to the customer straight off the invoice.
   const i2gMap = getState().meta?.i2gMapping || {};
@@ -1231,6 +1256,32 @@ function renderInvoiceDetail(root, id) {
       el('td', {}, el('span', { class: 'pill ' + (p.status === 'succeeded' ? 'green' : 'gray') }, p.status || '—')));
   });
 
+  // Ledger-recognition card (Fix B) — the at-a-glance "in your books / before your books / not
+  // linked" answer, distinct from the payment-status pill in the h2. Internal bookkeeping, so no-print
+  // (it must not leak onto a printed/PDF'd invoice). Hidden entirely for genuinely-unpaid invoices.
+  // Suppress the whole indicator when the ledger recognizes NO income at all (incomeStart null): with
+  // nothing to compare against, every paid invoice would read amber "Not linked" — a wall of alarm
+  // that says nothing. Only speak once the ledger actually has income. (unpaid invoices show nothing.)
+  const ledgerCard = (ledger.state === 'unpaid' || !incomeStart) ? el('span') : (() => {
+    const desc =
+      ledger.state === 'linked-full'    ? `${fmtMoney(ledger.recognizedCents)} is recognized in your Back Office ledger and linked to this invoice.`
+      : ledger.state === 'linked-partial' ? `Only ${fmtMoney(ledger.recognizedCents)} of the ${fmtMoney(inv.paidCents)} paid is recognized in your ledger so far — the rest isn’t linked to a ledger entry.`
+      : ledger.state === 'pre-books'      ? (isI2g
+          ? 'Paid before your Back Office books began, so its income isn’t recorded here — it lives in your earlier (QuickBooks) records.'
+          : 'Paid before your Back Office books began, so its income isn’t recorded here.')
+      : isI2g                             ? 'Reported paid by Invoice2go, but no ledger entry is linked to it. Its income may already be recorded as an unlinked deposit, or still be waiting in Review — use Reconcile income or Reconcile to bank to confirm and link it.'
+      :                                     'Marked paid on this invoice, but no ledger entry is linked to it yet.';
+    return el('div', { class: 'card no-print', style: 'max-width:460px;margin-bottom:14px;display:flex;gap:12px;align-items:flex-start' },
+      el('span', { class: 'pill ' + ledgerMeta.cls, style: 'white-space:nowrap;margin-top:2px' }, ledgerMeta.short),
+      el('div', {},
+        el('div', { style: 'font-weight:700' }, ledgerMeta.title),
+        el('div', { class: 'sub', style: 'margin:3px 0 0' }, desc)));
+  })();
+  // Honesty caption above the Payments table: those rows + the green "succeeded" pills are
+  // Invoice2go's status, NOT a confirmation they're in your ledger. Wording gated on the source.
+  const payCaptionText = isI2g ? 'As reported by Invoice2go — this is Invoice2go’s status, not whether the payment is in your ledger.'
+    : isManual ? 'Payments recorded on this invoice.' : '';
+
   root.append(
     el('div', { class: 'crumb no-print' },
       el('a', { class: 'crumb-link', href: `#/b/${biz}/invoices` }, 'Invoices'),
@@ -1240,6 +1291,7 @@ function renderInvoiceDetail(root, id) {
     el('h2', { style: 'margin-top:10px' }, `Invoice #${inv.number || '—'} `, el('span', { class: 'pill ' + st.cls, style: 'font-size:.5em;vertical-align:middle' }, st.label)),
     el('p', { class: 'sub' }, `${inv.clientName || ''}${inv.clientEmail ? ' · ' + inv.clientEmail : ''}`),
     dateBlock(inv),
+    ledgerCard,
     actions,
     el('div', { class: 'card', style: 'max-width:460px;margin-bottom:14px' },
       el('table', { class: 'data' },
@@ -1256,6 +1308,7 @@ function renderInvoiceDetail(root, id) {
       el('table', { class: 'data xl' },
         el('thead', {}, el('tr', {}, el('th', {}, 'Line item'), el('th', { class: 'num' }, 'Qty'), el('th', { class: 'num' }, 'Unit'), el('th', { class: 'num' }, 'Amount'))),
         el('tbody', {}, ...itemRows))) : el('span'),
+    payRows.length && payCaptionText ? el('p', { class: 'sub no-print', style: 'margin:0 0 4px' }, payCaptionText) : el('span'),
     payRows.length ? el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:640px' },
       el('table', { class: 'data xl' },
         el('thead', {},
