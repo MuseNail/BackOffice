@@ -4,7 +4,7 @@ import { entities, subscribe } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { accountLabel } from '../lib/coa-templates.js';
-import { normalizeDesc } from '../lib/match.js';
+import { normalizeDesc, wordAwareMatch } from '../lib/match.js';
 import { txnHasVendor, hasAnyVendor, expenseForVendor } from '../lib/vendor-attribution.js';
 import { renderRegister } from '../register.js';
 import { dateRangeControl, inRange } from '../daterange.js';
@@ -29,7 +29,7 @@ export function vendorMatches(vendor, desc) {
   const d = normalizeDesc(desc);
   if (!d) return false;
   for (const m of vendor.matchers?.exact || []) if (d === normalizeDesc(m)) return true;
-  for (const k of vendor.matchers?.keywords || []) { const kk = normalizeDesc(k); if (kk && d.includes(kk)) return true; }
+  for (const k of vendor.matchers?.keywords || []) { const kk = normalizeDesc(k); if (kk && wordAwareMatch(d, kk)) return true; }
   return false;
 }
 // A txn belongs to a vendor if it references the vendor at the top level OR on any split

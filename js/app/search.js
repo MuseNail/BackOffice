@@ -2,6 +2,7 @@
 // In-memory scan of the active business's store, grouped results, jumps to the item.
 // Transactions have no detail route, so they deep-link the Ledger's text filter.
 import { entities } from './store.js';
+import { matchRank } from './lib/match.js';
 import { todayLocal } from './lib/day.js';
 import { getActiveBiz } from './session.js';
 import { setLedgerQuery } from './views/ledger.js';
@@ -41,17 +42,25 @@ function amountMatch(centsList, ql) {
 }
 
 function searchAll(ql) {
+  // Rank each candidate (3 exact / 2 whole-word / 1 partial / amount-only = 1), sort by rank, THEN
+  // cap — so a whole-word/exact hit that sits past the cap in entity order isn't sliced away before
+  // it can rank up (e.g. "arco" surfaces the "Arco" vendor above "Marco Corona"). Same recall as the
+  // old .includes filter (rank > 0 ⇔ substring match); only the ordering + which survive the cap change.
+  const rankSlice = (items, fieldFn, cap, amtFn) => items
+    .map(it => ({ it, r: Math.max(matchRank(fieldFn(it), ql), (amtFn && amtFn(it)) ? 1 : 0) }))
+    .filter(x => x.r > 0)
+    .sort((a, b) => b.r - a.r)   // V8 sort is stable → equal ranks keep entity order
+    .slice(0, cap).map(x => x.it);
   return {
-    txns: entities('txn').filter(t => t.status !== 'void' && (
-      `${t.payee || ''} ${t.memo || ''} ${t.checkNo || ''}`.toLowerCase().includes(ql) ||
-      amountMatch((t.lines || []).map(l => l.amountCents), ql))).slice(0, 24),
+    txns: rankSlice(entities('txn').filter(t => t.status !== 'void'),
+      t => `${t.payee || ''} ${t.memo || ''} ${t.checkNo || ''}`, 24,
+      t => amountMatch((t.lines || []).map(l => l.amountCents), ql)),
     // Review (not-yet-posted) rows — pending + skipped, matched by description or amount.
-    staged: entities('staged').filter(s => (s.status === 'pending' || s.status === 'skipped') && (
-      `${s.desc || ''} ${s.memo || ''}`.toLowerCase().includes(ql) ||
-      amountMatch([s.amountCents], ql))).slice(0, 12),
-    invoices: entities('invoice').filter(i => `${i.number || ''} ${i.clientName || ''}`.toLowerCase().includes(ql)).slice(0, 8),
-    vendors: entities('vendor').filter(v => (v.name || '').toLowerCase().includes(ql)).slice(0, 8),
-    accounts: entities('account').filter(a => a.active !== false && (a.name || '').toLowerCase().includes(ql)).slice(0, 8),
+    staged: rankSlice(entities('staged').filter(s => s.status === 'pending' || s.status === 'skipped'),
+      s => `${s.desc || ''} ${s.memo || ''}`, 12, s => amountMatch([s.amountCents], ql)),
+    invoices: rankSlice(entities('invoice'), i => `${i.number || ''} ${i.clientName || ''}`, 8),
+    vendors: rankSlice(entities('vendor'), v => v.name || '', 8),
+    accounts: rankSlice(entities('account').filter(a => a.active !== false), a => a.name || '', 8),
   };
 }
 

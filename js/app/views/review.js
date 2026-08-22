@@ -105,10 +105,20 @@ export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); 
 
 // A row is "ready" if it has a resolved category — a valid rule/history suggestion,
 // an AI suggestion, or a manual pick (lastCategory). Drives the needs/ready filter.
+// suggestFor memoized for one render (see matchCtx._sug in drawBody). Falls back to a direct call
+// when no per-render cache is present (e.g. a caller that builds matchCtx without it).
+function cachedSuggest(row, matchCtx) {
+  const c = matchCtx && matchCtx._sug;
+  if (!c || !row?.id) return suggestFor(row, matchCtx);   // no per-render cache, or an id-less row → don't risk a key collision
+  if (c.has(row.id)) return c.get(row.id);
+  const s = suggestFor(row, matchCtx);
+  c.set(row.id, s);
+  return s;
+}
 function rowReady(row, matchCtx, accountsById) {
   if (row.suggestedSplit && row.suggestedSplit.length >= 2) return true;   // a proposed split is ready to review
   if (lastCategory.get(row.id)) return true;
-  const sug = suggestFor(row, matchCtx);
+  const sug = cachedSuggest(row, matchCtx);
   if (sug && accountsById.has(sug.accountId) && accountsById.get(sug.accountId).active !== false) return true;
   const ai = aiSuggestions.get(row.id);
   return !!(ai?.accountId && accountsById.has(ai.accountId) && accountsById.get(ai.accountId).active !== false);
@@ -120,7 +130,7 @@ function rowMatchesQuery(r, q, matchCtx) {
   if ((r.desc || '').toLowerCase().includes(q)) return true;
   const dollars = Math.abs(r.amountCents) / 100;
   if (dollars.toFixed(2).includes(q) || String(dollars).includes(q)) return true;
-  const sug = suggestFor(r, matchCtx);
+  const sug = cachedSuggest(r, matchCtx);
   if (sug?.vendorName && sug.vendorName.toLowerCase().includes(q)) return true;
   const vId = lastVendor.get(r.id);
   if (vId) { const v = (matchCtx.vendors || []).find(x => x.id === vId); if (v && (v.name || '').toLowerCase().includes(q)) return true; }
@@ -221,7 +231,10 @@ function drawBody(body, editable) {
   if (!selected.size) selectedBank = null;
   const accountsById = new Map(entities('account').map(a => [a.id, a]));
   const categories = entities('account').filter(a => a.active !== false && !bankish(a));
-  const matchCtx = { vendors: entities('vendor'), history: entities('staged').filter(s => s.status !== 'deleted') };
+  // `_sug` memoizes suggestFor per row for THIS render (matchCtx is rebuilt each drawBody, so the
+  // cache never goes stale). suggestFor now scans all vendors (no first-match early-exit), and the
+  // filter phase calls it for every row via rowReady + rowMatchesQuery — cache so it runs once/row.
+  const matchCtx = { vendors: entities('vendor'), history: entities('staged').filter(s => s.status !== 'deleted'), _sug: new Map() };
   const vendorsList = entities('vendor').slice().sort((a, b) => a.name.localeCompare(b.name));
   const showInvoices = usesInvoices();
   const invoicesList = showInvoices ? entities('invoice').slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')) : [];

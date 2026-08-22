@@ -7,7 +7,7 @@
 import { el } from './ui.js';
 import { parseMoney } from './lib/money.js';
 
-const TYPES = [['contains', 'contains'], ['not-contains', 'does not contain'], ['starts', 'starts with'], ['exact', 'is exactly'], ['regex', 'matches pattern']];
+const TYPES = [['contains', 'contains word(s)'], ['not-contains', 'does not contain'], ['starts', 'starts with'], ['exact', 'is exactly'], ['regex', 'matches pattern']];
 
 // Normalize any matchers (new or legacy) into a conditions array for seeding the editor.
 // `conn` (the and/or joining a condition to the previous one) is preserved; legacy
@@ -80,6 +80,7 @@ export function ruleConditionsEditor({ seed = {}, onChange } = {}) {
   const node = el('div', {},
     el('label', { class: 'field-label' }, 'Match when the description…'),
     list, add,
+    el('div', { class: 'sub', style: 'margin:2px 0 8px' }, '“contains word(s)” matches a whole word or exact phrase (so “arco” won’t match “marco”). To match part of a word, use “matches pattern” and just type the letters to find anywhere.'),
     el('label', { class: 'field-label' }, 'Only for'), dirSel, rangeRow);
 
   const get = () => {
@@ -115,7 +116,7 @@ export function buildMatchers(spec) {
 export function ruleSummary(matchers = {}) {
   const conds = matchersToConditions(matchers);
   if (!conds.length) return 'no rule';
-  const verb = { contains: 'contains', 'not-contains': 'does not contain', starts: 'starts with', exact: 'is', regex: 'matches' };
+  const verb = { contains: 'has word', 'not-contains': 'does not contain', starts: 'starts with', exact: 'is', regex: 'matches' };
   let s = conds.map((c, i) => `${i ? ((c.conn === 'or' ? 'or' : 'and') + ' ') : ''}${verb[c.type] || 'contains'} “${c.text}”`).join(' ');
   if (matchers.direction === 'in') s += ' · deposits';
   else if (matchers.direction === 'out') s += ' · withdrawals';
