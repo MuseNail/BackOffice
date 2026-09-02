@@ -11,7 +11,7 @@ import { todayLocal } from '../lib/day.js';
 import { entities, subscribe, getState, usesInvoices, usesMuseSync, getStateBiz } from '../store.js';
 import { dispatch, api } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
-import { validateTxn, simpleTxn } from '../lib/posting.js';
+import { validateTxn, simpleTxn, resolveSplitInvoiceTags } from '../lib/posting.js';
 import { suggestFor, guessVendorName, matchesRule } from '../lib/match.js';
 import { resolveRowSuggestion, sourceMatches, SOURCE_META } from '../lib/review-source.js';
 import { ruleConditionsEditor, buildMatchers, matchersToConditions, rulePreview } from '../rule-editor.js';
@@ -20,7 +20,7 @@ import { accountLabel } from '../lib/coa-templates.js';
 import { parseMoney } from '../lib/money.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 import { helcimDayTotals, ledgerDayDebits, matchDeposit } from '../lib/processor-match.js';
-import { attachAddCategory, attachAddVendor, accountCombo } from '../pickers.js';
+import { attachAddCategory, attachAddVendor, accountCombo, invoiceCombo, vendorCombo } from '../pickers.js';
 import { combobox } from '../combobox.js';
 import { dateRangeControl } from '../daterange.js';
 import { quickAddAccountModal } from './accounts.js';
@@ -995,6 +995,11 @@ function splitModal(row, accountsById, opts = {}) {
     post.disabled = !(ok && lines.every(l => l.sel.value));
   };
   const renderLines = () => clear(linesBox).append(...lines.map(l => l.el));
+  // Per-line invoice / vendor / note — only on EXPENSE (money-out) splits, so each split line can be
+  // charged to its own job/invoice (per-invoice margin). Deposits keep account+amount (income
+  // recognition stays txn-level). Shown inline — the invoice is a field the owner wants, not hidden.
+  const perLine = isExpense;
+  const useInv = usesInvoices();
   const makeLine = (amtVal, selId) => {
     const sel = accountCombo({ filter: (a) => !bankish(a), minWidth: 0, selected: selId || '' });
     sel.style.cssText = 'flex:2;min-width:0;margin:0';
@@ -1003,7 +1008,18 @@ function splitModal(row, accountsById, opts = {}) {
     amt.addEventListener('input', recalc);
     const L = { sel, amt };
     const rm = el('button', { class: 'iconbtn', type: 'button', title: 'Remove line', onclick: () => { const i = lines.indexOf(L); if (i >= 0) lines.splice(i, 1); renderLines(); recalc(); } }, '×');
-    L.el = el('div', { style: 'display:flex;gap:7px;align-items:center;margin-bottom:6px' }, sel, amt, rm);
+    const topRow = el('div', { style: 'display:flex;gap:7px;align-items:center;margin-bottom:6px' }, sel, amt, rm);
+    let detailRow = null;
+    if (perLine) {
+      L.inv = useInv ? invoiceCombo({ selected: '', minWidth: 0 }) : null;
+      if (L.inv) L.inv.style.cssText = 'flex:2;min-width:130px;margin:0';
+      L.vendor = vendorCombo({ selected: '', minWidth: 0 });
+      L.vendor.style.cssText = 'flex:2;min-width:130px;margin:0';
+      L.note = el('input', { class: 'field-input', placeholder: 'Note (optional)', style: 'flex:3;min-width:130px;margin:0', value: '' });
+      // flex-wrap so invoice / vendor / note stack on a phone instead of shrinking to nothing.
+      detailRow = el('div', { style: 'display:flex;gap:7px;flex-wrap:wrap;margin:-2px 0 10px 0' }, ...[L.inv, L.vendor, L.note].filter(Boolean));
+    }
+    L.el = el('div', {}, topRow, detailRow);
     return L;
   };
   const addLine = el('button', { class: 'btn sm ghost', type: 'button', onclick: () => {
@@ -1033,12 +1049,28 @@ function splitModal(row, accountsById, opts = {}) {
     const cents = lines.map(l => parseMoney(l.amt.value) || 0);
     if (cents.some(c => c <= 0)) { toast('Each line needs an amount', 'err'); return; }
     if (cents.reduce((s, c) => s + c, 0) !== total) { toast(`The lines must add up to ${fmtMoney(total)}`, 'err'); return; }
-    const txnLines = [{ accountId: bankacct.accountId, amountCents: row.amountCents }];
-    lines.forEach((l, i) => txnLines.push({ accountId: l.sel.value, amountCents: isExpense ? cents[i] : -cents[i] }));
+    // Category lines: signed by direction, plus per-line invoice / vendor / note on an expense split.
+    const catLines = lines.map((l, i) => {
+      const line = { accountId: l.sel.value, amountCents: isExpense ? cents[i] : -cents[i] };
+      if (perLine) {
+        if (l.inv && l.inv.value) line.invoiceId = l.inv.value;
+        if (l.vendor && l.vendor.value) line.vendorId = l.vendor.value;
+        const noteVal = l.note ? (l.note.value || '').trim() : '';
+        if (noteVal) line.note = noteVal;
+      }
+      return line;
+    });
+    // Invoice-tag rule (shared with the ledger split via resolveSplitInvoiceTags): all lines one invoice
+    // → stamp it at the txn level (revert-safe) and drop per-line; multi/partial → per-line, no txn-level;
+    // none tagged → carry the client's suggested invoice so a client-tagged split isn't lost on approval.
+    const { txnInvoiceId, perLine: perLineTags } = resolveSplitInvoiceTags(catLines.map(l => l.invoiceId), row.suggestedInvoiceId);
+    catLines.forEach((l, i) => { if (perLineTags[i]) l.invoiceId = perLineTags[i]; else delete l.invoiceId; });
     const txn = {
       id: 't-' + row.id, date: row.date, payee: row.desc, memo: lastMemo.get(row.id) || row.memo || row.clientNote || '',
-      lines: txnLines, status: 'posted', source: { app: row.source?.app || 'csv', importId: row.importId, sourceId: row.id },
+      lines: [{ accountId: bankacct.accountId, amountCents: row.amountCents }, ...catLines],
+      status: 'posted', source: { app: row.source?.app || 'csv', importId: row.importId, sourceId: row.id },
     };
+    if (txnInvoiceId) txn.invoiceId = txnInvoiceId;
     const v = validateTxn(txn, postCtx());
     if (!v.ok) { toast(v.error, 'err'); return; }
     dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
@@ -1051,6 +1083,7 @@ function splitModal(row, accountsById, opts = {}) {
 
   appendKids(m.body,
     el('p', { class: 'sub' }, `${row.date} · ${row.desc || '—'} · ${fmtMoney(row.amountCents, { sign: row.amountCents > 0 })}. Split it across the accounts below — the amounts must add up to ${fmtMoney(total)}.`),
+    perLine ? null : el('p', { class: 'sub', style: 'margin:-4px 0 8px' }, 'Per-invoice, note, and vendor tags apply to money-out (expense) splits only.'),
     seedNewNames.length ? el('p', { class: 'sub', style: 'color:var(--brand)' }, `Your client proposed new account${seedNewNames.length > 1 ? 's' : ''}: ${seedNewNames.join(', ')} — type ${seedNewNames.length > 1 ? 'them' : 'it'} into a line to add.`) : null,
     linesBox, addLine, remind,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },

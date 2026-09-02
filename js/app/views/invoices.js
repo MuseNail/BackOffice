@@ -13,7 +13,7 @@ import { parseInvoices } from '../lib/invoice2go.js';
 import { buildCashflowImport, cashflowPaymentTxnId, parseBundleInvoices } from '../lib/i2g-cashflow.js';
 import { ledgerIncomeStart, classifyInvoiceLedger, ledgerStateFor, incomeCreditsByInvoice, LEDGER_STATES } from '../lib/invoice-ledger-status.js';
 import { reconcilePayouts } from '../lib/i2g-reconcile.js';
-import { validateTxn, invoiceExpensesTotal, simpleTxn } from '../lib/posting.js';
+import { validateTxn, invoiceExpensesTotal, simpleTxn, lineInvoiceId } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { blankInvoice, recompute, nextInvoiceNumber, addManualPayment } from '../lib/invoice-edit.js';
 import { parseMoney } from '../lib/money.js';
@@ -1152,11 +1152,19 @@ function renderInvoiceDetail(root, id) {
   const editable = canEdit(biz);
   const isManual = inv.source?.app === 'manual';
 
-  // Per-invoice margin (#3): billed total − expenses tagged to this invoice (txn.invoiceId).
+  // Per-invoice margin (#3): billed total − expenses attributed to this invoice. Attribution is PER
+  // LINE (line.invoiceId ?? txn.invoiceId), so a split expense charges each job its own line; a plain
+  // txn-level-tagged expense attributes all its lines (identical to before).
   const accountsById = new Map(entities('account').map(a => [a.id, a]));
   const allTxns = entities('txn');
-  const isExpenseTxn = (t) => t.lines.some(l => { const a = accountsById.get(l.accountId); return a && (a.type === 'expense' || a.type === 'cogs'); });
-  const expenseAmt = (t) => { let s = 0; for (const l of t.lines) { const a = accountsById.get(l.accountId); if (a && (a.type === 'expense' || a.type === 'cogs')) s += l.amountCents; } return s; };
+  const isExpLine = (l) => { const a = accountsById.get(l.accountId); return !!(a && (a.type === 'expense' || a.type === 'cogs')); };
+  const isExpenseTxn = (t) => (t.lines || []).some(isExpLine);
+  const expenseAmt = (t) => (t.lines || []).reduce((s, l) => s + (isExpLine(l) ? l.amountCents : 0), 0);   // whole-txn (for not-yet-linked candidate labels)
+  // Expense (incl. COGS) attributed to THIS invoice within one txn — matches invoiceExpensesTotal.
+  const perInvoiceExpenseAmt = (t) => (t.lines || []).reduce((s, l) => s + ((isExpLine(l) && lineInvoiceId(l, t) === inv.id) ? l.amountCents : 0), 0);
+  // A txn is attributed to this invoice by a PER-LINE tag (managed in the split editor, not the
+  // txn-level Link/Unlink here).
+  const perLineTagged = (t) => (t.lines || []).some(l => l.invoiceId === inv.id);
   const expensesTotal = invoiceExpensesTotal(allTxns, accountsById, inv.id);
   const marginCents = inv.totalCents - expensesTotal;
   const marginPct = inv.totalCents > 0 ? Math.round((marginCents / inv.totalCents) * 100) : null;
@@ -1175,8 +1183,8 @@ function renderInvoiceDetail(root, id) {
   // (job costs), and read the fee passed to the customer straight off the invoice.
   const i2gMap = getState().meta?.i2gMapping || {};
   const taggedExpLines = [];
-  for (const t of allTxns) if (t.status === 'posted' && t.invoiceId === inv.id)
-    for (const l of t.lines) { const a = accountsById.get(l.accountId); if (a && (a.type === 'expense' || a.type === 'cogs')) taggedExpLines.push({ l, a }); }
+  for (const t of allTxns) if (t.status === 'posted')
+    for (const l of t.lines) { const a = accountsById.get(l.accountId); if (a && (a.type === 'expense' || a.type === 'cogs') && lineInvoiceId(l, t) === inv.id) taggedExpLines.push({ l, a }); }
   const sumWhere = (pred) => taggedExpLines.reduce((s, x) => s + (pred(x.a) ? x.l.amountCents : 0), 0);
   const cardAbsorbed = sumWhere(a => a.id === i2gMap.feeAbsorbedId || (a.type === 'cogs' && /processing|card fee/i.test(a.name || '')));
   const payoutFee = sumWhere(a => /payout/i.test(a.name || ''));
@@ -1184,12 +1192,13 @@ function renderInvoiceDetail(root, id) {
   // Fee the customer covered = the contra-income tagged to this invoice (real, from the
   // cashflow). Falls back to the CSV surcharge (paid over total) for CSV-only invoices.
   let feePassedTagged = 0;
-  for (const t of allTxns) if (t.status === 'posted' && t.invoiceId === inv.id)
-    for (const l of t.lines) { if (l.accountId === i2gMap.feePassedId) feePassedTagged += l.amountCents; }
+  for (const t of allTxns) if (t.status === 'posted')
+    for (const l of t.lines) { if (l.accountId === i2gMap.feePassedId && lineInvoiceId(l, t) === inv.id) feePassedTagged += l.amountCents; }
   const feePassed = feePassedTagged || Math.max(0, (inv.paidCents | 0) - (inv.totalCents | 0));
-  // Contributing entries behind each profit line (for the drill-downs).
-  const tagged = allTxns.filter(t => t.status === 'posted' && t.invoiceId === inv.id);
-  const lineSum = (t, pred) => t.lines.reduce((s, l) => s + (pred(accountsById.get(l.accountId), l) ? l.amountCents : 0), 0);
+  // Contributing entries behind each profit line (for the drill-downs) — txns with ≥1 line attributed
+  // to this invoice (per-line or txn-level).
+  const tagged = allTxns.filter(t => t.status === 'posted' && (t.lines || []).some(l => lineInvoiceId(l, t) === inv.id));
+  const lineSum = (t, pred) => t.lines.reduce((s, l) => s + ((pred(accountsById.get(l.accountId), l) && lineInvoiceId(l, t) === inv.id) ? l.amountCents : 0), 0);
   const isAbsorbedAcct = (a) => a && (a.id === i2gMap.feeAbsorbedId || (a.type === 'cogs' && /processing|card fee/i.test(a.name || '')));
   const isPayoutAcct = (a) => a && /payout/i.test(a.name || '');
   const absorbedTxns = tagged.filter(t => lineSum(t, isAbsorbedAcct) !== 0);
@@ -1197,16 +1206,22 @@ function renderInvoiceDetail(root, id) {
   const passedTxns = tagged.filter(t => t.lines.some(l => l.accountId === i2gMap.feePassedId));
   // "Linked expenses" = genuine job costs only — not the Invoice2go fee bookings (those
   // live in the profit lines above), and not zero-expense entries (confusing "$0.00").
-  const linkedExpenses = tagged.filter(t => !isI2gSystemTxn(t) && expenseAmt(t) !== 0).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  const candidates = allTxns.filter(t => t.status === 'posted' && t.invoiceId !== inv.id && isExpenseTxn(t) && !isI2gSystemTxn(t)).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 100);
+  const linkedExpenses = tagged.filter(t => !isI2gSystemTxn(t) && perInvoiceExpenseAmt(t) !== 0).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  // Candidates to manually link = expense txns not already attributed to THIS invoice (incl. ones tagged
+  // to another invoice — re-linking moves them). Per-line SPLIT txns are excluded: they're managed in the
+  // split editor, so a txn-level Link here would fight the per-line tags.
+  const candidates = allTxns.filter(t => t.status === 'posted' && t.invoiceId !== inv.id && !(t.lines || []).some(l => l.invoiceId) && isExpenseTxn(t) && !isI2gSystemTxn(t)).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 100);
   const linkSel = el('select', { class: 'field-input', style: 'max-width:360px' },
     el('option', { value: '' }, '— pick an expense to link —'),
     ...candidates.map(t => el('option', { value: t.id }, `${t.date} · ${(t.payee || '—').slice(0, 30)} · ${fmtMoney(expenseAmt(t))}`)));
   const expenseRows = linkedExpenses.map(t => el('tr', { style: 'cursor:pointer', title: 'View transaction', onclick: () => txnDetailModal(t, accountsById) },
     el('td', {}, t.date),
     el('td', {}, prettyDesc(t.payee) || '—'),
-    el('td', { class: 'num' }, acctAmount(expenseAmt(t), { colored: false })),
-    el('td', {}, editable ? el('button', { class: 'linklike', onclick: (e) => { e.stopPropagation(); dispatch({ op: 'entity.upsert', kind: 'txn', value: { ...t, invoiceId: undefined } }); toast('Unlinked'); } }, 'Unlink') : '')));
+    el('td', { class: 'num' }, acctAmount(perInvoiceExpenseAmt(t), { colored: false })),
+    el('td', {}, editable && !perLineTagged(t)
+      // A per-line split is managed in the split editor (edit the transaction), so no txn-level unlink here.
+      ? el('button', { class: 'linklike', onclick: (e) => { e.stopPropagation(); dispatch({ op: 'entity.upsert', kind: 'txn', value: { ...t, invoiceId: undefined } }); toast('Unlinked'); } }, 'Unlink')
+      : el('span', { class: 'sub', style: 'margin:0', title: perLineTagged(t) ? 'Split across invoices — open the transaction in the ledger to change how it’s split' : '' }, perLineTagged(t) ? 'in split' : ''))));
   const expensesCard = (editable || linkedExpenses.length)
     ? el('div', { class: 'card', style: 'max-width:640px;margin-bottom:14px' },
         el('div', { class: 'cardtitle' }, 'Linked expenses'),

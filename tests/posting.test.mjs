@@ -1,7 +1,7 @@
 // node --test tests/posting.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateTxn, simpleTxn, voidTxn, accountBalance, activityByAccount, profitAndLoss, periodKey, invoiceExpensesTotal, splitParts } from '../js/app/lib/posting.js';
+import { validateTxn, simpleTxn, voidTxn, accountBalance, activityByAccount, profitAndLoss, periodKey, invoiceExpensesTotal, splitParts, lineInvoiceId, resolveSplitInvoiceTags } from '../js/app/lib/posting.js';
 import { parseMoney, fmtCents } from '../js/app/lib/money.js';
 
 const accounts = new Map([
@@ -137,4 +137,60 @@ test('invoiceExpensesTotal sums expense + cogs lines tagged to one invoice, post
   assert.equal(invoiceExpensesTotal(txns, accts, 'inv1'), 7000); // 5000 + 2000 only
   assert.equal(invoiceExpensesTotal(txns, accts, 'inv2'), 9999);
   assert.equal(invoiceExpensesTotal(txns, accts, 'nope'), 0);
+});
+
+test('lineInvoiceId: a line’s own invoice wins; else the transaction’s; else undefined', () => {
+  assert.equal(lineInvoiceId({ invoiceId: 'invLine' }, { invoiceId: 'invTxn' }), 'invLine');
+  assert.equal(lineInvoiceId({ accountId: 'x' }, { invoiceId: 'invTxn' }), 'invTxn');
+  assert.equal(lineInvoiceId({ accountId: 'x' }, {}), undefined);
+  assert.equal(lineInvoiceId({ invoiceId: '' }, { invoiceId: 'invTxn' }), 'invTxn');   // empty line tag falls back
+});
+
+test('invoiceExpensesTotal attributes PER LINE: a split expense across two invoices charges each its own line', () => {
+  const accts = new Map([
+    ['checking', { id: 'checking', type: 'asset' }],
+    ['supplies', { id: 'supplies', type: 'expense' }],
+    ['cogs', { id: 'cogs', type: 'cogs' }],
+  ]);
+  // one $1,200 supplier charge split: $700 → invA (supplies), $500 → invB (cogs). No txn-level invoiceId.
+  const split = { id: 's', date: '2026-03-01', status: 'posted', lines: [
+    { accountId: 'checking', amountCents: -120000 },
+    { accountId: 'supplies', amountCents: 70000, invoiceId: 'invA' },
+    { accountId: 'cogs', amountCents: 50000, invoiceId: 'invB' },
+  ] };
+  assert.equal(invoiceExpensesTotal([split], accts, 'invA'), 70000);   // only its own line
+  assert.equal(invoiceExpensesTotal([split], accts, 'invB'), 50000);   // no double-count
+  assert.equal(invoiceExpensesTotal([split], accts, 'other'), 0);
+});
+
+test('resolveSplitInvoiceTags: EVERY line the same invoice → collapse to txn-level (revert-safe), drop per-line', () => {
+  assert.deepEqual(resolveSplitInvoiceTags(['inv1', 'inv1']), { txnInvoiceId: 'inv1', perLine: [undefined, undefined] });
+  assert.deepEqual(resolveSplitInvoiceTags(['inv1']), { txnInvoiceId: 'inv1', perLine: [undefined] });
+});
+
+test('resolveSplitInvoiceTags: multiple / partial invoices → keep per-line, no txn-level', () => {
+  assert.deepEqual(resolveSplitInvoiceTags(['inv1', 'inv2']), { txnInvoiceId: undefined, perLine: ['inv1', 'inv2'] });
+  assert.deepEqual(resolveSplitInvoiceTags(['inv1', '']), { txnInvoiceId: undefined, perLine: ['inv1', undefined] });
+});
+
+test('resolveSplitInvoiceTags: no line tagged → the whole-txn fallback (e.g. a client-suggested invoice), else nothing', () => {
+  assert.deepEqual(resolveSplitInvoiceTags(['', ''], 'sugg'), { txnInvoiceId: 'sugg', perLine: [undefined, undefined] });
+  assert.deepEqual(resolveSplitInvoiceTags(['', '']), { txnInvoiceId: undefined, perLine: [undefined, undefined] });
+  assert.deepEqual(resolveSplitInvoiceTags([]), { txnInvoiceId: undefined, perLine: [] });
+});
+
+test('invoiceExpensesTotal: a per-line tag overrides the txn-level tag only for that line', () => {
+  const accts = new Map([
+    ['checking', { id: 'checking', type: 'asset' }],
+    ['supplies', { id: 'supplies', type: 'expense' }],
+    ['cogs', { id: 'cogs', type: 'cogs' }],
+  ]);
+  // txn-level invA, but line2 overridden to invB → invA gets line1, invB gets line2.
+  const t = { id: 't', date: '2026-03-01', status: 'posted', invoiceId: 'invA', lines: [
+    { accountId: 'checking', amountCents: -30000 },
+    { accountId: 'supplies', amountCents: 10000 },                    // falls back to invA
+    { accountId: 'cogs', amountCents: 20000, invoiceId: 'invB' },     // overrides to invB
+  ] };
+  assert.equal(invoiceExpensesTotal([t], accts, 'invA'), 10000);
+  assert.equal(invoiceExpensesTotal([t], accts, 'invB'), 20000);
 });

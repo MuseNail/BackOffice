@@ -89,16 +89,44 @@ export function activityByAccount(txns, { from, to } = {}) {
   return out;
 }
 
-// Total expense (incl. COGS) tagged to one invoice via txn.invoiceId. Expense/COGS
-// lines are debit-positive, so the sum is a positive "cost" in cents. Posted only.
-// Used for per-invoice profit margin = invoice total − this.
+// Decide how a split's invoice tags are stored, so both split editors (Review + the ledger) produce
+// the SAME shape and the common case is revert-safe. Given each category line's chosen invoice id
+// (''/undefined = untagged) and a whole-txn fallback (a client-suggested invoice, or the ledger's
+// txn-level picker), returns { txnInvoiceId, perLine } aligned to the input:
+//   • every line the SAME invoice → stamp it at the txn level, clear per-line (old code still reads it).
+//   • lines span multiple invoices (or a mix) → keep per-line, no txn-level.
+//   • no line tagged → the whole-txn fallback (else nothing).
+// Pure — the one place the "collapse vs per-line" rule lives.
+export function resolveSplitInvoiceTags(lineInvoiceIds, noneFallback) {
+  const eff = (lineInvoiceIds || []).map(x => x || '');
+  const distinct = [...new Set(eff.filter(Boolean))];
+  if (eff.length && eff.every(Boolean) && distinct.length === 1) {
+    return { txnInvoiceId: distinct[0], perLine: eff.map(() => undefined) };
+  }
+  if (distinct.length >= 1) {
+    return { txnInvoiceId: undefined, perLine: eff.map(x => x || undefined) };
+  }
+  return { txnInvoiceId: noneFallback || undefined, perLine: eff.map(() => undefined) };
+}
+
+// The invoice a txn LINE is attributed to: its own tag wins, else the transaction's. A split can
+// charge different lines to different invoices; a plain (untagged-line) txn attributes every line to
+// its txn-level invoiceId, so existing transactions behave exactly as before.
+export function lineInvoiceId(line, txn) {
+  return (line && line.invoiceId) || (txn && txn.invoiceId) || undefined;
+}
+
+// Total expense (incl. COGS) attributed to one invoice — PER LINE (line.invoiceId ?? txn.invoiceId).
+// Expense/COGS lines are debit-positive, so the sum is a positive "cost" in cents. Posted only. Used
+// for per-invoice profit margin = invoice total − this. Back-compat: a txn tagged only at the txn
+// level sums all its expense lines to that invoice (identical to the old txn-level behavior).
 export function invoiceExpensesTotal(txns, accountsById, invoiceId) {
   let total = 0;
   for (const t of txns) {
-    if (!counts(t) || t.invoiceId !== invoiceId) continue;
-    for (const l of t.lines) {
+    if (!counts(t)) continue;
+    for (const l of (t.lines || [])) {
       const a = accountsById.get(l.accountId);
-      if (a && (a.type === 'expense' || a.type === 'cogs')) total += l.amountCents;
+      if (a && (a.type === 'expense' || a.type === 'cogs') && lineInvoiceId(l, t) === invoiceId) total += l.amountCents;
     }
   }
   return total;

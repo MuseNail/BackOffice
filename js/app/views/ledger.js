@@ -5,7 +5,7 @@ import { entities, subscribe, usesInvoices } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { parseMoney } from '../lib/money.js';
-import { validateTxn, simpleTxn, voidTxn, periodKey, accountBalance, splitParts } from '../lib/posting.js';
+import { validateTxn, simpleTxn, voidTxn, periodKey, accountBalance, splitParts, resolveSplitInvoiceTags } from '../lib/posting.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { vendorMatches } from './vendors.js';
 import { accountCombo, vendorCombo, invoiceCombo } from '../pickers.js';
@@ -404,7 +404,7 @@ function confirmDelete(t) {
 // cents. Used by editTxnModal so an existing transaction's single category can be split
 // across several accounts (the add-transaction modal keeps its own inline copy). `initial`
 // seeds the lines from the txn's current category line(s), in magnitude cents.
-function categorySplitEditor({ getTotal, catPred, initial }) {
+function categorySplitEditor({ getTotal, catPred, initial, perLineInvoice = false }) {
   const box = el('div');
   const remind = el('div', { class: 'split-remind', hidden: true });
   const lines = [];
@@ -425,12 +425,14 @@ function categorySplitEditor({ getTotal, catPred, initial }) {
     sel.style.cssText = 'flex:2;min-width:0;margin:0';
     const amt = el('input', { class: 'field-input', placeholder: '$', inputmode: 'decimal', style: 'flex:1;min-width:0;margin:0', value: c.amtText || '' });
     amt.addEventListener('input', recalc);
-    // Per-split vendor + note, revealed on demand ("＋ detail") so a plain 2-way split stays
-    // light. Shown expanded when the line already carries a vendor/note (a re-opened split).
+    // Per-split vendor + note (+ invoice, on an expense split), revealed on demand ("＋ detail") so a
+    // plain 2-way split stays light. Shown expanded when the line already carries any of them.
     const vendor = vendorCombo({ selected: c.vendorId || '', minWidth: 0 });
-    vendor.style.cssText = 'flex:2;min-width:0;margin:0';
-    const note = el('input', { class: 'field-input', placeholder: 'Note for this split (optional)', style: 'flex:3;min-width:0;margin:0', value: c.note || '' });
-    return { sel, amt, vendor, note, detailOpen: !!(c.vendorId || c.note) };
+    vendor.style.cssText = 'flex:2;min-width:120px;margin:0';
+    const note = el('input', { class: 'field-input', placeholder: 'Note for this split (optional)', style: 'flex:3;min-width:120px;margin:0', value: c.note || '' });
+    const invoice = perLineInvoice ? invoiceCombo({ selected: c.invoiceId || '', minWidth: 0 }) : null;
+    if (invoice) invoice.style.cssText = 'flex:2;min-width:120px;margin:0';
+    return { sel, amt, vendor, note, invoice, detailOpen: !!(c.vendorId || c.note || c.invoiceId) };
   };
   const render = () => {
     const multi = lines.length > 1;
@@ -443,7 +445,7 @@ function categorySplitEditor({ getTotal, catPred, initial }) {
           el('button', { class: 'iconbtn', type: 'button', title: 'Remove', onclick: () => { lines.splice(i, 1); render(); recalc(); } }, '×'));
       }
       const rows = [el('div', { style: 'display:flex;gap:7px;align-items:center;margin-bottom:6px' }, ...cells)];
-      if (multi && l.detailOpen) rows.push(el('div', { style: 'display:flex;gap:7px;align-items:center;margin:-2px 0 9px' }, l.vendor, l.note));
+      if (multi && l.detailOpen) rows.push(el('div', { style: 'display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:-2px 0 9px' }, ...[l.invoice, l.vendor, l.note].filter(Boolean)));
       box.append(el('div', {}, ...rows));
     });
     recalc();
@@ -455,7 +457,7 @@ function categorySplitEditor({ getTotal, catPred, initial }) {
     render();
   } }, '＋ Add split');
   const seed = (initial && initial.length) ? initial : [{ accountId: '', amountCents: 0 }];
-  seed.forEach(c => lines.push(makeLine({ accountId: c.accountId, amtText: seed.length > 1 ? (c.amountCents / 100).toFixed(2) : '', vendorId: c.vendorId, note: c.note })));
+  seed.forEach(c => lines.push(makeLine({ accountId: c.accountId, amtText: seed.length > 1 ? (c.amountCents / 100).toFixed(2) : '', vendorId: c.vendorId, note: c.note, invoiceId: c.invoiceId })));
   render();
   // Validate + return { cats:[{accountId, amountCents, vendorId?, note?}] } (magnitudes) or { error }.
   function collect() {
@@ -470,6 +472,7 @@ function categorySplitEditor({ getTotal, catPred, initial }) {
       // Per-line vendor/note only meaningful on a real (multi) split; omit empties so single-
       // vendor txns and un-detailed lines stay clean and fall back to the txn-level vendor/memo.
       if (multi && l.vendor.value) cat.vendorId = l.vendor.value;
+      if (multi && l.invoice && l.invoice.value) cat.invoiceId = l.invoice.value;
       const noteVal = multi ? (l.note.value || '').trim() : '';
       if (noteVal) cat.note = noteVal;
       cats.push(cat);
@@ -513,13 +516,17 @@ export function editTxnModal(t) {
   // metadata-only path below (date/payee/memo/vendor only; a simple reconciled txn still gets a
   // single account re-point via catSel). No editor path ever rewrites those lines on save.
   const canSplit = !isRecon && isSplittable;
+  // Per-line invoice on an EXPENSE split only (money-out): each split line can carry its own invoice
+  // for per-invoice job-costing. Income splits keep the txn-level invoice tag (recognition is txn-level).
+  const perLineInvoice = canSplit && !!(bankLine && bankLine.amountCents < 0) && usesInvoices();
   let split = null;
   let catSel = null;
   if (canSplit) {
     split = categorySplitEditor({
       getTotal: () => Math.abs(bankLine.amountCents),
       catPred: (a) => !bankish(a),
-      initial: catLines.map(l => ({ accountId: l.accountId, amountCents: Math.abs(l.amountCents), vendorId: l.vendorId, note: l.note })),
+      initial: catLines.map(l => ({ accountId: l.accountId, amountCents: Math.abs(l.amountCents), vendorId: l.vendorId, note: l.note, invoiceId: l.invoiceId })),
+      perLineInvoice,
     });
   } else if (catLine && (!isRecon || !catIsBank)) {
     catSel = accountCombo({ filter: (a) => !bankish(a), selected: catLine.accountId });
@@ -557,24 +564,37 @@ export function editTxnModal(t) {
       el('button', { class: 'btn green', onclick: () => {
         const newDate = isRecon ? t.date : date.value;
         if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) { toast('Bad date', 'err'); return; }
-        let newLines;
+        let newLines, txnInvoiceId;
         if (split) {
           const res = split.collect();
           if (res.error) { toast(res.error, 'err'); return; }
           const catSign = bankLine.amountCents < 0 ? 1 : -1;
-          newLines = [bankLine, ...res.cats.map(c => {
+          const catLines = res.cats.map(c => {
             const line = { accountId: c.accountId, amountCents: catSign * c.amountCents };
             if (c.vendorId) line.vendorId = c.vendorId;   // per-split vendor / note (omitted when empty)
             if (c.note) line.note = c.note;
             return line;
-          })];
+          });
+          if (perLineInvoice) {
+            // Per-line invoice + the txn-level picker as the fallback for untagged lines. ONE shared rule
+            // (resolveSplitInvoiceTags) collapses an all-one-invoice split to the txn level (revert-safe)
+            // or keeps genuine multi-invoice splits per-line — the SAME shape the Review split produces.
+            const fallback = invSel ? (invSel.value || '') : (t.invoiceId || '');
+            const resolved = resolveSplitInvoiceTags(res.cats.map(c => c.invoiceId || fallback), fallback);
+            catLines.forEach((l, i) => { if (resolved.perLine[i]) l.invoiceId = resolved.perLine[i]; });
+            txnInvoiceId = resolved.txnInvoiceId;
+          } else {
+            txnInvoiceId = invSel ? (invSel.value || undefined) : t.invoiceId;
+          }
+          newLines = [bankLine, ...catLines];
         } else {
           if (catSel && catSel.value === '__new__') { toast('Pick an account', 'err'); return; }
           newLines = (catSel && catLine)
             ? t.lines.map(l => l === catLine ? { ...l, accountId: catSel.value } : l)
             : t.lines;
+          txnInvoiceId = invSel ? (invSel.value || undefined) : t.invoiceId;
         }
-        const updated = { ...t, date: newDate, payee: payee.value.trim(), memo: memo.value.trim(), lines: newLines, vendorId: vendSel.value || undefined, invoiceId: invSel ? (invSel.value || undefined) : t.invoiceId };
+        const updated = { ...t, date: newDate, payee: payee.value.trim(), memo: memo.value.trim(), lines: newLines, vendorId: vendSel.value || undefined, invoiceId: txnInvoiceId };
         const v = validateTxn(updated, ctx());
         if (!v.ok) { toast(v.error, 'err'); return; }
         dispatch({ op: 'entity.upsert', kind: 'txn', value: updated });
