@@ -14,7 +14,7 @@ import { getActiveBiz, canEdit } from '../session.js';
 import { validateTxn, simpleTxn, resolveSplitInvoiceTags } from '../lib/posting.js';
 import { buildPostedTwinIndex, findPostedTwin } from '../lib/posted-twin.js';
 import { suggestFor, guessVendorName, matchesRule } from '../lib/match.js';
-import { resolveRowSuggestion, sourceMatches, SOURCE_META } from '../lib/review-source.js';
+import { resolveRowSuggestion, resolveVendorField, sourceMatches, SOURCE_META } from '../lib/review-source.js';
 import { ruleConditionsEditor, buildMatchers, matchersToConditions, rulePreview } from '../rule-editor.js';
 import { bindSuggest } from '../suggest.js';
 import { accountLabel } from '../lib/coa-templates.js';
@@ -326,12 +326,12 @@ function drawBody(body, editable) {
 
     // A client's suggestion (from the client app) pre-fills the fields too.
     const preselect = lastCategory.get(row.id) || row.suggestedAccountId || sug?.accountId;
-    const vendPreselect = lastVendor.has(row.id) ? lastVendor.get(row.id) : (row.suggestedVendorId || vendorTag?.vendorId);
-    // The client typed a brand-new vendor name to add → prefill the field with it (the vendor is
-    // created on Approve, find-or-create); otherwise keep the resolver's AI/rule prefill. Computed
-    // once as a const: an earlier version reassigned the destructured const above, which threw
-    // "Assignment to constant variable" and crashed the Review render on client-suggested-vendor rows.
-    const vendPrefillText = (!vendPreselect && row.suggestedVendorName) ? row.suggestedVendorName : resolvedPrefill;
+    // Vendor field: a CLIENT vendor suggestion (a picked id OR a typed name) OVERRIDES the rule/AI
+    // vendor (resolveVendorField) — if the client said it, a memorized rule must not change it. The
+    // owner's own in-session pick (lastVendor) still wins ahead of everything.
+    const { vendPreselect, vendPrefillText } = lastVendor.has(row.id)
+      ? { vendPreselect: lastVendor.get(row.id), vendPrefillText: '' }
+      : resolveVendorField(row, vendorTag, resolvedPrefill);
     // The client may also type a brand-new account name to add: prefill it (one tap to add).
     const acctPrefill = !preselect ? (row.suggestedAccountName || '') : '';
     // A client-suggested account/vendor that's no longer in the pickable list shows BLANK

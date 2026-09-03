@@ -48,6 +48,29 @@ export function resolveRowSuggestion(row, { vendors = [], history = [], accounts
   return { sug, vendorTag, vendPrefillText, source };
 }
 
+// Resolve what the Review row's Vendor field should show, honouring the rule that a CLIENT's vendor
+// suggestion always beats a memorized rule / AI vendor. `vendorTag` is the rule/AI vendor from
+// resolveRowSuggestion ({vendorId, vendorName} | null); `aiPrefill` is its AI new-vendor prefill text.
+// → { vendPreselect, vendPrefillText }:
+//   • client picked an existing vendor (suggestedVendorId) → preselect that id (wins over any rule).
+//   • client TYPED a name (suggestedVendorName, no id) → prefill the name so it's added/found on
+//     Approve — NOT the rule vendor (this is the regression fix).
+//   • no client vendor at all → fall back to the rule vendor id, else the AI prefill name.
+// (The owner's in-session manual pick — lastVendor — is applied by the caller, ahead of this.)
+export function resolveVendorField(row, vendorTag, aiPrefill = '') {
+  const clientId = (row && row.suggestedVendorId) || '';
+  const clientName = ((row && row.suggestedVendorName) || '').trim();
+  // Client picked an existing vendor → that id wins over any rule.
+  if (clientId) return { vendPreselect: clientId, vendPrefillText: '' };
+  // Client TYPED a name → prefill it (added/found on Approve), never the rule vendor. We deliberately
+  // do NOT resolve a typed name to an existing vendor id here: Approve's findOrCreateVendor dedupes
+  // case-insensitively, and showing the client's literal text is the honest thing.
+  if (clientName) return { vendPreselect: '', vendPrefillText: clientName };
+  // No client vendor → fall back to the rule vendor id, else the AI new-vendor prefill name.
+  const ruleId = vendorTag?.vendorId || '';
+  return { vendPreselect: ruleId, vendPrefillText: ruleId ? '' : (aiPrefill || '') };
+}
+
 // Filter predicate: the user-facing buckets fold the two "pick an account yourself" variants
 // in with their parent (a vendor-rule reads as a Rule; an ai-vendor reads as AI).
 export function sourceMatches(filterVal, source) {
