@@ -5,6 +5,7 @@ import { el, clear, toast, fmtMoney, acctAmount, modal } from '../ui.js';
 import { todayLocal, monthLocal } from '../lib/day.js';
 import { api, dispatch, saveOrphanTo } from '../sync.js';
 import { getBusinesses, roleFor, getUser, clearStateCaches } from '../session.js';
+import { idbClearCaches } from '../lib/idb-cache.js';
 import { describeWrite, dedupeOrphans } from '../lib/orphan-recovery.js';
 import { getState, entities, byId, subscribe, usesInvoices, usesMuseSync, getStateBiz } from '../store.js';
 import { parseMoney } from '../lib/money.js';
@@ -109,8 +110,10 @@ function drawDeviceMaintenance(card) {
   clear(card).append(
     el('div', { class: 'cardtitle' }, 'This device'),
     el('p', { class: 'sub' }, 'The app keeps a local copy of your data on this device for instant offline reload. If a device ever runs low on browser storage — e.g. a stuck sign-in or “can’t save” — clearing it frees space. Your data is safe on the server and reloads automatically; anything not yet synced is kept.'),
-    el('button', { class: 'btn sm', onclick: () => {
-      const n = clearStateCaches();
+    el('button', { class: 'btn sm', onclick: async (e) => {
+      const btn = e.currentTarget; btn.disabled = true;
+      const n = clearStateCaches() + await idbClearCaches();   // localStorage mirrors + the IndexedDB store
+      btn.disabled = false;
       toast(n ? `Cleared local cache (${n} item${n === 1 ? '' : 's'} freed). It reloads from the server as you use the app.` : 'Local cache is already clear.');
     } }, 'Clear local cache'),
   );

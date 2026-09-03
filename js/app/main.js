@@ -34,6 +34,7 @@ import { stub } from './views/stubs.js';
 import { mountGlobalSearch } from './search.js';
 import { initAmountCalc } from './calc.js';
 import { initReporter } from './reporter.js';   // automatic error reporting (installs global handlers)
+import { migrateLegacyCaches } from './lib/idb-cache.js';   // drain legacy localStorage snapshot caches → IndexedDB
 
 const VIEWS = {
   dashboard,
@@ -301,6 +302,10 @@ async function hardReload() {
 
 function boot() {
   initReporter();   // arm error capture ASAP (installs window error/unhandledrejection handlers)
+  // Move any legacy localStorage snapshot caches into IndexedDB (frees the shared 10MB origin), and ask
+  // the browser to persist storage so the offline cache is less likely to be evicted. Both best-effort.
+  migrateLegacyCaches();
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {}
   const ver = document.getElementById('ver');
   ver.textContent = 'v' + APP_VERSION;
   ver.title = 'Back Office v' + APP_VERSION + ' — what’s new';

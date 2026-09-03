@@ -12,6 +12,7 @@ import { el, clear, toast, fmtMoney } from './ui.js';
 import { combobox } from './combobox.js';
 import { parseMoney } from './lib/money.js';
 import { accountLabel } from './lib/coa-templates.js';
+import { migrateLegacyCaches } from './lib/idb-cache.js';   // drain legacy localStorage snapshot caches → IndexedDB
 import * as login from './views/login.js';
 import * as invoices from './views/invoices.js';
 import * as reports from './views/reports.js';
@@ -399,6 +400,10 @@ function renderSyncBanner(state, pending, failed, justSaved) {
 }
 
 function boot() {
+  // Same storage move as the full app (shared openBusiness): drain legacy localStorage caches → IndexedDB
+  // and request persistent storage. Best-effort.
+  migrateLegacyCaches();
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {}
   setStatusListener((s, info) => {
     const pending = info?.pending || 0, failed = info?.failed || 0, n = pending + failed;
     const pill = document.getElementById('syncpill');

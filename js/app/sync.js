@@ -1,6 +1,7 @@
 // ── sync — snapshot load, dispatch, offline outbox, WebSocket ────────────────
 import { ORIGIN, LS } from './config.js';
 import { getToken, deviceId, getActiveBiz, clearSession, safeSetItem, isQuotaError } from './session.js';
+import { idbGetCache, idbSetCache } from './lib/idb-cache.js';
 import { setSnapshot, applyChange, getStateBiz, setStateBiz } from './store.js';
 import { reportError } from './reporter.js';   // log rejected writes to Diagnostics
 import { requeueRoutable, orphanizeRejected, capFailedLog, describeWrite, dedupeOrphans } from './lib/orphan-recovery.js';
@@ -18,12 +19,16 @@ export function setStatusListener(fn) { onStatus = fn; }
 
 const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` });
 
-// Persist the state-cache mirror best-effort. It's regenerable (re-fetched next load), so a full origin
-// must NOT throw up the sync path — but a NON-quota failure is unexpected and stays loud in Diagnostics.
-// NOT via safeSetItem: this large write must never evict other apps' caches (they'd just be rewritten).
-function cacheSnapshot(bizId, snap) {
-  try { localStorage.setItem(LS.cache(bizId), JSON.stringify({ ...snap, _biz: bizId })); }
-  catch (e) { if (!isQuotaError(e)) reportError('sync.cache-write', e); }
+// Persist the snapshot mirror to IndexedDB (regenerable — re-fetched next load). Fire-and-forget: callers
+// never await, so the resync path's setSnapshot→replayOutboxLocal ordering is unchanged, and idbSetCache
+// NEVER rejects so this can't raise an unhandledrejection. Lazy migrate-then-delete: once a DURABLE IDB
+// copy exists (idbSetCache returned true), drop this business's legacy localStorage copy — never leaving it
+// empty in BOTH stores. When IDB is unavailable, idbSetCache best-effort writes localStorage and returns
+// false, so the localStorage copy is kept.
+async function cacheSnapshot(bizId, snap) {
+  const key = LS.cache(bizId);
+  const wroteToIdb = await idbSetCache(key, JSON.stringify({ ...snap, _biz: bizId }));
+  if (wroteToIdb) { try { localStorage.removeItem(key); } catch (e) {} }
 }
 
 export async function api(path, opts = {}) {
@@ -42,15 +47,19 @@ export async function openBusiness(bizId) {
   // Stamp the routing authority SYNCHRONOUSLY, before any await, so from the instant we start
   // opening this business every write in THIS tab routes to it — not the previously-open one.
   setStateBiz(bizId);
-  let hasCache = false;
-  const cached = localStorage.getItem(LS.cache(bizId));
-  if (cached) {
-    // Only render a cached snapshot stamped for THIS business (or an older unstamped cache).
-    try { const parsed = JSON.parse(cached); if (!parsed._biz || parsed._biz === bizId) { setSnapshot(parsed, bizId); hasCache = true; } } catch { /* bad cache */ }
+  // Clear the store SYNCHRONOUSLY so the PREVIOUS business's data is never shown/read during the async
+  // cache read below. bizId is REQUIRED here — setSnapshot sets stateBiz = biz || '', so a missing biz
+  // would blank the routing authority we just stamped (→ wrong-business writes). Re-stamp as belt+braces.
+  setSnapshot({ meta: null, entities: {}, seq: 0 }, bizId);
+  setStateBiz(bizId);
+  // Read the cache mirror from IndexedDB (localStorage fallback). ASYNC now, but timeout-bounded inside
+  // idbGetCache so a stalled IDB can NEVER freeze the fetch/connect/flush path below. Re-check the routing
+  // authority after the await: a biz switch during the read must DISCARD the now-stale cache (the key is
+  // biz-specific and the stored _biz is a third guard, so B can never receive A's snapshot).
+  const cached = await idbGetCache(LS.cache(bizId));
+  if (getStateBiz() === bizId && cached) {
+    try { const parsed = JSON.parse(cached); if (!parsed._biz || parsed._biz === bizId) setSnapshot(parsed, bizId); } catch (e) { /* bad cache */ }
   }
-  // No matching cache (wrong _biz OR first open) → clear the store so the PREVIOUS business's
-  // data is never shown or read during the async fetch below.
-  if (!hasCache) setSnapshot({ meta: null, entities: {}, seq: 0 }, bizId);
   try {
     const res = await api(`/b/${bizId}/state`);
     // ⚠️ Stale-reply guard: if the tab switched to another business while this fetch was in

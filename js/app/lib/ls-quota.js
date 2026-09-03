@@ -12,6 +12,14 @@ export function isEvictableCacheKey(key) {
   return typeof key === 'string' && key.includes('state_cache');
 }
 
+// STRICT — only THIS app's per-business snapshot caches (`bo_state_cache_<biz>`). Distinct from
+// isEvictableCacheKey on purpose: the IndexedDB migration DELETES these from localStorage once a durable
+// IDB copy exists, so it must NEVER match Muse/TurnDesk caches (`muse_state_cache`, `td_state_cache_*`),
+// the non-regenerable `bo_tax_rate_*` setting, or any protected bo_ key (none begin with this prefix).
+export function isLegacyBoCacheKey(key) {
+  return typeof key === 'string' && key.startsWith('bo_state_cache_');
+}
+
 // The order to evict in: every evictable cache EXCEPT the active business's own mirror first, then that
 // one LAST — dropping the active mirror only stings if the user reloads while offline before it
 // re-fetches, so it's the last resort.
