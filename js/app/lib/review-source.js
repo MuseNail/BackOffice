@@ -50,22 +50,26 @@ export function resolveRowSuggestion(row, { vendors = [], history = [], accounts
 
 // Resolve what the Review row's Vendor field should show, honouring the rule that a CLIENT's vendor
 // suggestion always beats a memorized rule / AI vendor. `vendorTag` is the rule/AI vendor from
-// resolveRowSuggestion ({vendorId, vendorName} | null); `aiPrefill` is its AI new-vendor prefill text.
+// resolveRowSuggestion ({vendorId, vendorName} | null); `aiPrefill` is its AI new-vendor prefill text;
+// `vendors` is the vendor list (to resolve a typed name to an existing vendor, like the AI path).
 // → { vendPreselect, vendPrefillText }:
 //   • client picked an existing vendor (suggestedVendorId) → preselect that id (wins over any rule).
-//   • client TYPED a name (suggestedVendorName, no id) → prefill the name so it's added/found on
-//     Approve — NOT the rule vendor (this is the regression fix).
+//   • client TYPED a name (suggestedVendorName, no id) → preselect an existing vendor of that name if
+//     one exists, else prefill the literal text (created on Approve) — NEVER the rule vendor.
 //   • no client vendor at all → fall back to the rule vendor id, else the AI prefill name.
 // (The owner's in-session manual pick — lastVendor — is applied by the caller, ahead of this.)
-export function resolveVendorField(row, vendorTag, aiPrefill = '') {
+export function resolveVendorField(row, vendorTag, aiPrefill = '', vendors = []) {
   const clientId = (row && row.suggestedVendorId) || '';
   const clientName = ((row && row.suggestedVendorName) || '').trim();
   // Client picked an existing vendor → that id wins over any rule.
   if (clientId) return { vendPreselect: clientId, vendPrefillText: '' };
-  // Client TYPED a name → prefill it (added/found on Approve), never the rule vendor. We deliberately
-  // do NOT resolve a typed name to an existing vendor id here: Approve's findOrCreateVendor dedupes
-  // case-insensitively, and showing the client's literal text is the honest thing.
-  if (clientName) return { vendPreselect: '', vendPrefillText: clientName };
+  // Client TYPED a name → the client's vendor wins over any rule. Resolve it to an existing vendor of
+  // the same name (case-insensitive) so the field shows a real selection; otherwise prefill the literal
+  // text — Approve's findOrCreateVendor dedupes/creates either way.
+  if (clientName) {
+    const match = (vendors || []).find(v => (v.name || '').toLowerCase() === clientName.toLowerCase());
+    return match ? { vendPreselect: match.id, vendPrefillText: '' } : { vendPreselect: '', vendPrefillText: clientName };
+  }
   // No client vendor → fall back to the rule vendor id, else the AI new-vendor prefill name.
   const ruleId = vendorTag?.vendorId || '';
   return { vendPreselect: ruleId, vendPrefillText: ruleId ? '' : (aiPrefill || '') };

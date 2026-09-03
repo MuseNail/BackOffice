@@ -331,7 +331,7 @@ function drawBody(body, editable) {
     // owner's own in-session pick (lastVendor) still wins ahead of everything.
     const { vendPreselect, vendPrefillText } = lastVendor.has(row.id)
       ? { vendPreselect: lastVendor.get(row.id), vendPrefillText: '' }
-      : resolveVendorField(row, vendorTag, resolvedPrefill);
+      : resolveVendorField(row, vendorTag, resolvedPrefill, matchCtx.vendors);
     // The client may also type a brand-new account name to add: prefill it (one tap to add).
     const acctPrefill = !preselect ? (row.suggestedAccountName || '') : '';
     // A client-suggested account/vendor that's no longer in the pickable list shows BLANK
@@ -673,7 +673,9 @@ function approveRow(row, categoryId, sug, { quiet = false, memo = '', vendorId =
     if (!quiet) toast(matched ? 'Transfer posted — the other account’s matching row was cleared automatically' : 'Transfer posted');
     return;
   }
-  if (sug?.vendorId && sug.accountId === categoryId) {
+  // Credit the rule vendor's usage counter ONLY when its vendor was the one actually stamped — never
+  // when a client (or manual/AI) vendor overrode it, or the rule's usefulness ranking gets inflated.
+  if (vId && vId === sug?.vendorId && sug.accountId === categoryId) {
     const vend = entities('vendor').find(x => x.id === sug.vendorId);
     if (vend) dispatch({ op: 'entity.upsert', kind: 'vendor', value: { ...vend, used: (vend.used || 0) + 1 } });
   }

@@ -26,6 +26,17 @@ test('client typed name, no rule/AI → still prefills the client name', () => {
     { vendPreselect: '', vendPrefillText: 'Bob’s Supply' });
 });
 
+test('client typed name that matches an existing vendor (case-insensitive) → preselect that id, over a rule', () => {
+  const vendors = [{ id: 'v-bob', name: 'Bob’s Supply' }, { id: 'v-x', name: 'Other' }];
+  assert.deepEqual(
+    resolveVendorField({ suggestedVendorName: 'bob’s supply' }, RULE, 'AI Vendor', vendors),
+    { vendPreselect: 'v-bob', vendPrefillText: '' });
+  // a typed name with no existing match still prefills the literal text (not the rule)
+  assert.deepEqual(
+    resolveVendorField({ suggestedVendorName: 'Brand New Co' }, RULE, 'AI Vendor', vendors),
+    { vendPreselect: '', vendPrefillText: 'Brand New Co' });
+});
+
 test('NO client vendor + a rule → the rule vendor fills in (unchanged)', () => {
   assert.deepEqual(
     resolveVendorField({ desc: 'ARCO 123' }, RULE, ''),
