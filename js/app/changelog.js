@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.71.17', items: [
+    { icon: 'bolt', t: 'Approving in Review is faster', d: 'Approving a transaction — and especially “Approve all” on a big batch — used to feel like it hung for a second or two before the row cleared. Two things were making it slow: each approval redrew the whole Review list several times over, and every redraw re-scanned all of your transactions once for every row on screen to spot already-posted transfers. Now the list repaints just once after an approval (the same for a whole batch), and that transfer check is worked out once per repaint instead of over and over. Approving a single row feels instant, and approving hundreds at once is dramatically quicker. Nothing about what gets approved or how it’s recorded changed — only the speed.' },
+  ] },
   { v: '0.71.16', items: [
     { icon: 'call_split', t: 'Split a transaction with a different invoice, note & vendor on each line', d: 'When you split a money-out transaction — in Review or when editing it in the ledger — each split line can now carry its own account, amount, note, vendor, and invoice. So one supplier charge can be divided across two jobs (say $700 to invoice #100 and $500 to invoice #101), and each invoice’s profit shows only its own share of the cost. The invoice screen’s “Linked expenses” list shows each split line’s attributed amount, so the parts always add up to the invoice’s job costs. A split that all goes to one invoice is still tagged the simple way (whole transaction), just like before. This is for money-out (expense) splits; splitting a deposit across several invoices isn’t part of this change. Nothing about your existing transactions changed — the per-line invoice, note, and vendor are all optional.' },
   ] },

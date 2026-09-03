@@ -12,6 +12,7 @@ import { entities, subscribe, getState, usesInvoices, usesMuseSync, getStateBiz 
 import { dispatch, api } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { validateTxn, simpleTxn, resolveSplitInvoiceTags } from '../lib/posting.js';
+import { buildPostedTwinIndex, findPostedTwin } from '../lib/posted-twin.js';
 import { suggestFor, guessVendorName, matchesRule } from '../lib/match.js';
 import { resolveRowSuggestion, sourceMatches, SOURCE_META } from '../lib/review-source.js';
 import { ruleConditionsEditor, buildMatchers, matchersToConditions, rulePreview } from '../rule-editor.js';
@@ -28,6 +29,7 @@ import { quickAddVendorModal } from './vendors.js';
 import { logAudit } from '../audit.js';
 
 let unsub = null;
+let redrawScheduled = false;   // coalesce store-change redraws (one approve saves 2+ ops → 1 repaint)
 let aiSuggestions = new Map();
 let aiBusy = false;
 let showSkipped = false;
@@ -77,6 +79,13 @@ export function render(root) {
   const editable = canEdit(getActiveBiz());
   const body = el('div');
   const draw = () => drawBody(body, editable);
+  // Store-change redraws are coalesced into ONE repaint per microtask: approving a row saves 2+ ops
+  // (each a synchronous store bump), and bulk-approve saves N — without this each one re-rendered the
+  // whole Review list mid-click. Explicit user redraws (search/filters/pagination) still call draw()
+  // directly for an instant response. Capturing the live subscription (`mine`) and re-checking it on
+  // run drops a redraw queued by a render that has since been torn down (unmount → unsub=null) or
+  // superseded by a remount (unsub is a new subscription), so a stale closure never repaints.
+  const drawSoon = () => { if (redrawScheduled) return; redrawScheduled = true; const mine = unsub; queueMicrotask(() => { redrawScheduled = false; if (unsub === mine) draw(); }); };
   reviewSearchEl = el('input', { class: 'field-input', type: 'search', placeholder: 'Search description, vendor, or amount…', style: 'max-width:340px;margin:0', value: reviewFilter.q || '',
     oninput: (e) => { reviewFilter.q = e.target.value; draw(); } });
   reviewFiltersHost = el('div');
@@ -97,11 +106,11 @@ export function render(root) {
   );
   reviewDateCtl = dateRangeControl({ initial: 'all', onChange: (r) => { reviewFilter.from = r.from || ''; reviewFilter.to = r.to || ''; draw(); } });
   if (pendingReviewQuery != null) { reviewFilter.q = pendingReviewQuery; reviewSearchEl.value = pendingReviewQuery; pendingReviewQuery = null; }
-  unsub = subscribe(draw);
+  unsub = subscribe(drawSoon);
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); lastInvoice = new Map(); lastMemo = new Map(); collapsedBanks = new Set(); bankPage = new Map(); selected = new Set(); selectedBank = null; savedSelected = new Set(); reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; reviewSearchEl = null; reviewFiltersHost = null; reviewActionsHost = null; focusVendorRow = null; }
+export function unmount() { unsub?.(); unsub = null; redrawScheduled = false; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); lastInvoice = new Map(); lastMemo = new Map(); collapsedBanks = new Set(); bankPage = new Map(); selected = new Set(); selectedBank = null; savedSelected = new Set(); reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; reviewSearchEl = null; reviewFiltersHost = null; reviewActionsHost = null; focusVendorRow = null; }
 
 // A row is "ready" if it has a resolved category — a valid rule/history suggestion,
 // an AI suggestion, or a manual pick (lastCategory). Drives the needs/ready filter.
@@ -295,15 +304,12 @@ function drawBody(body, editable) {
   // ignored, which is worse than not having it.
   const DUP_DAYS = 3;
   const bankAcctIds = new Set(entities('bankacct').map(b => b.accountId));
+  const bankAcctById = new Map(entities('bankacct').map(b => [b.id, b]));
+  // Build the posted-transfer index ONCE per render (was a full-transaction scan per row).
+  const twinIndex = buildPostedTwinIndex(entities('txn'), bankAcctIds);
   const postedTwin = (row) => {
-    const ba = entities('bankacct').find(b => b.id === row.bankacctId);
-    if (!ba || !/^\d{4}-\d{2}-\d{2}$/.test(row.date || '')) return null;
-    const when = new Date(row.date + 'T12:00:00').getTime();
-    return entities('txn').find(t => t.status === 'posted'
-      && /^\d{4}-\d{2}-\d{2}$/.test(t.date || '')
-      && Math.abs(new Date(t.date + 'T12:00:00').getTime() - when) <= DUP_DAYS * 86400000
-      && (t.lines || []).some(l => l.accountId === ba.accountId && l.amountCents === row.amountCents)
-      && (t.lines || []).some(l => l.accountId !== ba.accountId && bankAcctIds.has(l.accountId))) || null;
+    const ba = bankAcctById.get(row.bankacctId);
+    return ba ? findPostedTwin(twinIndex, ba.accountId, row.amountCents, row.date, DUP_DAYS) : null;
   };
 
   const rowCard = (row) => {
@@ -340,7 +346,11 @@ function drawBody(body, editable) {
     bindSuggest(memoIn, 'memo');
     memoIn.addEventListener('input', () => lastMemo.set(row.id, memoIn.value));
     const vendSel = vendorSelect(vendorsList, vendPreselect,
-      (vendor) => { lastVendor.set(row.id, vendor.id); focusVendorRow = row.id; drawBody(body, editable); }, vendPrefillText);
+      // No inline drawBody here: adding the vendor already dispatched a store change, which queues the
+      // coalesced redraw. Rendering inline too would make THIS (soon-detached) render schedule the focus
+      // timer, then the coalesced render would replace the node — focus would land nowhere. Just flag the
+      // row; the surviving (coalesced) render restores focus on its own live field.
+      (vendor) => { lastVendor.set(row.id, vendor.id); focusVendorRow = row.id; }, vendPrefillText);
     // After adding a vendor the body re-renders; put focus back on THIS row's vendor field
     // (without popping its panel) so the keyboard user can Tab straight to the next field.
     if (focusVendorRow === row.id) { focusVendorRow = null; setTimeout(() => vendSel.focusNoOpen?.(), 0); }
