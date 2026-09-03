@@ -1,5 +1,17 @@
 # Storage-quota hardening — plan & backlog
 
+## ✅ STATUS (2026-09-02): the whole arc is DONE for BackOffice.
+- **Option 1 — never block sign-in — SHIPPED v0.71.19** (`safeSetItem` evict-and-retry, honest login errors,
+  Settings "Clear local cache").
+- **Option 2 — cache → IndexedDB — SHIPPED v0.71.21** (`js/app/lib/idb-cache.js`; lazy migrate-then-delete;
+  strict `isLegacyBoCacheKey`; async `openBusiness` read; verified in a real browser + node tests).
+- **OPEN follow-ups:** (1) PORT Option 2 to **Muse + TurnDesk** (separate repos, same `state_cache` pattern) —
+  confirm each already carries Option 1's `safeSetItem` first, or their sign-in is the next lockout on the shared
+  `musenail.github.io` origin. (2) Verify the v0.71.21 empty-flash on the owner's iPad; add a "Loading…" skeleton
+  in `openView` if noticeable.
+
+The original plan is kept below for the record.
+
 ## The incident (2026)
 On one shared device the owner could not sign in to BackOffice ("unable to reach the server"), while other
 devices worked. Root cause: **localStorage was full at the 10 MB per-origin limit.** All three apps
@@ -33,6 +45,6 @@ and can't fill.
   + testing; ideally applied to all three apps (Muse + TurnDesk share the same pattern). Its own project.
 - **Do NOT start until the owner says go** (they asked to be asked first).
 
-## Order (owner, this cycle)
-1. Approve speed (Review re-render coalescing) · 2. Client can suggest bank/CC transfers · 3. Option 1 above ·
-4. Ask the owner before starting Option 2 (IndexedDB).
+## Order (owner, this cycle) — ✅ ALL DONE (2026-09-02)
+1. ✅ Approve speed (v0.71.17) · 2. ✅ Client can suggest bank/CC transfers (v0.71.19) · 3. ✅ Option 1 (v0.71.19) ·
+4. ✅ Option 2 / IndexedDB (v0.71.21). Remaining: the Muse/TurnDesk port (see STATUS at top).
