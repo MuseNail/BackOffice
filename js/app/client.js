@@ -132,12 +132,26 @@ const suggestView = (() => {
   return { render, unmount };
 })();
 
-function acctGroups() {
+function acctGroups({ transfers = false, ownAcctId = '' } = {}) {
   const byId = new Map(entities('account').map(a => [a.id, a]));
   const bankish = (a) => a.qbType === 'BANK' || a.qbType === 'CCARD';
-  const cats = entities('account').filter(a => a.active !== false && !bankish(a)).sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)));
-  return [{ label: 'Accounts', items: cats.map(a => ({ value: a.id, label: accountLabel(a, byId) })) }];
+  const active = entities('account').filter(a => a.active !== false);
+  const cats = active.filter(a => !bankish(a)).sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)));
+  const groups = [{ label: 'Accounts', items: cats.map(a => ({ value: a.id, label: accountLabel(a, byId) })) }];
+  // The transfer group (single-account picker only) lets a client say "this was a payment to our Visa /
+  // a move to savings." Excludes the row's OWN account (a self-transfer would post a blank, self-cancelling
+  // txn on the owner side). NOT offered on split lines — a bank line hidden in a split posts with no
+  // transfer de-dup and double-counts (see approveSuggestedSplit's bankish guard).
+  if (transfers) {
+    const banks = active.filter(a => bankish(a) && a.id !== ownAcctId).sort((a, b) => accountLabel(a, byId).localeCompare(accountLabel(b, byId)));
+    if (banks.length) groups.push({ label: 'Transfer to a bank or card', items: banks.map(a => ({ value: a.id, label: accountLabel(a, byId) })) });
+  }
+  return groups;
 }
+
+// Is this account id a bank/card (a transfer target)? Used to hide the Invoice field on a transfer pick
+// and to word the "done" summary.
+function isBankishAcct(id) { const a = id && entities('account').find(x => x.id === id); return !!a && (a.qbType === 'BANK' || a.qbType === 'CCARD'); }
 
 // Match a suggest row against the search box: its description, its amount (e.g. "190.64"),
 // or the name of the vendor it's currently suggested to.
@@ -205,9 +219,11 @@ function suggestRowDone(row, draw) {
   let summary;
   if (row.suggestedSplit && row.suggestedSplit.length >= 2) summary = `Split across ${row.suggestedSplit.length} accounts`;
   else {
-    const acct = row.suggestedAccountId ? (byId.get(row.suggestedAccountId)?.name || 'account') : (row.suggestedAccountName || '');
+    const acctObj = row.suggestedAccountId ? byId.get(row.suggestedAccountId) : null;
+    const acct = acctObj ? (acctObj.name || 'account') : (row.suggestedAccountName || '');
+    const isTransfer = !!acctObj && (acctObj.qbType === 'BANK' || acctObj.qbType === 'CCARD');
     const vend = row.suggestedVendorId ? (entities('vendor').find(v => v.id === row.suggestedVendorId)?.name || '') : (row.suggestedVendorName || '');
-    summary = acct ? `You suggested ${acct}` : (vend ? `Vendor: ${vend}` : (row.clientNote ? 'Note left for the owner' : 'Suggested'));
+    summary = acct ? `${isTransfer ? 'Transfer to' : 'You suggested'} ${acct}` : (vend ? `Vendor: ${vend}` : (row.clientNote ? 'Note left for the owner' : 'Suggested'));
   }
   const amtEl = el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 }));
   return el('div', { class: 'revrow sugg-done' },
@@ -225,7 +241,8 @@ function suggestRowDone(row, draw) {
 // The full editor for a row that still needs the client (or one they re-opened to edit).
 function suggestRowFull(row, { vendors, invs, showInvoices, draw }) {
   const d = draftFor(row);
-  const groups = acctGroups();
+  const groups = acctGroups();   // non-bank list — feeds the split editor
+  const ownAcctId = entities('bankacct').find(b => b.id === row.bankacctId)?.accountId || '';
   const field = (label, node) => el('div', { class: 'rvf' }, el('label', { class: 'field-label', style: 'margin:0 0 2px' }, label), node);
 
   const btn = el('button', { class: 'btn sm' }, 'Suggest');
@@ -233,15 +250,23 @@ function suggestRowFull(row, { vendors, invs, showInvoices, draw }) {
   const venSel = combobox({ groups: [{ label: '', items: vendors.map(v => ({ value: v.id, label: v.name })) }], value: d.vendorId || '', text: d.vendorId ? '' : d.vendorName, placeholder: 'Pick or type a new vendor…', minWidth: 0, freeText: true, emptyText: 'No match — suggested as a NEW vendor' });
   venSel.addEventListener('change', () => { d.vendorId = venSel.value; d.vendorName = venSel.value ? '' : venSel.inputText; });
 
-  let acctField = null, acctSel = null;
-  if (!d.splitMode) {
-    acctSel = combobox({ groups, value: d.accountId || '', text: d.accountId ? '' : d.accountName, placeholder: 'Search or type a new account…', minWidth: 0, freeText: true, emptyText: 'No match — suggested as a NEW account' });
-    acctSel.addEventListener('change', () => { d.accountId = acctSel.value; d.accountName = acctSel.value ? '' : acctSel.inputText; });
-    acctField = field('Account', acctSel);
-  }
-
   const invSel = showInvoices ? combobox({ groups: [{ label: '', items: [{ value: '', label: '— none —' }, ...invs.map(i => ({ value: i.id, label: `#${i.number || i.id} · ${(i.clientName || '').slice(0, 28)}` }))] }], value: d.invoiceId || '', placeholder: 'Find invoice…', minWidth: 0 }) : null;
   if (invSel) invSel.addEventListener('change', () => { d.invoiceId = invSel.value; });
+  const invField = invSel ? field('Invoice', invSel) : null;
+  // A single-account transfer (bank/card) carries no invoice — hide the field when one is picked. A
+  // SPLIT can carry an invoice, so never hide it in split mode (d.accountId may still hold a stale
+  // bank id from a transfer picked before toggling Split).
+  const syncInvVisibility = () => { if (invField) invField.hidden = !d.splitMode && isBankishAcct(d.accountId); };
+
+  let acctField = null, acctSel = null;
+  if (!d.splitMode) {
+    // Single-account picker offers the "Transfer to a bank or card" group (excluding this row's own
+    // account); the split editor keeps the plain non-bank `groups`.
+    acctSel = combobox({ groups: acctGroups({ transfers: true, ownAcctId }), value: d.accountId || '', text: d.accountId ? '' : d.accountName, placeholder: 'Search or type a new account…', minWidth: 0, freeText: true, emptyText: 'No match — suggested as a NEW account' });
+    acctSel.addEventListener('change', () => { d.accountId = acctSel.value; d.accountName = acctSel.value ? '' : acctSel.inputText; syncInvVisibility(); });
+    acctField = field('Account', acctSel);
+  }
+  syncInvVisibility();
 
   const note = el('textarea', { class: 'field-input', rows: '2', placeholder: 'Note for the owner…', style: 'margin:0;width:100%;min-width:0;resize:vertical' });
   note.value = d.note || '';
@@ -272,7 +297,8 @@ function suggestRowFull(row, { vendors, invs, showInvoices, draw }) {
       // "perso". Reading .inputText/.value here captures exactly what's in the box.
       d.vendorId = venSel.value || ''; d.vendorName = d.vendorId ? '' : (venSel.inputText || '').trim();
       if (acctSel) { d.accountId = acctSel.value || ''; d.accountName = d.accountId ? '' : (acctSel.inputText || '').trim(); }
-      if (invSel) d.invoiceId = invSel.value || '';
+      // A single-account transfer carries no invoice, whatever the (hidden) box still holds; a split can.
+      if (invSel) d.invoiceId = (!d.splitMode && isBankishAcct(d.accountId)) ? '' : (invSel.value || '');
       d.note = note.value || '';
       const payload = { stagedId: row.id, clientNote: (d.note || '').trim(), suggestedVendorId: d.vendorId || '', suggestedVendorName: d.vendorId ? '' : (d.vendorName || '').trim(), suggestedInvoiceId: d.invoiceId || '' };
       if (d.splitMode) { payload.suggestedSplit = splitPayload(row, d); payload.suggestedAccountId = ''; payload.suggestedAccountName = ''; }
@@ -301,7 +327,7 @@ function suggestRowFull(row, { vendors, invs, showInvoices, draw }) {
   return el('div', { class: 'revrow' },
     el('div', { class: 'revmain' },
       el('div', { class: 'revtop' }, dot, el('span', { class: 'revdate' }, row.date), el('span', { class: 'revdesc', style: 'flex:1' }, row.desc || ''), amtEl),
-      el('div', { class: 'revfields' }, field('Vendor', venSel), acctField, invSel ? field('Invoice', invSel) : null),
+      el('div', { class: 'revfields' }, field('Vendor', venSel), acctField, invField),
       splitNode,
       el('div', { class: 'revnote' }, el('label', { class: 'field-label', style: 'margin:0 0 2px' }, 'Note'), note),
       errBox,

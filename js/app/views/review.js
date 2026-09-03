@@ -266,7 +266,10 @@ function drawBody(body, editable) {
       const a = l.accountId ? accountsById.get(l.accountId) : null;
       return { line: l, ok: !!(a && a.active !== false), name: l.accountName || a?.name || '(removed account)', reason: l.accountName ? 'new account' : (a ? 'inactive' : 'removed') };
     });
-    const canApprove = balanced && resolved.every(r => r.ok);
+    // A bank/card line makes this a transfer buried inside a split — it posts with no counterpart
+    // de-dup and double-counts. Block the one-tap path (the owner can still fix it in Review split).
+    const anyBank = lines.some(l => { const a = l.accountId ? accountsById.get(l.accountId) : null; return !!a && bankish(a); });
+    const canApprove = balanced && resolved.every(r => r.ok) && !anyBank;
     const breakdown = el('div', { class: 'split-breakdown' },
       ...resolved.map(r => el('div', { class: 'split-brow' },
         el('span', {}, r.name, r.ok ? null : el('span', { class: 'split-warn' }, ` · ${r.reason}`)),
@@ -276,7 +279,7 @@ function drawBody(body, editable) {
         el('span', { class: 'num' }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 }))));
     const actions = editable ? [
       el('button', { class: 'btn sm', title: 'Open the split editor pre-filled with the client’s lines', onclick: () => splitModal(row, accountsById, { seed: lines }) }, '⊟ Review split'),
-      el('button', { class: 'btn sm green', disabled: !canApprove, title: canApprove ? 'Post the split exactly as suggested' : 'Some lines need an account, or the amounts don’t add up — use Review split', onclick: () => approveSuggestedSplit(row) }, 'Approve split'),
+      el('button', { class: 'btn sm green', disabled: !canApprove, title: canApprove ? 'Post the split exactly as suggested' : (anyBank ? 'A line points to a bank/card account (a transfer) — use Review split' : 'Some lines need an account, or the amounts don’t add up — use Review split'), onclick: () => approveSuggestedSplit(row) }, 'Approve split'),
       el('button', { class: 'btn sm ghost', onclick: () => skipRow(row) }, 'Save for later'),
     ] : [];
     const amtEl = el('span', { class: 'revamt num ' + (row.amountCents < 0 ? 'neg' : 'pos') }, fmtMoney(row.amountCents, { sign: row.amountCents > 0 }));
@@ -688,6 +691,11 @@ function approveSuggestedSplit(row) {
   const accountsById = new Map(entities('account').map(a => [a.id, a]));
   if (lines.length < 2 || !lines.every(l => l.accountId && accountsById.get(l.accountId) && accountsById.get(l.accountId).active !== false)) {
     toast('Some lines need an account — use Review split', 'err'); return;
+  }
+  // Safety net: a bank/card line here is a transfer that would post with no counterpart de-dup and
+  // double-count. Refuse the one-tap path and send the owner to the split editor.
+  if (lines.some(l => { const a = accountsById.get(l.accountId); return a && bankish(a); })) {
+    toast('A split line points to a bank/card account — open Review split to handle that transfer', 'err'); return;
   }
   const total = Math.abs(row.amountCents);
   if (lines.reduce((s, l) => s + (l.amountCents || 0), 0) !== total) { toast(`The split must add up to ${fmtMoney(total)} — use Review split`, 'err'); return; }
