@@ -1,6 +1,6 @@
 // ── sync — snapshot load, dispatch, offline outbox, WebSocket ────────────────
 import { ORIGIN, LS } from './config.js';
-import { getToken, deviceId, getActiveBiz, clearSession } from './session.js';
+import { getToken, deviceId, getActiveBiz, clearSession, safeSetItem, isQuotaError } from './session.js';
 import { setSnapshot, applyChange, getStateBiz, setStateBiz } from './store.js';
 import { reportError } from './reporter.js';   // log rejected writes to Diagnostics
 import { requeueRoutable, orphanizeRejected, capFailedLog, describeWrite, dedupeOrphans } from './lib/orphan-recovery.js';
@@ -17,6 +17,14 @@ let onStatus = () => {};
 export function setStatusListener(fn) { onStatus = fn; }
 
 const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` });
+
+// Persist the state-cache mirror best-effort. It's regenerable (re-fetched next load), so a full origin
+// must NOT throw up the sync path — but a NON-quota failure is unexpected and stays loud in Diagnostics.
+// NOT via safeSetItem: this large write must never evict other apps' caches (they'd just be rewritten).
+function cacheSnapshot(bizId, snap) {
+  try { localStorage.setItem(LS.cache(bizId), JSON.stringify({ ...snap, _biz: bizId })); }
+  catch (e) { if (!isQuotaError(e)) reportError('sync.cache-write', e); }
+}
 
 export async function api(path, opts = {}) {
   const res = await fetch(ORIGIN + path, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
@@ -54,7 +62,7 @@ export async function openBusiness(bizId) {
       const snap = await res.json();
       if (getStateBiz() !== bizId) return;
       setSnapshot(snap, bizId);
-      localStorage.setItem(LS.cache(bizId), JSON.stringify({ ...snap, _biz: bizId }));
+      cacheSnapshot(bizId, snap);
     }
   } catch { /* offline — the cached/empty snapshot stands */ }
   if (getStateBiz() !== bizId) return;   // switched away during the await → don't wire up the left business
@@ -98,7 +106,12 @@ export async function dispatch(op) {
   applyChange(op);
   const outbox = readOutbox();
   outbox.push({ biz, op });
-  localStorage.setItem(LS.outbox, JSON.stringify(outbox));
+  // safeSetItem returns false only if the origin is full even after evicting every cache — then the op
+  // isn't persisted and flushOutbox (which re-reads localStorage) can't see it. Surface it loudly rather
+  // than dropping a write silently (the same LOUD-loss invariant as deadLetter).
+  if (!safeSetItem(LS.outbox, JSON.stringify(outbox))) {
+    try { reportError('sync.outbox-quota', `couldn't queue a write (${summarizeWrite(op)})`, { serious: true }); } catch (e) {}
+  }
   emitStatus();   // reflect the just-queued item immediately — the pill reads "unsynced" until it sends
   await flushOutbox();
 }
@@ -139,8 +152,8 @@ export function syncNow() {
     // per-row "Save to these books" (each keeps its own biz — no `|| b` fallback guess).
     const r = requeueRoutable(failed, readOutbox());
     if (r.moved) {
-      localStorage.setItem(LS.outbox, JSON.stringify(r.outbox));
-      localStorage.setItem(LS.failed, JSON.stringify(r.failed));
+      safeSetItem(LS.outbox, JSON.stringify(r.outbox));
+      safeSetItem(LS.failed, JSON.stringify(r.failed));
     }
   } catch { /* best-effort */ }
   if (b) { connectWS(b, true); return flushOutbox(); }
@@ -157,7 +170,7 @@ export function saveOrphanTo(biz, op) {
   op._sealBiz = biz;
   const ob = readOutbox();
   ob.push({ biz, op });
-  localStorage.setItem(LS.outbox, JSON.stringify(ob));
+  safeSetItem(LS.outbox, JSON.stringify(ob));
   // If it's going to the business loaded in THIS tab, apply it locally now: the server's echo
   // comes back stamped with the op's original device id and is suppressed as a self-echo
   // (connectWS onmessage), so without this the filed write wouldn't appear until a reload.
@@ -187,12 +200,13 @@ function deadLetter(item, reason, { orphanize = false } = {}) {
     let log = []; try { log = JSON.parse(localStorage.getItem(LS.failed) || '[]'); } catch { log = []; }
     log.unshift(orphanize ? orphanizeRejected(item, reason) : { biz: item.biz, op: item.op, reason, rejectedAt: Date.now() });
     const capped = capFailedLog(log);
+    // safeSetItem RETURNS false on quota (it doesn't throw — it evicts caches then gives up), so gate on
+    // the boolean, not a thrown error: otherwise a never-saved money write is dropped silently and the
+    // eviction report below fires falsely. The try only catches a NON-quota rethrow from safeSetItem.
     let saved = false;
-    try {
-      localStorage.setItem(LS.failed, JSON.stringify(capped.log));
-      saved = true;
-    } catch {
-      // Storage quota — the entry could not be held. Never a bare swallow: name the write.
+    try { saved = safeSetItem(LS.failed, JSON.stringify(capped.log)); } catch { saved = false; }
+    if (!saved) {
+      // The entry could not be held (origin full even after evicting caches). Never a bare swallow.
       try { reportError('sync.deadletter-quota', `couldn't hold a write (${summarizeWrite(item.op)})`, { serious: true }); } catch (e) {}
     }
     // Report evictions only when the capped log actually persisted — on a failed write the
@@ -222,7 +236,7 @@ function shiftIfHead(item) {
   const cur = readOutbox();
   if (cur.length && JSON.stringify(cur[0]) === JSON.stringify(item)) {
     cur.shift();
-    localStorage.setItem(LS.outbox, JSON.stringify(cur));
+    safeSetItem(LS.outbox, JSON.stringify(cur));
   }
 }
 
@@ -277,7 +291,7 @@ async function flushOutbox() {
                 // to the loaded business; the shared outbox can hold another business's queued op, and
                 // applying it here would corrupt the loaded business's store.
                 if (item.biz === getStateBiz()) applyChange(item.op);
-                cur[0] = item; localStorage.setItem(LS.outbox, JSON.stringify(cur));
+                cur[0] = item; safeSetItem(LS.outbox, JSON.stringify(cur));
               }
               continue;             // retry the (healed) head — or the moved head another tab installed
             }
@@ -385,7 +399,7 @@ async function resync(bizId) {
       // — a late resync for a switched-away business must not re-stamp stateBiz or overwrite the store.
       if (getStateBiz() === bizId) {
         setSnapshot(snap, bizId);
-        localStorage.setItem(LS.cache(bizId), JSON.stringify({ ...snap, _biz: bizId }));
+        cacheSnapshot(bizId, snap);
         replayOutboxLocal(bizId);
       }
     }

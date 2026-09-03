@@ -4,7 +4,7 @@
 import { el, clear, toast, fmtMoney, acctAmount, modal } from '../ui.js';
 import { todayLocal, monthLocal } from '../lib/day.js';
 import { api, dispatch, saveOrphanTo } from '../sync.js';
-import { getBusinesses, roleFor, getUser } from '../session.js';
+import { getBusinesses, roleFor, getUser, clearStateCaches } from '../session.js';
 import { describeWrite, dedupeOrphans } from '../lib/orphan-recovery.js';
 import { getState, entities, byId, subscribe, usesInvoices, usesMuseSync, getStateBiz } from '../store.js';
 import { parseMoney } from '../lib/money.js';
@@ -43,7 +43,7 @@ const SECTION_CARDS = {
   set_integrations: [{ draw: drawMuseCard, live: true, onlyIf: usesMuseSync }],
   set_books: [{ draw: drawLocksCard, live: true }],
   set_data: [{ draw: drawAuditCard, live: false }, { draw: drawFailedOps, live: true }],
-  set_diagnostics: [{ draw: drawErrorLog, live: false }, { draw: drawBugAlerts, live: false }],
+  set_diagnostics: [{ draw: drawErrorLog, live: false }, { draw: drawBugAlerts, live: false }, { draw: drawDeviceMaintenance, live: false }],
 };
 
 export function render(root) {
@@ -103,6 +103,18 @@ export const setIntegrations = sectionView('set_integrations');
 export const setBooks = sectionView('set_books');
 export const setData = sectionView('set_data');
 export const setDiagnostics = sectionView('set_diagnostics');
+
+// ── This device: clear the local state-cache (frees browser storage; data is safe on the server) ──
+function drawDeviceMaintenance(card) {
+  clear(card).append(
+    el('div', { class: 'cardtitle' }, 'This device'),
+    el('p', { class: 'sub' }, 'The app keeps a local copy of your data on this device for instant offline reload. If a device ever runs low on browser storage — e.g. a stuck sign-in or “can’t save” — clearing it frees space. Your data is safe on the server and reloads automatically; anything not yet synced is kept.'),
+    el('button', { class: 'btn sm', onclick: () => {
+      const n = clearStateCaches();
+      toast(n ? `Cleared local cache (${n} item${n === 1 ? '' : 's'} freed). It reloads from the server as you use the app.` : 'Local cache is already clear.');
+    } }, 'Clear local cache'),
+  );
+}
 
 // ── Audit log (server-stored: who changed which transaction, when) ──
 async function drawAuditCard(card, biz) {
