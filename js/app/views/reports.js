@@ -1,14 +1,17 @@
 // ── view: reports — P&L, Balance Sheet, tax estimate ────────────────
-// Always built from posted ledger entries via lib/posting.js — if it's not
-// posted, it's not in a report. The Balance Sheet balances structurally:
-// every posted txn sums to zero, so assets always equal liabilities + equity
-// + net income to date.
+// Built from posted ledger entries via lib/posting.js. The Balance Sheet (and the
+// tax set-aside) are ALWAYS posted-only and balance structurally — every posted txn
+// sums to zero, so assets always equal liabilities + equity + net income to date.
+// The P&L can OPTIONALLY fold in items still in Review as a provisional, clearly-labelled
+// estimate (s.includeReview, owner-only) — those are pending, not posted, and never touch
+// the Balance Sheet or the tax number.
 import { el, clear, fmtMoney, acctAmount, prettyDesc, modal } from '../ui.js';
 import { todayLocal } from '../lib/day.js';
 import { entities, subscribe, getStateBiz } from '../store.js';
 import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { activityByAccount, accountBalance } from '../lib/posting.js';
+import { pendingUncategorized } from '../lib/pending-uncat.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { dateRangeControl, dateControl, presetRange, rangeLabel } from '../daterange.js';
 import { editTxnModal } from './ledger.js';
@@ -25,6 +28,9 @@ export function render(root) {
     range: presetRange('month'),
     compare: 'none',       // 'none' | 'prev' | 'ly' | 'trend'
     pctOfIncome: false,    // common-size column (each line as % of total income)
+    // Fold items still in Review into the P&L as a provisional estimate. Owner-only —
+    // the read-only client app always sees the posted-only statement.
+    includeReview: !document.body.classList.contains('bo-client'),
   };
   const body = el('div');
   // Built once so the smart date picker keeps its state across the redraws that
@@ -32,7 +38,9 @@ export function render(root) {
   s.rangeCtl = dateRangeControl({ initial: 'month', onChange: (r) => { s.range = r; drawBody(body); } });
   root.append(
     el('h2', {}, 'Reports'),
-    el('p', { class: 'sub' }, 'Built from posted entries only — staged and voided transactions never appear here.'),
+    el('p', { class: 'sub' }, document.body.classList.contains('bo-client')
+      ? 'Reports are built from posted entries only.'
+      : 'The Balance Sheet and tax set-aside always show posted entries only. The Profit & Loss can additionally include items still in Review.'),
     body,
   );
   const draw = () => drawBody(body);
@@ -135,11 +143,14 @@ function buildReportsCsv(presetLabel, asOf, pl, bs, cmp) {
   const pctOf = (c) => (cmp.incomeTotal ? (c / cmp.incomeTotal * 100).toFixed(1) : '');
   const pctChg = (c, cm) => (cm ? ((c - cm) / cm * 100).toFixed(1) : '');
 
+  // The provisional-estimate caveat must travel with the exported P&L, not just the on-screen note.
+  if (cmp.reviewEstimate) row('Note', 'Profit & Loss includes provisional items still in Review — counted by money in/out; may double-count and will not match the Balance Sheet or tax set-aside.');
+
   if (cmp.mode === 'trend') {
     row('Profit & Loss', 'Monthly trend');
     row('Section', 'Account', ...cmp.bucketLabels);
     const sec = (title, g, totalLabel) => {
-      if (!g.nodes.length) return;
+      if (!g.nodes.length && !g.rows.length) return;
       for (const r of g.rows) row(title, r.name, ...r.trend.map(d));
       row('', totalLabel, ...g.totalTrend.map(d));
     };
@@ -161,7 +172,7 @@ function buildReportsCsv(presetLabel, asOf, pl, bs, cmp) {
       row(...cols);
     };
     const sec = (title, g, totalLabel) => {
-      if (!g.nodes.length) return;
+      if (!g.nodes.length && !g.rows.length) return;
       for (const r of g.rows) line(title, r.name, r.cents, r.centsCmp);
       line('', totalLabel, g.total, g.totalCmp);
     };
@@ -177,7 +188,7 @@ function buildReportsCsv(presetLabel, asOf, pl, bs, cmp) {
     row(...head);
     const line = (title, name, c) => { const cols = [title, name, d(c)]; if (cmp.pctOn) cols.push(pctOf(c)); row(...cols); };
     const sec = (title, g, totalLabel) => {
-      if (!g.nodes.length) return;
+      if (!g.nodes.length && !g.rows.length) return;
       for (const r of g.rows) line(title, r.name, r.cents);
       line('', totalLabel, g.total);
     };
@@ -285,6 +296,31 @@ function drawBody(body) {
   const cogs = group(['cogs']);
   const expenses = group(['expense']);
   const otherExp = group(['other-expense', 'personal-expense']);
+
+  // ── Items still in Review (provisional estimate) ──────────────────────────────
+  // Owner-only, toggleable. Fold pending Review rows into the P&L by bank-feed sign
+  // (money-in → income, money-out → expense) so the top-line totals reflect work in
+  // progress. COGS / other-expense stay posted-only; so do net-for-tax and the whole
+  // Balance Sheet. These figures are PROVISIONAL (may include transfers/refunds, can
+  // double-count money already booked) — the caption + row labels say so.
+  const includeReview = !!s.includeReview && !document.body.classList.contains('bo-client');
+  const postedIncTotal = income.total, postedExpTotal = expenses.total;
+  const staged = includeReview ? entities('staged') : [];
+  const pend = includeReview ? pendingUncategorized(staged, range) : { inc: 0, exp: 0, count: 0 };
+  const pendCmp = (includeReview && cmpRange) ? pendingUncategorized(staged, cmpRange) : { inc: 0, exp: 0, count: 0 };
+  const pendBuckets = (includeReview && modeTrend) ? buckets.map(b => pendingUncategorized(staged, b)) : [];
+  const augment = (g, label, cur, cmp, trend) => {
+    if (!nz(cur, cmp, ...(trend || []))) return;
+    g.total += cur; g.totalCmp += cmp; (trend || []).forEach((v, i) => { g.totalTrend[i] += v; });
+    // Two sinks, written together so the screen and CSV stay in sync: `.extra` is the single styled
+    // screen row (section() renders it muted/italic, non-clickable); `.rows` is the flat CSV feed
+    // (buildReportsCsv reads {name,cents,centsCmp,trend}). Guards: screen tests !g.extra, CSV !g.rows.length.
+    g.extra = { label, cur, cmp, trend: trend || [] };
+    g.rows.push({ name: label, cents: cur, centsCmp: cmp, trend: trend || [] });
+  };
+  augment(income, 'Uncategorized income · in Review', pend.inc, pendCmp.inc, modeTrend ? pendBuckets.map(p => p.inc) : []);
+  augment(expenses, 'Uncategorized expense · in Review', pend.exp, pendCmp.exp, modeTrend ? pendBuckets.map(p => p.exp) : []);
+
   const gross = income.total - cogs.total;
   const grossCmp = income.totalCmp - cogs.totalCmp;
   const grossTrend = income.totalTrend.map((v, i) => v - (cogs.totalTrend[i] || 0));
@@ -294,6 +330,8 @@ function drawBody(body) {
   const net = netOrdinary - otherExp.total;
   const netCmp = netOrdinaryCmp - otherExp.totalCmp;
   const netTrend = netOrdinaryTrend.map((v, i) => v - (otherExp.totalTrend[i] || 0));
+  // Posted-only net — the tax set-aside must never be based on provisional in-Review figures.
+  const netPosted = postedIncTotal - cogs.total - postedExpTotal - otherExp.total;
 
   const incTot = income.total;
   const pctStr = (c) => (incTot ? (c / incTot * 100).toFixed(1) + '%' : '—');
@@ -359,7 +397,7 @@ function drawBody(body) {
   };
 
   const section = (title, g, totalLabel, good) => {
-    if (!g.nodes.length) return;
+    if (!g.nodes.length && !g.extra) return;
     plRows.push(el('tr', {}, el('td', { class: 'coatype', colspan: String(colspan), style: 'padding-top:12px' }, title)));
     for (const node of g.nodes) {
       if (node.children.length) {
@@ -378,6 +416,10 @@ function drawBody(body) {
         plRows.push(leafRow(node.account, node.total, node.totalCmp, node.totalTrend, node.account.name, good, 24));
       }
     }
+    // Provisional "in Review" estimate row: muted + italic, NOT a real account so never clickable.
+    if (g.extra) plRows.push(el('tr', { style: 'color:var(--mut)' },
+      el('td', { style: 'padding-left:24px;font-style:italic' }, g.extra.label),
+      ...valueCells(g.extra.cur, g.extra.cmp, g.extra.trend, good, false, false)));
     plRows.push(totalRow(totalLabel, g.total, g.totalCmp, g.totalTrend, good, '', false));
   };
 
@@ -394,7 +436,7 @@ function drawBody(body) {
   } else {
     plRows.push(netBar('Net profit', net, netCmp, netTrend));
   }
-  const hasActivity = income.nodes.length || cogs.nodes.length || expenses.nodes.length || otherExp.nodes.length;
+  const hasActivity = income.nodes.length || cogs.nodes.length || expenses.nodes.length || otherExp.nodes.length || income.extra || expenses.extra;
 
   // ── Balance Sheet (as of s.asOf) ──
   const bal = (a) => accountBalance(txns, a.id, { to: s.asOf });
@@ -444,7 +486,7 @@ function drawBody(body) {
   const rate = (synced && typeof synced.rate === 'number') ? synced.rate
     : parseFloat(localStorage.getItem(rateKey) || '25');
   const taxEditable = canEdit(getStateBiz());
-  const setAside = net > 0 ? Math.round(net * rate / 100) : 0;
+  const setAside = netPosted > 0 ? Math.round(netPosted * rate / 100) : 0;
   const rateIn = el('input', { class: 'field-input', style: 'max-width:90px;margin:0', inputmode: 'decimal', 'data-nocents': '1', value: String(rate), disabled: !taxEditable,
     onchange: (e) => {
       const v = parseFloat(e.target.value);
@@ -464,6 +506,18 @@ function drawBody(body) {
   const pctChk = el('input', { type: 'checkbox', id: 'pl-pct', checked: s.pctOfIncome, disabled: modeTrend,
     onchange: (e) => { s.pctOfIncome = e.target.checked; drawBody(body); } });
   const pctToggle = el('label', { class: 'pct-toggle' + (modeTrend ? ' off' : ''), for: 'pl-pct', title: modeTrend ? 'Not shown in trend view' : '' }, pctChk, ' % of income');
+  // Owner-only toggle: fold pending Review items into the P&L as a provisional estimate.
+  const reviewChk = el('input', { type: 'checkbox', id: 'pl-review', checked: s.includeReview,
+    onchange: (e) => { s.includeReview = e.target.checked; drawBody(body); } });
+  const reviewToggle = document.body.classList.contains('bo-client') ? null
+    : el('label', { class: 'pct-toggle', for: 'pl-review', title: 'Fold items still waiting in Review into the P&L as a provisional estimate' }, reviewChk, ' Include items in Review');
+  // Prints (not no-print): this caveat is the honesty mitigation for the by-sign estimate, so it must
+  // survive to the PDF an accountant might read. Count spans every shown period (current + comparison).
+  const reviewCount = pend.count + (mode2 ? pendCmp.count : 0);
+  const reviewNote = (includeReview && (income.extra || expenses.extra))
+    ? el('div', { class: 'sub', style: 'margin:6px 0 0;color:var(--amber)' },
+        `Includes ${reviewCount} item${reviewCount === 1 ? '' : 's'} still in Review as a provisional estimate — counted by money in / out, so it may include transfers or refunds and won't match the Balance Sheet or the tax set-aside.`)
+    : null;
 
   const presetLabel = rangeLabel(range);
   const plCardStyle = (cmpMode === 'none') ? 'flex:1;min-width:330px;max-width:460px' : 'flex:1 1 100%;min-width:330px';
@@ -472,6 +526,7 @@ function drawBody(body) {
     pctOn, incomeTotal: incTot,
     curLabel: compactRangeLabel(range), cmpLabel: cmpRange ? compactRangeLabel(cmpRange) : '',
     bucketLabels: buckets.map(b => b.label),
+    reviewEstimate: includeReview && !!(income.extra || expenses.extra),
   };
   const plData = { income, cogs, expenses, otherExp, net, netCmp, netTrend, gross, grossCmp, grossTrend };
 
@@ -493,7 +548,8 @@ function drawBody(body) {
             presetLabel + (mode2 ? ` vs ${compactRangeLabel(cmpRange)}` : modeTrend ? ' · monthly trend' : '')),
           el('div', { class: 'pl-controls no-print' }, s.rangeCtl.el,
             el('span', { class: 'field-label', style: 'margin:0;white-space:nowrap' }, 'Compare to'),
-            compareSel, pctToggle)),
+            compareSel, pctToggle, reviewToggle),
+          reviewNote),
         hasActivity ? (modeTrend ? el('div', { style: 'overflow-x:auto' }, el('table', { class: 'data xl-stmt cmp' }, ...plRows)) : el('table', { class: 'data xl-stmt' + ((mode2 || pctOn) ? ' cmp' : '') }, ...plRows)) : el('p', { class: 'sub' }, 'No activity in this range.')),
       el('div', { class: 'card', style: 'flex:1;min-width:330px;max-width:460px' },
         el('div', { style: 'margin-bottom:10px' },
@@ -508,6 +564,6 @@ function drawBody(body) {
         el('div', { class: 'cardtitle' }, 'Tax set-aside estimate'),
         el('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:8px' }, rateIn, el('span', { class: 'sub', style: 'margin:0' }, '% of net profit')),
         el('div', { class: 'kpi' }, fmtMoney(setAside)),
-        el('p', { class: 'sub' }, `${rate}% of ${fmtMoney(net)} net for the selected range. A rough planning number — not tax advice.`))),
+        el('p', { class: 'sub' }, `${rate}% of ${fmtMoney(netPosted)} posted net for the selected range. A rough planning number — not tax advice.`))),
   );
 }
