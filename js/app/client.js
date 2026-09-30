@@ -71,6 +71,8 @@ function route() {
 // seeded from the row's current suggested* fields the first time the row is opened.
 const drafts = new Map();
 const editing = new Set();   // already-suggested rows the client re-opened to edit
+// A blank split line — account + amount + per-line vendor / invoice / note (all directions).
+const emptySplitLine = () => ({ accountId: '', accountName: '', amt: '', vendorId: '', vendorName: '', invoiceId: '', note: '' });
 function draftFor(row) {
   let d = drafts.get(row.id);
   if (!d) {
@@ -80,8 +82,8 @@ function draftFor(row) {
       accountId: row.suggestedAccountId || '', accountName: row.suggestedAccountName || '',
       invoiceId: row.suggestedInvoiceId || '', note: row.clientNote || '',
       splitMode: sp.length >= 2,
-      split: sp.length >= 2 ? sp.map(l => ({ accountId: l.accountId || '', accountName: l.accountName || '', amt: ((l.amountCents || 0) / 100).toFixed(2) }))
-                            : [{ accountId: '', accountName: '', amt: '' }, { accountId: '', accountName: '', amt: '' }],
+      split: sp.length >= 2 ? sp.map(l => ({ accountId: l.accountId || '', accountName: l.accountName || '', amt: ((l.amountCents || 0) / 100).toFixed(2), vendorId: l.vendorId || '', vendorName: l.vendorName || '', invoiceId: l.invoiceId || '', note: l.note || '' }))
+                            : [emptySplitLine(), emptySplitLine()],
       sent: null,   // null | 'ok' | 'err'
     };
     drafts.set(row.id, d);
@@ -167,12 +169,22 @@ function suggestMatches(s, q, vendorsById) {
 
 // A proposed split → the payload lines (positive cents; an id wins over a typed name).
 function splitPayload(row, d) {
+  const useInv = usesInvoices();
   return d.split
     .map(l => {
       // Prefer the LIVE combobox (l._sel) so a still-focused account line isn't sent truncated.
       const id = l._sel ? (l._sel.value || '') : (l.accountId || '');
       const name = id ? '' : (l._sel ? (l._sel.inputText || '').trim() : (l.accountName || '').trim());
-      return { accountId: id, accountName: name, amountCents: parseMoney(l.amt) || 0 };
+      // Vendor is a freeText picker → read the LIVE box (id wins, else the typed new-vendor name) so a
+      // still-focused name isn't sent truncated. Invoice is a plain picker → its .value is authoritative.
+      const vId = l._venSel ? (l._venSel.value || '') : (l.vendorId || '');
+      const vName = vId ? '' : (l._venSel ? (l._venSel.inputText || '').trim() : (l.vendorName || '').trim());
+      const invId = useInv ? (l._invSel ? (l._invSel.value || '') : (l.invoiceId || '')) : '';
+      const line = { accountId: id, accountName: name, amountCents: parseMoney(l.amt) || 0 };
+      if (vId) line.vendorId = vId; else if (vName) line.vendorName = vName;
+      if (invId) line.invoiceId = invId;
+      const note = (l.note || '').trim(); if (note) line.note = note;
+      return line;
     })
     .filter(l => (l.accountId || l.accountName) && l.amountCents > 0);
 }
@@ -253,7 +265,9 @@ function suggestRowFull(row, { vendors, invs, showInvoices, draw }) {
 
   const invSel = showInvoices ? combobox({ groups: [{ label: '', items: [{ value: '', label: '— none —' }, ...invs.map(i => ({ value: i.id, label: `#${i.number || i.id} · ${(i.clientName || '').slice(0, 28)}` }))] }], value: d.invoiceId || '', placeholder: 'Find invoice…', minWidth: 0 }) : null;
   if (invSel) invSel.addEventListener('change', () => { d.invoiceId = invSel.value; });
-  const invField = invSel ? field('Invoice', invSel) : null;
+  // In split mode the whole-txn vendor + invoice move to the per-line rows, so hide them here.
+  const venField = d.splitMode ? null : field('Vendor', venSel);
+  const invField = (invSel && !d.splitMode) ? field('Invoice', invSel) : null;
   // A single-account transfer (bank/card) carries no invoice — hide the field when one is picked. A
   // SPLIT can carry an invoice, so never hide it in split mode (d.accountId may still hold a stale
   // bank id from a transfer picked before toggling Split).
@@ -273,9 +287,11 @@ function suggestRowFull(row, { vendors, invs, showInvoices, draw }) {
   note.value = d.note || '';
   note.addEventListener('input', () => { d.note = note.value; });
 
-  const splitNode = d.splitMode ? splitBlock(row, d, groups, btn) : null;
+  const splitNode = d.splitMode ? splitBlock(row, d, groups, btn, { vendors, invs, showInvoices }) : null;
   const splitToggle = el('button', { class: 'sugg-splittog' + (d.splitMode ? ' on' : ''), type: 'button', title: 'Split this across several accounts',
-    onclick: () => { d.splitMode = !d.splitMode; if (d.splitMode && d.split.length < 2) d.split = [{ accountId: '', accountName: '', amt: '' }, { accountId: '', accountName: '', amt: '' }]; draw(); } },
+    // Turning Split ON moves vendor/invoice to the per-line rows — clear the whole-txn ones so a value
+    // picked before toggling can't leak into the payload and blanket-tag the split.
+    onclick: () => { d.splitMode = !d.splitMode; if (d.splitMode) { d.vendorId = ''; d.vendorName = ''; d.invoiceId = ''; if (d.split.length < 2) d.split = [emptySplitLine(), emptySplitLine()]; } draw(); } },
     el('span', { class: 'ms', style: 'font-size:15px' }, 'call_split'), d.splitMode ? 'Split on' : 'Split');
 
   const errBox = el('div', { class: 'sugg-sent err', hidden: d.sent !== 'err' }, el('span', { class: 'ms', style: 'font-size:15px' }, 'error'), el('span', {}, 'Couldn’t send. Check your connection and try again.'));
@@ -296,14 +312,23 @@ function suggestRowFull(row, { vendors, invs, showInvoices, draw }) {
       // typed text to the draft when it CLOSES, so clicking Suggest while a field is still
       // focused would otherwise send a stale/partial name — that's how "person" arrived as
       // "perso". Reading .inputText/.value here captures exactly what's in the box.
-      d.vendorId = venSel.value || ''; d.vendorName = d.vendorId ? '' : (venSel.inputText || '').trim();
-      if (acctSel) { d.accountId = acctSel.value || ''; d.accountName = d.accountId ? '' : (acctSel.inputText || '').trim(); }
-      // A single-account transfer carries no invoice, whatever the (hidden) box still holds; a split can.
-      if (invSel) d.invoiceId = (!d.splitMode && isBankishAcct(d.accountId)) ? '' : (invSel.value || '');
       d.note = note.value || '';
-      const payload = { stagedId: row.id, clientNote: (d.note || '').trim(), suggestedVendorId: d.vendorId || '', suggestedVendorName: d.vendorId ? '' : (d.vendorName || '').trim(), suggestedInvoiceId: d.invoiceId || '' };
-      if (d.splitMode) { payload.suggestedSplit = splitPayload(row, d); payload.suggestedAccountId = ''; payload.suggestedAccountName = ''; }
-      else { payload.suggestedAccountId = d.accountId || ''; payload.suggestedAccountName = d.accountId ? '' : (d.accountName || '').trim(); payload.suggestedSplit = []; }
+      const payload = { stagedId: row.id, clientNote: (d.note || '').trim() };
+      if (d.splitMode) {
+        // Split mode: vendor / invoice / account live PER LINE — send no whole-txn ones.
+        payload.suggestedSplit = splitPayload(row, d);
+        payload.suggestedVendorId = ''; payload.suggestedVendorName = ''; payload.suggestedInvoiceId = '';
+        payload.suggestedAccountId = ''; payload.suggestedAccountName = '';
+      } else {
+        d.vendorId = venSel.value || ''; d.vendorName = d.vendorId ? '' : (venSel.inputText || '').trim();
+        if (acctSel) { d.accountId = acctSel.value || ''; d.accountName = d.accountId ? '' : (acctSel.inputText || '').trim(); }
+        // A single-account transfer carries no invoice, whatever the (hidden) box still holds.
+        if (invSel) d.invoiceId = isBankishAcct(d.accountId) ? '' : (invSel.value || '');
+        payload.suggestedVendorId = d.vendorId || ''; payload.suggestedVendorName = d.vendorId ? '' : (d.vendorName || '').trim();
+        payload.suggestedInvoiceId = d.invoiceId || '';
+        payload.suggestedAccountId = d.accountId || ''; payload.suggestedAccountName = d.accountId ? '' : (d.accountName || '').trim();
+        payload.suggestedSplit = [];
+      }
       const res = await api(`/b/${biz}/suggest`, { method: 'POST', body: JSON.stringify(payload) });
       ok = res.ok;
       if (!ok) { reason = `the server refused it (${res.status})`; const j = await res.json().catch(() => null); if (j && j.error) reason = `${j.error} (${res.status})`; }
@@ -328,16 +353,17 @@ function suggestRowFull(row, { vendors, invs, showInvoices, draw }) {
   return el('div', { class: 'revrow' },
     el('div', { class: 'revmain' },
       el('div', { class: 'revtop' }, dot, el('span', { class: 'revdate' }, row.date), el('span', { class: 'revdesc', style: 'flex:1' }, row.desc || ''), amtEl),
-      el('div', { class: 'revfields' }, field('Vendor', venSel), acctField, invField),
+      el('div', { class: 'revfields' }, venField, acctField, invField),
       splitNode,
       el('div', { class: 'revnote' }, el('label', { class: 'field-label', style: 'margin:0 0 2px' }, 'Note'), note),
       errBox,
       el('div', { class: 'sugg-foot' }, splitToggle, el('span', { style: 'flex:1' }), btn)));
 }
 
-// The in-row split editor: 2+ account lines that must add up to the charge before the
-// row can be suggested. Mirrors the owner's Review split (same balance check).
-function splitBlock(row, d, groups, btn) {
+// The in-row split editor: 2+ lines that must add up to the charge before the row can be suggested.
+// Each line carries account + amount + its own vendor / invoice / note (mirrors the owner's Review
+// split). Every field re-seeds from the draft line on each rebuild so add/remove never wipes a value.
+function splitBlock(row, d, groups, btn, { vendors = [], invs = [], showInvoices = false } = {}) {
   const total = Math.abs(row.amountCents);
   const linesBox = el('div');
   const bal = el('div', { class: 'split-remind' });
@@ -359,12 +385,29 @@ function splitBlock(row, d, groups, btn) {
     const amt = el('input', { class: 'field-input', inputmode: 'decimal', placeholder: '$', style: 'width:92px;text-align:right;margin:0', value: l.amt || '' });
     amt.addEventListener('input', () => { l.amt = amt.value; updateBal(); });
     const rm = el('button', { class: 'sugg-rm', type: 'button', title: 'Remove line', onclick: () => { if (d.split.length > 2) { const i = d.split.indexOf(l); if (i >= 0) d.split.splice(i, 1); renderLines(); updateBal(); } } }, '×');
-    return el('div', { class: 'sugg-splitrow' }, sel, amt, rm);
+    const topRow = el('div', { class: 'sugg-splitrow' }, sel, amt, rm);
+    // Per-line vendor (freeText — propose a NEW vendor by name), invoice (existing only), and note.
+    const ven = combobox({ groups: [{ label: '', items: vendors.map(v => ({ value: v.id, label: v.name })) }], value: l.vendorId || '', text: l.vendorId ? '' : (l.vendorName || ''), placeholder: 'Vendor…', minWidth: 0, freeText: true, emptyText: 'New vendor — the owner adds it' });
+    l._venSel = ven;
+    ven.style.cssText = 'flex:1;min-width:108px';
+    ven.addEventListener('change', () => { l.vendorId = ven.value; l.vendorName = ven.value ? '' : ven.inputText; });
+    let inv = null;
+    if (showInvoices) {
+      inv = combobox({ groups: [{ label: '', items: [{ value: '', label: '— invoice —' }, ...invs.map(i => ({ value: i.id, label: `#${i.number || i.id} · ${(i.clientName || '').slice(0, 22)}` }))] }], value: l.invoiceId || '', placeholder: 'Invoice…', minWidth: 0 });
+      l._invSel = inv;
+      inv.style.cssText = 'flex:1;min-width:108px';
+      inv.addEventListener('change', () => { l.invoiceId = inv.value; });
+    }
+    const noteIn = el('input', { class: 'field-input', placeholder: 'Note…', style: 'flex:1.4;min-width:108px;margin:0', value: l.note || '' });
+    noteIn.addEventListener('input', () => { l.note = noteIn.value; });
+    const detailRow = el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px' }, ...[ven, inv, noteIn].filter(Boolean));
+    return el('div', {}, topRow, detailRow);
   }));
-  const add = el('button', { class: 'btn sm ghost', type: 'button', onclick: () => { d.split.push({ accountId: '', accountName: '', amt: '' }); renderLines(); updateBal(); } }, '＋ Add account');
+  const add = el('button', { class: 'btn sm ghost', type: 'button', onclick: () => { d.split.push(emptySplitLine()); renderLines(); updateBal(); } }, '＋ Add line');
   renderLines(); updateBal();
   return el('div', { class: 'sugg-split' },
-    el('div', { class: 'field-label', style: 'margin:0 0 4px' }, 'Split across accounts'),
+    el('div', { class: 'field-label', style: 'margin:0 0 4px' }, 'Split this transaction'),
+    (showInvoices && row.amountCents > 0) ? el('p', { class: 'sub', style: 'margin:0 0 6px;font-size:11px' }, 'Paying more than one invoice? Add a line per invoice and tag each — one deposit can settle several.') : null,
     linesBox, add, bal);
 }
 

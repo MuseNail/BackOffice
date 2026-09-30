@@ -37,6 +37,11 @@ export function renderRegister(opts) {
 function drawRegister(body, opts, state) {
   const { title, subtitle, backHash, backLabel, getTxns, focusAccountId, filename } = opts;
   const isAcct = !!focusAccountId;
+  // A caller (the per-vendor NET register) can relabel the amount column and turn OFF the
+  // red/green coloring — acctAmount's neg→red / pos→green reads inverted for a vendor net
+  // (money paid vs money refunded), so a plain amount with its minus sign is clearer.
+  const amtLabel = isAcct ? 'Amount' : (opts.amountLabel || 'Spent');
+  const amtColored = opts.amountColored !== false;
   const byId = new Map(entities('account').map(a => [a.id, a]));
   const filtered = (getTxns() || []).filter(t => inRange(t.date, state.from, state.to));
   // amountOf lets a caller (the per-vendor register) credit only THIS vendor's split lines,
@@ -77,7 +82,7 @@ function drawRegister(body, opts, state) {
         el('td', {}, prettyDesc(t.payee) || '—'),
         el('td', {}, otherSide(t, focusAccountId || '', byId)),
         el('td', {}, t.memo || ''),
-        el('td', { class: 'num' }, acctAmount(amt, { colored: true, sign: isAcct })),
+        el('td', { class: 'num' }, acctAmount(amt, { colored: amtColored, sign: isAcct })),
         isAcct ? el('td', { class: 'num' }, acctAmount(balAfter.get(t.id) || 0, { colored: true })) : null)];
     }
     const detail = el('tr', { class: 'txrow-detail' },
@@ -97,7 +102,7 @@ function drawRegister(body, opts, state) {
       el('td', { class: 'txinline' }, vendorField(t)),
       el('td', { class: 'txinline' }, memoField(t)),
       showInv ? el('td', { class: 'txinline' }, invoiceField(t)) : null,
-      el('td', { class: 'num' }, acctAmount(amt, { colored: true, sign: isAcct })),
+      el('td', { class: 'num' }, acctAmount(amt, { colored: amtColored, sign: isAcct })),
       isAcct ? el('td', { class: 'num' }, acctAmount(balAfter.get(t.id) || 0, { colored: true })) : null);
     return [summary, detail];
   });
@@ -120,7 +125,7 @@ function drawRegister(body, opts, state) {
       el('span', { style: 'flex:1' }),
       el('span', { class: 'field-label', style: 'margin:0' }, 'Period'), state.rangeCtl.el,
       el('button', { class: 'btn sm ghost', onclick: () => window.print() }, 'Print / PDF'),
-      el('button', { class: 'btn sm ghost', onclick: () => downloadCsv(filename, buildCsv(title, subtitle, rows, focusAccountId, byId, opts.amountOf)) }, 'Export CSV')),
+      el('button', { class: 'btn sm ghost', onclick: () => downloadCsv(filename, buildCsv(title, subtitle, rows, focusAccountId, byId, opts.amountOf, amtLabel)) }, 'Export CSV')),
     opts.modal ? null : el('h2', {}, title),   // the modal head already shows the title
     subtitle ? el('p', { class: 'sub' }, subtitle) : null,
     el('div', { class: 'card', style: 'padding:0;overflow-x:auto' },
@@ -134,7 +139,7 @@ function drawRegister(body, opts, state) {
                    el('th', { class: 'txinline' }, 'Memo'),
                    showInv ? el('th', { class: 'txinline' }, 'Invoice') : null]
                 : [el('th', {}, 'Account'), el('th', {}, 'Memo')],
-              th('amount', isAcct ? 'Amount' : 'Spent', 'num'),
+              th('amount', amtLabel, 'num'),
               isAcct ? el('th', { class: 'num' }, 'Balance') : null)),
             el('tbody', {}, ...trs),
             el('tfoot', {}, el('tr', {},
@@ -145,7 +150,7 @@ function drawRegister(body, opts, state) {
   );
 }
 
-function buildCsv(title, subtitle, rows, focusAccountId, byId, amountOf) {
+function buildCsv(title, subtitle, rows, focusAccountId, byId, amountOf, amountLabel) {
   const esc = (v) => { const t = String(v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
   const d = (c) => (c / 100).toFixed(2);
   const isAcct = !!focusAccountId;
@@ -158,7 +163,7 @@ function buildCsv(title, subtitle, rows, focusAccountId, byId, amountOf) {
     for (const t of rows) { const a = lineOn(t, focusAccountId); running += a; total += a; line(t.date, t.payee || '', otherSide(t, focusAccountId, byId), t.memo || '', d(a), d(running)); }
     line('', '', '', 'Total', d(total), '');
   } else {
-    line('Date', 'Payee', 'Account', 'Memo', 'Spent');
+    line('Date', 'Payee', 'Account', 'Memo', amountLabel || 'Spent');
     let total = 0;
     for (const t of rows) { const a = amountOf ? amountOf(t) : magnitude(t); total += a; line(t.date, t.payee || '', otherSide(t, '', byId), t.memo || '', d(a)); }
     line('', '', '', 'Total', d(total));

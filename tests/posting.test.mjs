@@ -1,7 +1,7 @@
 // node --test tests/posting.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateTxn, simpleTxn, voidTxn, accountBalance, activityByAccount, profitAndLoss, periodKey, invoiceExpensesTotal, splitParts, lineInvoiceId, resolveSplitInvoiceTags } from '../js/app/lib/posting.js';
+import { validateTxn, simpleTxn, voidTxn, accountBalance, activityByAccount, profitAndLoss, periodKey, invoiceExpensesTotal, splitParts, lineInvoiceId, resolveSplitInvoiceTags, buildSplitCatLines } from '../js/app/lib/posting.js';
 import { parseMoney, fmtCents } from '../js/app/lib/money.js';
 
 const accounts = new Map([
@@ -193,4 +193,50 @@ test('invoiceExpensesTotal: a per-line tag overrides the txn-level tag only for 
   ] };
   assert.equal(invoiceExpensesTotal([t], accts, 'invA'), 10000);
   assert.equal(invoiceExpensesTotal([t], accts, 'invB'), 20000);
+});
+
+// ── buildSplitCatLines — the one shared builder both approve paths use ──────────
+// Input lines carry a POSITIVE magnitude + optional resolved vendorId / invoiceId / note.
+test('buildSplitCatLines: expense split keeps per-line vendor/invoice/note; two invoices stay per-line', () => {
+  const out = buildSplitCatLines({ isExpense: true, lines: [
+    { accountId: 'supplies', amountCents: 6000, vendorId: 'v-a', note: 'paper', invoiceId: 'invA' },
+    { accountId: 'cogs', amountCents: 4000, vendorId: 'v-b', invoiceId: 'invB' },
+  ] });
+  assert.equal(out.txnInvoiceId, undefined, 'two distinct invoices stay per-line');
+  assert.deepEqual(out.catLines, [
+    { accountId: 'supplies', amountCents: 6000, vendorId: 'v-a', note: 'paper', invoiceId: 'invA' },
+    { accountId: 'cogs', amountCents: 4000, vendorId: 'v-b', invoiceId: 'invB' },
+  ]);
+});
+
+test('buildSplitCatLines: money-in splits sign category lines negative (credit) and keep vendor', () => {
+  const out = buildSplitCatLines({ isExpense: false, lines: [
+    { accountId: 'income', amountCents: 7000, vendorId: 'v-a' },
+    { accountId: 'income', amountCents: 3000 },
+  ] });
+  assert.equal(out.catLines[0].amountCents, -7000);
+  assert.equal(out.catLines[1].amountCents, -3000);
+  assert.equal(out.catLines[0].vendorId, 'v-a');
+  assert.equal(out.txnInvoiceId, undefined);
+});
+
+test('buildSplitCatLines: all lines one invoice collapse to txn level; vendor+note survive', () => {
+  const out = buildSplitCatLines({ isExpense: true, lines: [
+    { accountId: 'supplies', amountCents: 6000, vendorId: 'v-a', invoiceId: 'invA' },
+    { accountId: 'cogs', amountCents: 4000, note: 'x', invoiceId: 'invA' },
+  ] });
+  assert.equal(out.txnInvoiceId, 'invA');
+  assert.equal(out.catLines[0].invoiceId, undefined, 'per-line invoice dropped on collapse');
+  assert.equal(out.catLines[1].invoiceId, undefined);
+  assert.equal(out.catLines[0].vendorId, 'v-a', 'vendor survives the collapse');
+  assert.equal(out.catLines[1].note, 'x', 'note survives the collapse');
+});
+
+test('buildSplitCatLines: no per-line invoice uses the fallback (client-suggested) invoice at txn level', () => {
+  const out = buildSplitCatLines({ isExpense: false, fallbackInvoiceId: 'sugg', lines: [
+    { accountId: 'income', amountCents: 5000 },
+    { accountId: 'income', amountCents: 5000 },
+  ] });
+  assert.equal(out.txnInvoiceId, 'sugg');
+  assert.equal(out.catLines[0].invoiceId, undefined);
 });

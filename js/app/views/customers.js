@@ -56,6 +56,7 @@ function renderCustomerRegister(root, id) {
     root, title: c.name, subtitle: 'Customer transactions',
     backHash: `/b/${biz}/customers`, backLabel: 'Customers',
     filename: `${biz}-${slug(c.name)}-transactions.csv`,
+    amountLabel: 'Received',   // money IN from a customer — not "Spent" (the register default)
     getTxns: () => txnsForCustomer(c),
   });
 }

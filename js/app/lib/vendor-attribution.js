@@ -22,20 +22,33 @@ export function hasAnyVendor(txn) {
   return !!(txn && (txn.vendorId || (txn.lines || []).some(l => l && l.vendorId)));
 }
 
-// The expense LINES of `txn` credited to `vendorId`. `expenseIds` = Set of expense-type
-// account ids. `payeeMatch`: the caller included this txn for the vendor ONLY via a payee
-// match — a legacy untagged txn — so attribute ALL its expense lines (preserve the pre-
-// per-line-vendor total). The payee-match branch applies only when the txn has NO vendor
-// tag anywhere; a txn that DOES carry a vendor is always attributed by the tag.
-export function vendorLinesOf(txn, vendorId, expenseIds, { payeeMatch = false } = {}) {
-  const lines = (txn?.lines || []).filter(l => l && expenseIds.has(l.accountId));
-  if (payeeMatch && !hasAnyVendor(txn)) return lines;
-  return lines.filter(l => lineVendorId(l, txn) === vendorId);
+const EMPTY = new Set();
+// The category LINES of `txn` credited to `vendorId`. `expenseIds` / `incomeIds` = Sets of expense-
+// and income-type account ids.
+//   • EXPENSE line: `payeeMatch` (a legacy untagged txn matched only by payee) attributes ALL expense
+//     lines — the pre-per-line total; otherwise the line is credited by lineVendorId (line → txn
+//     fallback). payeeMatch applies only when the txn has NO vendor tag anywhere.
+//   • INCOME line: credited ONLY by its OWN explicit `line.vendorId` — never the txn-level fallback,
+//     never payeeMatch. This is deliberate: it keeps existing deposits that carry only a txn-level
+//     vendor (e.g. a "Square" card deposit) from retroactively netting their gross income into a vendor.
+export function vendorLinesOf(txn, vendorId, expenseIds, incomeIds = EMPTY, { payeeMatch = false } = {}) {
+  const out = [];
+  const legacyAllExpense = payeeMatch && !hasAnyVendor(txn);
+  for (const l of (txn?.lines || [])) {
+    if (!l) continue;
+    if (expenseIds && expenseIds.has(l.accountId)) {
+      if (legacyAllExpense || lineVendorId(l, txn) === vendorId) out.push(l);
+    } else if (incomeIds && incomeIds.has(l.accountId)) {
+      if (l.vendorId === vendorId) out.push(l);   // explicit line tag only
+    }
+  }
+  return out;
 }
 
-// Total expense (cents) credited to `vendorId`.
-export function expenseForVendor(txn, vendorId, expenseIds, opts) {
-  return vendorLinesOf(txn, vendorId, expenseIds, opts).reduce((s, l) => s + l.amountCents, 0);
+// NET activity (cents, debit-positive) credited to `vendorId`: expenses add, income (a credit, so a
+// negative amount) nets down — a vendor's total is money-paid − money-received.
+export function activityForVendor(txn, vendorId, expenseIds, incomeIds, opts) {
+  return vendorLinesOf(txn, vendorId, expenseIds, incomeIds, opts).reduce((s, l) => s + l.amountCents, 0);
 }
 
 // Rewrite every reference to `fromId` — top-level AND per-line — onto `toId`, for a vendor

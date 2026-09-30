@@ -141,11 +141,22 @@ export class BusinessDO {
       // lines; otherwise a single-account suggestion (above) stands. The owner confirms
       // and posts it — this only records the proposal, never touches the ledger.
       const split = Array.isArray(suggestedSplit)
-        ? suggestedSplit.slice(0, 20).map(l => ({
-            accountId: l && l.accountId ? String(l.accountId) : '',
-            accountName: l && !l.accountId && l.accountName ? String(l.accountName).slice(0, 120) : '',
-            amountCents: (l && Number.isInteger(l.amountCents) && l.amountCents > 0) ? l.amountCents : 0,
-          })).filter(l => (l.accountId || l.accountName) && l.amountCents > 0)
+        ? suggestedSplit.slice(0, 20).map(l => {
+            const line = {
+              accountId: l && l.accountId ? String(l.accountId) : '',
+              accountName: l && !l.accountId && l.accountName ? String(l.accountName).slice(0, 120) : '',
+              amountCents: (l && Number.isInteger(l.amountCents) && l.amountCents > 0) ? l.amountCents : 0,
+            };
+            // Per-line detail (v3): vendor (an id, or a proposed-new name), invoice, note. The owner
+            // reviews before posting, so there's no existence check here — mirrors the top-level
+            // suggested* fields. A picked id wins over a typed name.
+            const vId = l && l.vendorId ? String(l.vendorId) : '';
+            if (vId) line.vendorId = vId;
+            else if (l && l.vendorName) line.vendorName = String(l.vendorName).slice(0, 120);
+            if (l && l.invoiceId) line.invoiceId = String(l.invoiceId).slice(0, 120);
+            if (l && l.note) line.note = String(l.note).slice(0, 500);
+            return line;
+          }).filter(l => (l.accountId || l.accountName) && l.amountCents > 0)
         : [];
       const merged = {
         ...existing,

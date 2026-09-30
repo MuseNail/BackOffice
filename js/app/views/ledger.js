@@ -250,13 +250,21 @@ function drawTable(host, editable) {
       vendCell = el('span', { class: 'txi-static' },
         lineVends.size >= 2 ? `Split — ${lineVends.size} vendors` : (vd ? vd.name : (oneLineVend ? oneLineVend.name : '—')));
       memoCell = el('span', { class: 'txi-static' }, t.memo || '—');
-      invCell = showInv ? el('span', { class: 'txi-static' }, iv0 ? `#${iv0.number || iv0.id}` : '—') : null;
+      // A split tagged to 2+ distinct invoices shows a summary; one line-tagged invoice with no
+      // top-level invoice shows that line's (not a misleading '—').
+      const lineInvs = new Set((t.lines || []).map(l => l.invoiceId).filter(Boolean));
+      const oneLineInv = lineInvs.size === 1 ? invById.get([...lineInvs][0]) : null;
+      invCell = showInv ? el('span', { class: 'txi-static' },
+        lineInvs.size >= 2 ? `Split — ${lineInvs.size} invoices` : (iv0 ? `#${iv0.number || iv0.id}` : (oneLineInv ? `#${oneLineInv.number || oneLineInv.id}` : '—'))) : null;
     }
     const gcell = (lbl, node) => el('div', {}, el('span', { class: 'txglbl' }, lbl), node);
     // A grouped deposit lists its invoices in the memo; surface them as clickable
     // chips so you can see (and open) every invoice a single deposit paid. Shown only
     // when the memo resolves to invoices the per-row Invoice field doesn't already cover.
-    const covered = showInv ? coveredInvoices(t.memo, invByNum) : [];
+    // Chips for every invoice a deposit paid — from the memo AND from per-line income tags (a split
+    // deposit lists its invoices per line, not in the memo). Deduped by id.
+    const perLineInvs = showInv ? [...new Set((t.lines || []).map(l => l.invoiceId).filter(Boolean))].map(id => invById.get(id)).filter(Boolean) : [];
+    const covered = showInv ? [...new Map([...coveredInvoices(t.memo, invByNum), ...perLineInvs].map(iv => [iv.id, iv])).values()] : [];
     const coversLine = (covered.length && (!t.invoiceId || covered.length > 1))
       ? el('div', { style: 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:6px' },
           el('span', { class: 'txglbl' }, 'Covers'),
@@ -516,9 +524,11 @@ export function editTxnModal(t) {
   // metadata-only path below (date/payee/memo/vendor only; a simple reconciled txn still gets a
   // single account re-point via catSel). No editor path ever rewrites those lines on save.
   const canSplit = !isRecon && isSplittable;
-  // Per-line invoice on an EXPENSE split only (money-out): each split line can carry its own invoice
-  // for per-invoice job-costing. Income splits keep the txn-level invoice tag (recognition is txn-level).
-  const perLineInvoice = canSplit && !!(bankLine && bankLine.amountCents < 0) && usesInvoices();
+  // Per-line invoice on BOTH directions (v3): a money-out split charges each line to its own job/invoice
+  // (margin); a money-in split lets one deposit pay several invoices per line (income recognition is now
+  // per-line — invoice-ledger-status.js). Without this, re-saving an income split would drop its per-line
+  // invoice tags and the invoices would flip back to unpaid.
+  const perLineInvoice = canSplit && usesInvoices();
   let split = null;
   let catSel = null;
   if (canSplit) {
@@ -595,6 +605,19 @@ export function editTxnModal(t) {
           txnInvoiceId = invSel ? (invSel.value || undefined) : t.invoiceId;
         }
         const updated = { ...t, date: newDate, payee: payee.value.trim(), memo: memo.value.trim(), lines: newLines, vendorId: vendSel.value || undefined, invoiceId: txnInvoiceId };
+        // Income → vendor is attributed PER LINE (no txn-level fallback). On a PURE income txn (every
+        // category line is income — a refund or a multi-invoice customer deposit), move a single line's
+        // vendor onto it so it nets, and drop the now-meaningless txn-level vendor. A MIXED txn (a
+        // fee-split deposit, a journal with an expense line) KEEPS its txn-level vendor — that expense
+        // line still attributes to it via the line→txn fallback; clearing it would strand that attribution.
+        const catLinesU = updated.lines.filter(l => !bankish(byId.get(l.accountId)));
+        const allIncome = catLinesU.length > 0 && catLinesU.every(l => byId.get(l.accountId)?.type === 'income');
+        if (allIncome) {
+          if (catLinesU.length === 1 && vendSel.value && !catLinesU[0].vendorId) {
+            updated.lines = updated.lines.map(l => l === catLinesU[0] ? { ...l, vendorId: vendSel.value } : l);
+          }
+          updated.vendorId = undefined;
+        }
         const v = validateTxn(updated, ctx());
         if (!v.ok) { toast(v.error, 'err'); return; }
         dispatch({ op: 'entity.upsert', kind: 'txn', value: updated });

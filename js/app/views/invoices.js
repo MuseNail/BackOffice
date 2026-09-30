@@ -740,11 +740,12 @@ function payoutFeeModal(inv) {
 }
 
 function confirmDeleteInvoice(inv) {
-  const posted = entities('txn').some(t => t.invoiceId === inv.id && (t.source?.app === 'i2g-cashflow' || t.source?.app === 'invoice2go'));
+  // Per-line-aware: a posted txn (or a single split LINE) tagged to this invoice — income or expense.
+  const tagged = entities('txn').some(t => t.status === 'posted' && (t.lines || []).some(l => lineInvoiceId(l, t) === inv.id));
   const m = modal('Delete this invoice?');
   m.body.append(
     el('p', {}, `Delete invoice #${inv.number} for ${inv.clientName || 'this client'}? This removes the A/R record.`),
-    posted ? el('p', { class: 'sub' }, 'Some payments were already posted to the ledger — those transactions stay posted (remove them in the Ledger if needed).') : el('span'),
+    tagged ? el('p', { class: 'sub' }, 'Some transactions are tagged to this invoice — they stay posted (edit them in the Ledger if needed).') : el('span'),
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Keep it'),
       el('button', { class: 'btn', style: 'background:var(--red)', onclick: () => {
@@ -990,12 +991,17 @@ function renderReconcile(root) {
 
   const draw = () => {
     const bank = banks.find(b => b.id === bankId), acct = bank.accountId;
+    // A deposit is "linked" when it carries a txn-level invoice OR any income line tagged per-line
+    // (a multi-invoice split) — either way it's off the needs-attention list and must not be clobbered
+    // by a one-click single-invoice link.
+    const incomeIds = new Set(entities('account').filter(a => a.type === 'income').map(a => a.id));
+    const hasPerLineIncomeInvoice = (t) => (t.lines || []).some(l => l.invoiceId && incomeIds.has(l.accountId));
     // Scope to the app-owned period (Invoice2go start date) — earlier deposits belong to
     // QuickBooks (already reconciled) and would just be noise in this Invoice2go view.
     const cutoff = getState().meta?.i2gCutoff || '2026-03-01';
     // deposits = money IN on this bank, on/after the cutoff: posted txns + newly imported (staged) rows
     const posted = entities('txn').filter(t => t.status === 'posted' && !/^(i2gc-|i2gpo-)/.test(t.id) && (t.date || '') >= cutoff)
-      .map(t => ({ id: t.id, date: t.date, amountCents: (t.lines || []).reduce((s, l) => s + (l.accountId === acct ? l.amountCents : 0), 0), kind: 'posted', payee: t.payee || '—', invoiceId: t.invoiceId || '' }))
+      .map(t => ({ id: t.id, date: t.date, amountCents: (t.lines || []).reduce((s, l) => s + (l.accountId === acct ? l.amountCents : 0), 0), kind: 'posted', payee: t.payee || '—', invoiceId: t.invoiceId || '', linked: !!t.invoiceId || hasPerLineIncomeInvoice(t) }))
       .filter(d => d.amountCents > 0);
     const staged = entities('staged').filter(s => s.bankacctId === bankId && s.status === 'pending' && (s.amountCents || 0) > 0 && (s.date || '') >= cutoff)
       .map(s => ({ id: s.id, date: s.date, amountCents: s.amountCents, kind: 'new', payee: s.desc || '—' }));
@@ -1037,8 +1043,8 @@ function renderReconcile(root) {
     const incomeId = getState().meta?.i2gMapping?.incomeId;
     const incomeName = (entities('account').find(a => a.id === incomeId) || {}).name || 'invoice income';
     const invs = entities('invoice').slice().sort((a, b) => String(b.number || '').localeCompare(String(a.number || '')));
-    // Needs-attention list: drop deposits already linked to an invoice (posted + tagged).
-    const otherIncome = unmatchedDeposits.filter(d => !d.invoiceId).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    // Needs-attention list: drop deposits already linked to an invoice (txn-level OR per-line split).
+    const otherIncome = unmatchedDeposits.filter(d => !d.linked).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     const linkedCount = unmatchedDeposits.length - otherIncome.length;
 
     // Posting a matched deposit RECOGNIZES the income (these were never on the books) to the
@@ -1057,9 +1063,12 @@ function renderReconcile(root) {
         dispatch({ op: 'entity.upsert', kind: 'txn', value: txn });
         dispatch({ op: 'entity.upsert', kind: 'staged', value: { ...row, status: 'approved', txnId: txn.id, categoryId: incomeId, invoiceId } });
       } else {
-        if (!quiet && !confirm(`Link this ${fmtMoney(Math.abs(dep.amountCents))} deposit (already recorded as income) to invoice #${inv?.number || '?'}?`)) return false;
         const t = entities('txn').find(x => x.id === dep.id);
         if (!t) return false;
+        // Never blanket-tag a deposit that's already split across invoices per-line — that would strand
+        // its per-line tags. Send the owner to the Ledger split editor instead.
+        if (hasPerLineIncomeInvoice(t)) { toast('This deposit is already split across invoices — edit it in the Ledger.', 'err'); return false; }
+        if (!quiet && !confirm(`Link this ${fmtMoney(Math.abs(dep.amountCents))} deposit (already recorded as income) to invoice #${inv?.number || '?'}?`)) return false;
         dispatch({ op: 'entity.upsert', kind: 'txn', value: { ...t, invoiceId, updatedAt: Date.now() } });
       }
       aiResults.delete(dep.id);

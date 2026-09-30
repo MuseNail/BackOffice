@@ -10,6 +10,11 @@
 //
 // Sign convention (posting.js): debit-positive, so an income credit is a NEGATIVE line amount;
 // negating the sum yields positive recognized revenue.
+//
+// v3 (per-line): income attributes to an invoice PER LINE (line.invoiceId ?? txn.invoiceId), so one
+// deposit can pay several invoices. A txn tagged only at the txn level still attributes every income
+// line to that invoice via the fallback — identical to the old txn-level behavior (no data migration).
+import { lineInvoiceId } from './posting.js';
 
 // state → display metadata (the ONE place colour + default wording live; the view reads this so a
 // chip and any future filter can never disagree — the review-source.js SOURCE_META pattern).
@@ -21,40 +26,37 @@ export const LEDGER_STATES = {
   'unpaid':         { cls: '',      short: '',                 title: '' },
 };
 
-// NET income (cents) on one txn's lines: sum of income-account credits (debit-positive → negate).
-// The ONE definition of the sign convention, shared by both the per-invoice and by-invoice sums so
-// the detail badge and the list dot can never drift apart.
-export function txnIncomeCredits(txn, incomeIds) {
-  let cents = 0;
-  for (const l of (txn.lines || [])) if (incomeIds.has(l.accountId)) cents -= l.amountCents;
-  return cents;
-}
-
-// NET income (cents) recognized in the ledger and tagged to invoiceId. POSTED txns only —
-// "recognized" deliberately excludes staged/void rows (a staged Review deposit is not yet in the
-// ledger), which is why this can differ from the all-status Collected KPI on the same screen. May
-// be negative if a later refund debits income — callers treat rec <= 0 as "not recognized".
+// NET income (cents) recognized in the ledger and tagged to invoiceId — PER LINE (lineInvoiceId).
+// POSTED txns only — "recognized" deliberately excludes staged/void rows (a staged Review deposit is
+// not yet in the ledger), which is why this can differ from the all-status Collected KPI on the same
+// screen. Income credits are debit-positive (a credit is negative), so negating yields positive revenue
+// and a +passed-fee contra nets it down. May be negative if a later refund debits income — callers
+// treat rec <= 0 as "not recognized".
 export function incomeCreditsFor(txns, invoiceId, incomeIds) {
   let cents = 0;
   for (const t of txns) {
-    if (!t || t.status !== 'posted' || t.invoiceId !== invoiceId) continue;
-    cents += txnIncomeCredits(t, incomeIds);
+    if (!t || t.status !== 'posted') continue;
+    for (const l of (t.lines || [])) if (incomeIds.has(l.accountId) && lineInvoiceId(l, t) === invoiceId) cents -= l.amountCents;
   }
   return cents;
 }
 
-// Same NET recognized income, tallied for EVERY invoice in a single O(txns) pass — for the invoice
-// list (1,600+ rows), where calling incomeCreditsFor per row would be O(invoices×txns). Only
-// invoices with a nonzero net are keyed (a zero net reads the same as "none"). Uses the same
-// posted-only + txnIncomeCredits math as incomeCreditsFor, so the two agree per invoice.
+// Same NET recognized income, tallied for EVERY invoice in a single O(lines) pass — for the invoice
+// list (1,600+ rows), where calling incomeCreditsFor per row would be O(invoices×txns). Only invoices
+// with a nonzero net are keyed (a zero net reads the same as "none"). Uses the same posted-only +
+// per-line lineInvoiceId math as incomeCreditsFor, so the two agree per invoice.
 export function incomeCreditsByInvoice(txns, incomeIds) {
   const byInv = new Map();
   for (const t of txns) {
-    if (!t || t.status !== 'posted' || !t.invoiceId) continue;
-    const c = txnIncomeCredits(t, incomeIds);
-    if (c) byInv.set(t.invoiceId, (byInv.get(t.invoiceId) || 0) + c);
+    if (!t || t.status !== 'posted') continue;
+    for (const l of (t.lines || [])) {
+      if (!incomeIds.has(l.accountId)) continue;
+      const inv = lineInvoiceId(l, t);
+      if (!inv) continue;
+      byInv.set(inv, (byInv.get(inv) || 0) - l.amountCents);
+    }
   }
-  // Drop invoices whose per-txn credits summed back to exactly zero (e.g. a full refund).
+  // Drop invoices whose per-line credits summed back to exactly zero (e.g. a full refund).
   for (const [id, c] of byInv) if (c === 0) byInv.delete(id);
   return byInv;
 }

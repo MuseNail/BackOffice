@@ -109,6 +109,24 @@ export function resolveSplitInvoiceTags(lineInvoiceIds, noneFallback) {
   return { txnInvoiceId: noneFallback || undefined, perLine: eff.map(() => undefined) };
 }
 
+// The one shared split builder used by BOTH owner approve paths (approveSuggestedSplit + the split
+// modal's Post). Turn positive-magnitude category lines into signed, balanced catLines that carry their
+// per-line vendor / invoice / note, and resolve the invoice collapse (all one invoice → txn level) in
+// ONE place. `vendorId` is already resolved to an id by the caller (a typed-new name is find-or-created
+// first). Returns { catLines, txnInvoiceId } — the caller prepends the bank line and stamps txnInvoiceId.
+export function buildSplitCatLines({ lines, isExpense, fallbackInvoiceId } = {}) {
+  const catLines = (lines || []).map(l => {
+    const line = { accountId: l.accountId, amountCents: isExpense ? l.amountCents : -l.amountCents };
+    if (l.vendorId) line.vendorId = l.vendorId;
+    if (l.note) line.note = l.note;
+    if (l.invoiceId) line.invoiceId = l.invoiceId;
+    return line;
+  });
+  const { txnInvoiceId, perLine } = resolveSplitInvoiceTags(catLines.map(l => l.invoiceId), fallbackInvoiceId);
+  catLines.forEach((l, i) => { if (perLine[i]) l.invoiceId = perLine[i]; else delete l.invoiceId; });
+  return { catLines, txnInvoiceId };
+}
+
 // The invoice a txn LINE is attributed to: its own tag wins, else the transaction's. A split can
 // charge different lines to different invoices; a plain (untagged-line) txn attributes every line to
 // its txn-level invoiceId, so existing transactions behave exactly as before.

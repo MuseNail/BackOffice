@@ -5,7 +5,7 @@ import { dispatch } from '../sync.js';
 import { getActiveBiz, canEdit } from '../session.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { normalizeDesc, wordAwareMatch } from '../lib/match.js';
-import { txnHasVendor, hasAnyVendor, expenseForVendor } from '../lib/vendor-attribution.js';
+import { txnHasVendor, hasAnyVendor, activityForVendor } from '../lib/vendor-attribution.js';
 import { renderRegister } from '../register.js';
 import { dateRangeControl, inRange } from '../daterange.js';
 import { ruleConditionsEditor, buildMatchers, ruleSummary } from '../rule-editor.js';
@@ -52,7 +52,7 @@ export function render(root, detail) {
   vendorRange = pageRangeCtl.getRange();
   root.append(
     el('h2', {}, 'Vendors'),
-    el('p', { class: 'sub' }, 'Your suppliers — who you pay. Click a vendor to see its transactions and total paid. Auto-categorize rules (from ⚡ in Review) live in each vendor’s Edit.'),
+    el('p', { class: 'sub' }, 'Your suppliers. Click a vendor to see its transactions and net total — money you paid, minus any refunds or credits tagged back to them. Auto-categorize rules (from ⚡ in Review) live in each vendor’s Edit.'),
     el('div', { class: 'sticky-toolbar' },
       editable ? el('button', { class: 'btn sm', onclick: () => ruleModal(null) }, '＋ New vendor / rule') : el('span'),
       search,
@@ -78,7 +78,7 @@ function renderVendorRegister(root, vendorId) {
       el('a', { class: 'btn sm ghost', href: `#/b/${biz}/vendors` }, '← Back to vendors'));
     return;
   }
-  const expenseIds = new Set(entities('account').filter(a => EXPENSE_TYPES.has(a.type)).map(a => a.id));
+  const sets = catSets();
   unsub = renderRegister({
     root,
     title: vendor.name,
@@ -86,17 +86,29 @@ function renderVendorRegister(root, vendorId) {
     backHash: `/b/${biz}/vendors`,
     backLabel: 'Vendors',
     filename: `${biz}-${slug(vendor.name)}-transactions.csv`,
+    amountLabel: 'Net',
+    amountColored: false,
     getTxns: () => txnsForVendor(vendor),
     // Credit only THIS vendor's split lines so the register total matches the Vendors table
-    // (a split shared across vendors otherwise shows its full amount under each).
-    amountOf: (t) => expenseOf(t, expenseIds, vendor),
+    // (a split shared across vendors otherwise shows its full amount under each). NET: money paid
+    // minus income (refunds/credits) explicitly tagged to the vendor.
+    amountOf: (t) => netOf(t, sets, vendor),
   });
 }
 
 const EXPENSE_TYPES = new Set(['expense', 'cogs', 'other-expense', 'personal-expense']);
-// Per-vendor expense: only the lines credited to THIS vendor (line vendor → txn vendor
-// fallback), or the whole expense for a legacy payee-only match.
-const expenseOf = (t, expenseIds, vendor) => expenseForVendor(t, vendor.id, expenseIds, { payeeMatch: payeeOnly(t, vendor) });
+// The expense + income account-id sets vendor NET attribution runs over (built fresh so new
+// accounts are picked up). Income counts toward a vendor ONLY via an explicit per-line vendorId.
+const catSets = () => {
+  const accts = entities('account');
+  return {
+    expenseIds: new Set(accts.filter(a => EXPENSE_TYPES.has(a.type)).map(a => a.id)),
+    incomeIds: new Set(accts.filter(a => a.type === 'income').map(a => a.id)),
+  };
+};
+// Per-vendor NET (cents, debit-positive): expense lines credited to THIS vendor (line → txn fallback,
+// or the whole expense for a legacy payee-only match) MINUS income lines explicitly tagged to it.
+const netOf = (t, sets, vendor) => activityForVendor(t, vendor.id, sets.expenseIds, sets.incomeIds, { payeeMatch: payeeOnly(t, vendor) });
 
 function drawTable(body, editable) {
   const all = entities('vendor');
@@ -111,9 +123,9 @@ function drawTable(body, editable) {
     clear(body).append(el('p', { class: 'sub' }, vendorRulesOnly ? 'No vendors with a rule yet.' : 'No vendors match your search.'));
     return;
   }
-  const expenseIds = new Set(entities('account').filter(a => EXPENSE_TYPES.has(a.type)).map(a => a.id));
+  const sets = catSets();
   const rows = sortBy(
-    vendors.map(v => { const tx = txnsForVendor(v).filter(t => inRange(t.date, vendorRange)); return { v, n: tx.length, total: tx.reduce((s, t) => s + expenseOf(t, expenseIds, v), 0) }; }),
+    vendors.map(v => { const tx = txnsForVendor(v).filter(t => inRange(t.date, vendorRange)); return { v, n: tx.length, total: tx.reduce((s, t) => s + netOf(t, sets, v), 0) }; }),
     vendorSort, { vendor: r => r.v.name, rule: r => ruleSummary(r.v.matchers), txns: r => r.n, total: r => r.total });
   const redraw = () => drawTable(body, editable);
   const tbl = el('table', { class: 'data xl' },
@@ -121,7 +133,7 @@ function drawTable(body, editable) {
       sortTh(vendorSort, 'vendor', 'Vendor', redraw),
       sortTh(vendorSort, 'rule', 'Rule', redraw),
       sortTh(vendorSort, 'txns', 'Transactions', redraw, { numeric: true, cls: 'num' }),
-      sortTh(vendorSort, 'total', 'Total paid', redraw, { numeric: true, cls: 'num' }))),
+      sortTh(vendorSort, 'total', 'Net', redraw, { numeric: true, cls: 'num' }))),
     el('tbody', {}, ...rows.map(({ v, n, total }) => el('tr', { style: 'cursor:pointer', title: 'View transactions / edit rule', onclick: () => vendorDrilldown(v, () => drawTable(body, editable)) },
       el('td', {}, el('b', {}, v.name)),
       el('td', { class: 'sub', style: 'margin:0;max-width:340px' }, ruleSummary(v.matchers)),
@@ -130,14 +142,14 @@ function drawTable(body, editable) {
   clear(body).append(el('div', { class: 'card', style: 'padding:0;overflow:hidden;max-width:900px' }, tbl));
 }
 
-// Click a vendor → popup with their transactions + total paid, and Edit/Delete (Esc closes).
+// Click a vendor → popup with their transactions + net total (money paid minus refunds/credits), and Edit/Delete (Esc closes).
 // The popup carries its OWN date-range picker so you can re-scope the totals without
 // closing it; changing it also updates the page behind (refresh) and the page picker.
 function vendorDrilldown(v, refresh) {
   const m = modal(v.name);
   const accts = new Map(entities('account').map(a => [a.id, a]));
-  const expenseIds = new Set([...accts.values()].filter(a => EXPENSE_TYPES.has(a.type)).map(a => a.id));
-  const catOf = (t) => { const l = (t.lines || []).find(x => expenseIds.has(x.accountId)); const a = l && accts.get(l.accountId); return a ? accountLabel(a, accts) : '—'; };
+  const sets = catSets();
+  const catOf = (t) => { const l = (t.lines || []).find(x => sets.expenseIds.has(x.accountId) || sets.incomeIds.has(x.accountId)); const a = l && accts.get(l.accountId); return a ? accountLabel(a, accts) : '—'; };
   const isBankAcct = (a) => a.qbType === 'BANK' || a.qbType === 'CCARD';
   const catSel = el('select', { class: 'field-input', style: 'max-width:300px;margin:0' },
     el('option', { value: '' }, '— no memorized account —'),
@@ -155,14 +167,14 @@ function vendorDrilldown(v, refresh) {
   const txnSort = { key: 'date', dir: 'desc' };
   const drawList = () => {
     const txns = sortBy(txnsForVendor(v).filter(t => inRange(t.date, vendorRange)), txnSort,
-      { date: t => t.date, desc: t => t.payee || t.memo || '', account: t => catOf(t), amount: t => expenseOf(t, expenseIds, v) });
-    const total = txns.reduce((s, t) => s + expenseOf(t, expenseIds, v), 0);
+      { date: t => t.date, desc: t => t.payee || t.memo || '', account: t => catOf(t), amount: t => netOf(t, sets, v) });
+    const total = txns.reduce((s, t) => s + netOf(t, sets, v), 0);
     clear(listHost).append(
-      el('div', { style: 'font-weight:800;font-size:18px;margin:12px 0 10px' }, fmtMoney(total), el('span', { class: 'sub', style: 'font-weight:400;margin-left:8px' }, `paid · ${txns.length} transactions`)),
+      el('div', { style: 'font-weight:800;font-size:18px;margin:12px 0 10px' }, fmtMoney(total), el('span', { class: 'sub', style: 'font-weight:400;margin-left:8px' }, `net · ${txns.length} transactions`)),
       txns.length ? el('div', { class: 'card', style: 'padding:0;overflow:auto;max-height:50vh;margin:0' },
         el('table', { class: 'data xl' },
-          el('thead', {}, el('tr', {}, sortTh(txnSort, 'date', 'Date', drawList), sortTh(txnSort, 'desc', 'Description', drawList), sortTh(txnSort, 'account', 'Account', drawList), sortTh(txnSort, 'amount', 'Amount', drawList, { numeric: true, cls: 'num' }))),
-          el('tbody', {}, ...txns.map(t => el('tr', { style: 'cursor:pointer', title: 'Edit transaction', onclick: () => editTxnModal(t) }, el('td', {}, t.date), el('td', {}, prettyDesc(t.payee || t.memo) || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, acctAmount(expenseOf(t, expenseIds, v), { colored: false })))))))
+          el('thead', {}, el('tr', {}, sortTh(txnSort, 'date', 'Date', drawList), sortTh(txnSort, 'desc', 'Description', drawList), sortTh(txnSort, 'account', 'Account', drawList), sortTh(txnSort, 'amount', 'Net', drawList, { numeric: true, cls: 'num' }))),
+          el('tbody', {}, ...txns.map(t => el('tr', { style: 'cursor:pointer', title: 'Edit transaction', onclick: () => editTxnModal(t) }, el('td', {}, t.date), el('td', {}, prettyDesc(t.payee || t.memo) || '—'), el('td', {}, catOf(t)), el('td', { class: 'num' }, acctAmount(netOf(t, sets, v), { colored: false })))))))
         : el('p', { class: 'sub' }, 'No transactions yet.'));
   };
   const rangeCtl = dateRangeControl({ initial: 'year', onChange: (r) => { vendorRange = r; pageRangeCtl?.setRange(r); drawList(); refresh?.(); } });

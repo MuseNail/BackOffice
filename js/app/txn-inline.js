@@ -41,6 +41,31 @@ export function categoryName(t) {
   return a ? accountLabel(a, byId) : line.accountId;
 }
 
+// The single income category line of a SIMPLE deposit, if that's what this is. Income → vendor is
+// attributed PER LINE (never via the txn-level fallback), so a simple deposit's vendor must live on
+// this line, not on the transaction, or it wouldn't count in the vendor's net.
+function incomeCatLine(t) {
+  if (!isSimpleTxn(t)) return null;
+  const line = categoryLine(t);
+  const a = line && entities('account').find(x => x.id === line.accountId);
+  return (a && a.type === 'income') ? line : null;
+}
+// A read-only summary of a split's per-line vendors / invoices (shown where an inline txn-level field
+// can't represent multiple per-line tags — the owner edits those in the full transaction editor).
+function vendorSummary(t) {
+  const byId = new Map(entities('vendor').map(v => [v.id, v]));
+  const names = [...new Set((t.lines || []).map(l => l.vendorId).filter(Boolean).map(id => byId.get(id)?.name).filter(Boolean))];
+  if (names.length) return names.length === 1 ? names[0] : `Split — ${names.length} vendors`;
+  return t.vendorId ? (byId.get(t.vendorId)?.name || '') : '';
+}
+function invoiceSummary(t) {
+  const byId = new Map(entities('invoice').map(i => [i.id, i]));
+  const lab = (id) => { const iv = byId.get(id); return iv ? `#${iv.number || iv.id}` : ''; };
+  const ids = [...new Set((t.lines || []).map(l => l.invoiceId).filter(Boolean))];
+  if (ids.length) return ids.length === 1 ? lab(ids[0]) : `Split — ${ids.length} invoices`;
+  return t.invoiceId ? lab(t.invoiceId) : '';
+}
+
 // Apply a single-field change and persist. `reconciled` txns keep their date /
 // accounts / amounts locked (same rule as the edit modal) — category edits on
 // them are rejected; vendor / memo / invoice are metadata and always allowed.
@@ -54,7 +79,13 @@ function commit(t, patch) {
     if (t.reconciledIn) { const acct = entities('account').find(a => a.id === line.accountId); if (acct && bankish(acct)) { toast('Reconciled transfer — account is locked.', 'err'); return false; } }
     updated.lines = t.lines.map(l => l === line ? { ...l, accountId: patch.categoryId } : l);
   }
-  if ('vendorId' in patch) updated.vendorId = patch.vendorId || undefined;
+  if ('vendorId' in patch) {
+    const incLine = incomeCatLine(t);
+    if (incLine) {
+      updated.lines = (updated.lines || t.lines).map(l => l === incLine ? { ...l, vendorId: patch.vendorId || undefined } : l);
+      updated.vendorId = undefined;   // income nets via the line only — never leave a stale txn-level vendor (double-tag)
+    } else updated.vendorId = patch.vendorId || undefined;
+  }
   if ('invoiceId' in patch) updated.invoiceId = patch.invoiceId || undefined;
   if ('memo' in patch) updated.memo = patch.memo.trim();
   const v = validateTxn(updated, ctx());
@@ -111,16 +142,22 @@ export function categoryField(t) {
 }
 
 export function vendorField(t) {
-  const cur = t.vendorId ? entities('vendor').find(v => v.id === t.vendorId) : null;
+  // A split carries per-line vendors an inline txn-level field can't represent — show a read-only
+  // summary and send the owner to the full editor (which edits each line).
+  if (!isSimpleTxn(t)) return el('span', { class: 'txi-static', title: 'Split — edit the lines' }, vendorSummary(t) || '— vendor —');
+  const incLine = incomeCatLine(t);            // simple deposit → the vendor lives on the income line
+  const curId = incLine ? (incLine.vendorId || t.vendorId) : t.vendorId;   // still show a legacy txn-level income vendor
+  const cur = curId ? entities('vendor').find(v => v.id === curId) : null;
   return lazyCombo(t, {
     faceText: cur ? cur.name : '— vendor —',
-    build: () => vendorCombo({ selected: t.vendorId || '', minWidth: 0 }),
+    build: () => vendorCombo({ selected: curId || '', minWidth: 0 }),
     patch: (v) => ({ vendorId: v }),
   });
 }
 
 export function invoiceField(t) {
   if (!usesInvoices()) return null;
+  if (!isSimpleTxn(t)) return el('span', { class: 'txi-static', title: 'Split — edit the lines' }, invoiceSummary(t) || '— invoice —');
   const cur = t.invoiceId ? entities('invoice').find(i => i.id === t.invoiceId) : null;
   const label = (i) => `#${i.number || i.id} · ${(i.clientName || '').slice(0, 24)}`;
   return lazyCombo(t, {

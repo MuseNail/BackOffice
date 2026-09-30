@@ -51,6 +51,85 @@ test('incomeCreditsFor can go negative when a refund debits income (net-zero / r
   assert.equal(incomeCreditsFor(txns, 'inv-1', INCOME), 0);
 });
 
+// ── per-line income recognition (one deposit pays MANY invoices) ──────────────
+// A deposit with income lines tagged to different invoices via line.invoiceId; the txn carries
+// no txn-level invoiceId. Recognition must attribute each income line to its own invoice.
+test('incomeCreditsFor attributes income PER LINE: one deposit split across two invoices credits each its own line', () => {
+  const dep = tx({ id: 'dep', date: '2026-05-01', lines: [
+    { accountId: 'invoice2go-clearing', amountCents: 100000 },
+    { accountId: 'general-income', amountCents: -60000, invoiceId: 'inv-A' },
+    { accountId: 'general-income', amountCents: -40000, invoiceId: 'inv-B' },
+  ] });
+  assert.equal(incomeCreditsFor([dep], 'inv-A', INCOME), 60000);
+  assert.equal(incomeCreditsFor([dep], 'inv-B', INCOME), 40000);
+  assert.equal(incomeCreditsFor([dep], 'inv-C', INCOME), 0);
+});
+
+test('incomeCreditsFor: a per-line income invoice overrides the txn-level tag only for that line', () => {
+  const dep = tx({ id: 'dep', date: '2026-05-01', invoiceId: 'inv-A', lines: [
+    { accountId: 'invoice2go-clearing', amountCents: 100000 },
+    { accountId: 'general-income', amountCents: -60000 },                      // falls back to inv-A
+    { accountId: 'general-income', amountCents: -40000, invoiceId: 'inv-B' },  // overrides to inv-B
+  ] });
+  assert.equal(incomeCreditsFor([dep], 'inv-A', INCOME), 60000);
+  assert.equal(incomeCreditsFor([dep], 'inv-B', INCOME), 40000);
+});
+
+test('incomeCreditsByInvoice matches incomeCreditsFor for a per-line multi-invoice deposit', () => {
+  const dep = tx({ id: 'dep', lines: [
+    { accountId: 'invoice2go-clearing', amountCents: 100000 },
+    { accountId: 'general-income', amountCents: -60000, invoiceId: 'inv-A' },
+    { accountId: 'general-income', amountCents: -40000, invoiceId: 'inv-B' },
+  ] });
+  const byInv = incomeCreditsByInvoice([dep], INCOME);
+  assert.equal(byInv.get('inv-A'), 60000);
+  assert.equal(byInv.get('inv-B'), 40000);
+  for (const id of ['inv-A', 'inv-B']) assert.equal(byInv.get(id), incomeCreditsFor([dep], id, INCOME));
+});
+
+test('incomeCreditsFor: a multi-invoice deposit with per-line passed-fee contra nets gross−passed per invoice', () => {
+  const dep = tx({ id: 'dep', lines: [
+    { accountId: 'invoice2go-clearing', amountCents: 97000 },
+    { accountId: 'general-income', amountCents: -60000, invoiceId: 'inv-A' },
+    { accountId: 'processing-fees', amountCents: 1800, invoiceId: 'inv-A' },
+    { accountId: 'general-income', amountCents: -40000, invoiceId: 'inv-B' },
+    { accountId: 'processing-fees', amountCents: 1200, invoiceId: 'inv-B' },
+  ] });
+  assert.equal(incomeCreditsFor([dep], 'inv-A', INCOME), 58200);   // 60000 − 1800
+  assert.equal(incomeCreditsFor([dep], 'inv-B', INCOME), 38800);   // 40000 − 1200
+});
+
+test('incomeCreditsFor: a partially-tagged deposit counts the tagged income line; the untagged one lands on no invoice', () => {
+  const dep = tx({ id: 'dep', lines: [
+    { accountId: 'invoice2go-clearing', amountCents: 100000 },
+    { accountId: 'general-income', amountCents: -60000, invoiceId: 'inv-A' },
+    { accountId: 'general-income', amountCents: -40000 },   // untagged, no txn-level → no invoice
+  ] });
+  assert.equal(incomeCreditsFor([dep], 'inv-A', INCOME), 60000);
+  const byInv = incomeCreditsByInvoice([dep], INCOME);
+  assert.equal(byInv.get('inv-A'), 60000);
+  assert.equal([...byInv.values()].reduce((s, v) => s + v, 0), 60000, 'the untagged $400 is recognized against no invoice');
+});
+
+test('incomeCreditsFor nets a per-line payment against a per-line refund on the same invoice', () => {
+  const pay = tx({ id: 'pay', lines: [
+    { accountId: 'bank', amountCents: 50000 },
+    { accountId: 'general-income', amountCents: -50000, invoiceId: 'inv-R' },
+  ] });
+  const refund = tx({ id: 'ref', date: '2026-02-01', lines: [
+    { accountId: 'bank', amountCents: -20000 },
+    { accountId: 'general-income', amountCents: 20000, invoiceId: 'inv-R' },
+  ] });
+  assert.equal(incomeCreditsFor([pay, refund], 'inv-R', INCOME), 30000);
+  assert.equal(incomeCreditsByInvoice([pay, refund], INCOME).get('inv-R'), 30000);
+});
+
+test('incomeCreditsByInvoice drops an invoice whose per-line income nets to exactly zero (full refund)', () => {
+  const pay = tx({ id: 'pay', lines: [{ accountId: 'bank', amountCents: 50000 }, { accountId: 'general-income', amountCents: -50000, invoiceId: 'inv-Z' }] });
+  const refund = tx({ id: 'ref', date: '2026-02-01', lines: [{ accountId: 'bank', amountCents: -50000 }, { accountId: 'general-income', amountCents: 50000, invoiceId: 'inv-Z' }] });
+  assert.equal(incomeCreditsByInvoice([pay, refund], INCOME).has('inv-Z'), false);
+});
+
 // ── ledgerIncomeStart ─────────────────────────────────────────────
 test('ledgerIncomeStart = earliest posted income-crediting date; ignores clearing/expense-only + void txns', () => {
   const txns = [
