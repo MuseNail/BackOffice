@@ -1093,6 +1093,8 @@ function splitModal(row, accountsById, opts = {}) {
   // now inactive) can't be pre-selected — the owner types it in (listed in the hint below).
   const seed = Array.isArray(opts.seed) ? opts.seed : null;
   const seedNewNames = seed ? seed.filter(l => !(l.accountId && accountsById.get(l.accountId)?.active !== false)).map(l => l.accountName).filter(Boolean) : [];
+  // Client-proposed NEW vendors (a typed name, no id) — created on Post via findOrCreateVendor; flag them.
+  const seedNewVendors = seed ? [...new Set(seed.filter(l => !l.vendorId && l.vendorName).map(l => l.vendorName))] : [];
   if (seed && seed.length) {
     for (const l of seed) {
       const id = l.accountId && accountsById.get(l.accountId)?.active !== false ? l.accountId : '';
@@ -1141,6 +1143,7 @@ function splitModal(row, accountsById, opts = {}) {
     el('p', { class: 'sub' }, `${row.date} · ${row.desc || '—'} · ${fmtMoney(row.amountCents, { sign: row.amountCents > 0 })}. Split it across the accounts below — the amounts must add up to ${fmtMoney(total)}.`),
     (useInv && !isExpense) ? el('p', { class: 'sub', style: 'margin:-4px 0 8px' }, 'Paying more than one invoice? Add a line per invoice and tag each — one deposit can settle several.') : null,
     seedNewNames.length ? el('p', { class: 'sub', style: 'color:var(--brand)' }, `Your client proposed new account${seedNewNames.length > 1 ? 's' : ''}: ${seedNewNames.join(', ')} — type ${seedNewNames.length > 1 ? 'them' : 'it'} into a line to add.`) : null,
+    seedNewVendors.length ? el('p', { class: 'sub', style: 'color:var(--brand)' }, `Your client proposed new vendor${seedNewVendors.length > 1 ? 's' : ''}: ${seedNewVendors.join(', ')} — ${seedNewVendors.length > 1 ? 'they’ll be' : 'it’ll be'} created when you post.`) : null,
     linesBox, addLine, remind,
     el('div', { style: 'display:flex;gap:9px;justify-content:flex-end;margin-top:12px' },
       el('button', { class: 'btn ghost', onclick: m.close }, 'Cancel'), post));

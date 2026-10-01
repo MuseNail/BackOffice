@@ -387,13 +387,13 @@ function splitBlock(row, d, groups, btn, { vendors = [], invs = [], showInvoices
     const rm = el('button', { class: 'sugg-rm', type: 'button', title: 'Remove line', onclick: () => { if (d.split.length > 2) { const i = d.split.indexOf(l); if (i >= 0) d.split.splice(i, 1); renderLines(); updateBal(); } } }, '×');
     const topRow = el('div', { class: 'sugg-splitrow' }, sel, amt, rm);
     // Per-line vendor (freeText — propose a NEW vendor by name), invoice (existing only), and note.
-    const ven = combobox({ groups: [{ label: '', items: vendors.map(v => ({ value: v.id, label: v.name })) }], value: l.vendorId || '', text: l.vendorId ? '' : (l.vendorName || ''), placeholder: 'Vendor…', minWidth: 0, freeText: true, emptyText: 'New vendor — the owner adds it' });
+    const ven = combobox({ groups: [{ label: '', items: vendors.map(v => ({ value: v.id, label: v.name })) }], value: l.vendorId || '', text: l.vendorId ? '' : (l.vendorName || ''), placeholder: 'Vendor…', minWidth: 0, freeText: true, emptyText: 'No match — suggested as a NEW vendor' });
     l._venSel = ven;
     ven.style.cssText = 'flex:1;min-width:108px';
     ven.addEventListener('change', () => { l.vendorId = ven.value; l.vendorName = ven.value ? '' : ven.inputText; });
     let inv = null;
     if (showInvoices) {
-      inv = combobox({ groups: [{ label: '', items: [{ value: '', label: '— invoice —' }, ...invs.map(i => ({ value: i.id, label: `#${i.number || i.id} · ${(i.clientName || '').slice(0, 22)}` }))] }], value: l.invoiceId || '', placeholder: 'Invoice…', minWidth: 0 });
+      inv = combobox({ groups: [{ label: '', items: [{ value: '', label: '— none —' }, ...invs.map(i => ({ value: i.id, label: `#${i.number || i.id} · ${(i.clientName || '').slice(0, 22)}` }))] }], value: l.invoiceId || '', placeholder: 'Invoice…', minWidth: 0 });
       l._invSel = inv;
       inv.style.cssText = 'flex:1;min-width:108px';
       inv.addEventListener('change', () => { l.invoiceId = inv.value; });
