@@ -19,6 +19,7 @@ import { ruleConditionsEditor, buildMatchers, matchersToConditions, rulePreview 
 import { bindSuggest } from '../suggest.js';
 import { accountLabel } from '../lib/coa-templates.js';
 import { parseMoney } from '../lib/money.js';
+import { activeFilterCount } from '../lib/review-filter.js';
 import { MUSE_SYNC_TYPES } from '../lib/musesync.js';
 import { helcimDayTotals, ledgerDayDebits, matchDeposit } from '../lib/processor-match.js';
 import { attachAddCategory, attachAddVendor, accountCombo, invoiceCombo } from '../pickers.js';
@@ -42,6 +43,9 @@ let reviewDateCtl = null;
 let reviewSearchEl = null;
 let reviewFiltersHost = null;   // sticky-header slots filled by drawBody (filters + action buttons)
 let reviewActionsHost = null;
+let reviewHeadEl = null;        // the fixed header element — holds the persistent topline + collapse state
+let reviewFiltersBtn = null;    // the "Filters" toggle (shown only when the window is narrow)
+let reviewFiltersBadge = null;  // active-filter count badge on the Filters toggle
 const REVIEW_FILTER_DEFAULT = () => ({ dir: 'all', status: 'all', source: 'all', bank: 'all', sort: 'date-desc', amountMin: '', amountMax: '', from: '', to: '', q: '' });
 // Preserve per-row category / vendor / invoice / note edits across drawBody re-renders
 // (store changes — e.g. creating a rule — trigger a full redraw, so we save the user's
@@ -86,23 +90,31 @@ export function render(root) {
   // run drops a redraw queued by a render that has since been torn down (unmount → unsub=null) or
   // superseded by a remount (unsub is a new subscription), so a stale closure never repaints.
   const drawSoon = () => { if (redrawScheduled) return; redrawScheduled = true; const mine = unsub; queueMicrotask(() => { redrawScheduled = false; if (unsub === mine) draw(); }); };
-  reviewSearchEl = el('input', { class: 'field-input', type: 'search', placeholder: 'Search description, vendor, or amount…', style: 'max-width:340px;margin:0', value: reviewFilter.q || '',
+  reviewSearchEl = el('input', { class: 'field-input', type: 'search', placeholder: 'Search description, vendor, or amount…', style: 'margin:0', value: reviewFilter.q || '',
     oninput: (e) => { reviewFilter.q = e.target.value; draw(); } });
-  reviewFiltersHost = el('div');
+  reviewFiltersHost = el('div', { class: 'review-filters' });
   reviewActionsHost = el('div');
   // The whole header (title, blurb, search, filters, action buttons) is a FIXED top
   // section that never scrolls — only the rows below it scroll. A flex column inside
   // the window body guarantees the title/description stay visible on a long list.
+  // The window's own title bar already says "Review", so no in-body <h2>. The long
+  // description tucks behind an ⓘ, and the filter bar collapses behind a "Filters" button
+  // when the window is narrow — so a thin (split-screen) window shows transactions, not chrome.
+  const blurbText = 'Imported transactions wait here, grouped by account. Nothing posts without your approval — and transfers between your own accounts never count as income or expense.';
+  reviewFiltersBadge = el('span', { class: 'rf-badge', hidden: true });
+  reviewFiltersBtn = el('button', { class: 'btn sm ghost rf-toggle no-print', type: 'button', 'aria-expanded': 'false',
+    onclick: () => { const open = reviewHeadEl.classList.toggle('filters-open'); reviewFiltersBtn.setAttribute('aria-expanded', open ? 'true' : 'false'); } },
+    el('span', { class: 'ms', style: 'font-size:16px', 'aria-hidden': 'true' }, 'tune'), 'Filters', reviewFiltersBadge);
+  const infoBtn = el('button', { class: 'rf-info no-print', type: 'button', 'aria-label': 'About the Review screen', 'aria-expanded': 'false', title: blurbText,
+    onclick: () => { const open = reviewHeadEl.classList.toggle('info-open'); infoBtn.setAttribute('aria-expanded', open ? 'true' : 'false'); } }, el('span', { class: 'ms', style: 'font-size:19px', 'aria-hidden': 'true' }, 'info'));
+  reviewHeadEl = el('div', { class: 'review-head' },
+    el('div', { class: 'review-topline no-print' },
+      el('span', { class: 'ms', style: 'color:var(--mut);font-size:20px' }, 'search'), reviewSearchEl, infoBtn, reviewFiltersBtn),
+    el('p', { class: 'sub review-blurb', style: 'margin:0 0 8px' }, blurbText),
+    reviewFiltersHost,
+    reviewActionsHost);
   root.append(
-    el('div', { class: 'review-wrap' },
-      el('div', { class: 'review-head' },
-        el('h2', { style: 'margin:0 0 2px' }, 'Review'),
-        el('p', { class: 'sub', style: 'margin:0 0 8px' }, 'Imported transactions wait here, grouped by account. Nothing posts without your approval — and transfers between your own accounts never count as income or expense.'),
-        el('div', { class: 'no-print', style: 'display:flex;align-items:center;gap:8px;margin-bottom:8px' },
-          el('span', { class: 'ms', style: 'color:var(--mut);font-size:20px' }, 'search'), reviewSearchEl),
-        reviewFiltersHost,
-        reviewActionsHost),
-      el('div', { class: 'review-scroll' }, body)),
+    el('div', { class: 'review-wrap' }, reviewHeadEl, el('div', { class: 'review-scroll' }, body)),
   );
   reviewDateCtl = dateRangeControl({ initial: 'all', onChange: (r) => { reviewFilter.from = r.from || ''; reviewFilter.to = r.to || ''; draw(); } });
   if (pendingReviewQuery != null) { reviewFilter.q = pendingReviewQuery; reviewSearchEl.value = pendingReviewQuery; pendingReviewQuery = null; }
@@ -110,7 +122,7 @@ export function render(root) {
   draw();
 }
 
-export function unmount() { unsub?.(); unsub = null; redrawScheduled = false; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); lastInvoice = new Map(); lastMemo = new Map(); collapsedBanks = new Set(); bankPage = new Map(); selected = new Set(); selectedBank = null; savedSelected = new Set(); reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; reviewSearchEl = null; reviewFiltersHost = null; reviewActionsHost = null; focusVendorRow = null; }
+export function unmount() { unsub?.(); unsub = null; redrawScheduled = false; aiSuggestions = new Map(); aiBusy = false; showSkipped = false; lastCategory = new Map(); lastVendor = new Map(); lastInvoice = new Map(); lastMemo = new Map(); collapsedBanks = new Set(); bankPage = new Map(); selected = new Set(); selectedBank = null; savedSelected = new Set(); reviewFilter = REVIEW_FILTER_DEFAULT(); reviewDateCtl = null; reviewSearchEl = null; reviewFiltersHost = null; reviewActionsHost = null; reviewHeadEl = null; reviewFiltersBtn = null; reviewFiltersBadge = null; focusVendorRow = null; }
 
 // A row is "ready" if it has a resolved category — a valid rule/history suggestion,
 // an AI suggestion, or a manual pick (lastCategory). Drives the needs/ready filter.
@@ -228,6 +240,7 @@ function drawBody(body, editable) {
   if (!pending.length) {
     if (reviewFiltersHost) clear(reviewFiltersHost);
     if (reviewActionsHost) clear(reviewActionsHost);
+    if (reviewFiltersBadge) { reviewFiltersBadge.hidden = true; reviewFiltersBadge.textContent = ''; }   // no pending rows → no active-filter badge
     // Still render Saved-for-later (with its multi-select restore) when nothing is pending —
     // otherwise "save everything for later" would leave the section unreachable.
     const savedSection = savedForLaterSection(body, editable);
@@ -365,9 +378,17 @@ function drawBody(body, editable) {
     const noteFromClient = !lastMemo.has(row.id) && !(row.memo || '').trim() && !!(row.clientNote || '').trim();
     const sel = categorySelect(row, categories, accountsById, preselect,
       (account) => { lastCategory.set(row.id, account.id); drawBody(body, editable); }, acctPrefill);
-    const memoIn = el('input', { class: 'field-input', placeholder: 'Add a note…', style: 'margin:0;min-width:150px', value: lastMemo.has(row.id) ? lastMemo.get(row.id) : (row.memo || row.clientNote || '') });
+    // A textarea (not a single-line input) so a long note wraps and reads in full — the value
+    // must be assigned as a PROPERTY (setAttribute('value') doesn't populate a <textarea>).
+    const memoIn = el('textarea', { class: 'field-input', placeholder: 'Add a note…', rows: '1', style: 'margin:0' });
+    memoIn.value = lastMemo.has(row.id) ? lastMemo.get(row.id) : (row.memo || row.clientNote || '');
     bindSuggest(memoIn, 'memo');
-    memoIn.addEventListener('input', () => lastMemo.set(row.id, memoIn.value));
+    // height = content + padding (scrollHeight) + border (offsetHeight−clientHeight), so the last line
+    // isn't shaved under border-box. overflow-y:auto (css) keeps any un-grown content scrollable.
+    const growMemo = () => { memoIn.style.height = 'auto'; memoIn.style.height = (memoIn.scrollHeight + memoIn.offsetHeight - memoIn.clientHeight) + 'px'; };
+    memoIn.addEventListener('input', () => { lastMemo.set(row.id, memoIn.value); growMemo(); });
+    memoIn.addEventListener('focus', growMemo);   // re-fit if it rendered hidden, or the window was later narrowed
+    if (memoIn.value) requestAnimationFrame(() => { if (memoIn.offsetParent !== null) growMemo(); });   // skip empty notes (no measure/thrash)
     const vendSel = vendorSelect(vendorsList, vendPreselect,
       // No inline drawBody here: adding the vendor already dispatched a store change, which queues the
       // coalesced redraw. Rendering inline too would make THIS (soon-detached) render schedule the focus
@@ -471,8 +492,11 @@ function drawBody(body, editable) {
           editable ? el('div', { class: 'revfields' },
             field('Vendor', vendSel),
             field('Account', sel),
-            invSel ? field('Invoice', invSel) : null,
-            field(noteFromClient ? el('span', {}, 'Note ', el('span', { style: 'color:var(--brand);font-weight:600' }, '· from client')) : 'Note', memoIn)) : null),
+            invSel ? field('Invoice', invSel) : null) : null,
+          editable ? el('div', { class: 'revnote' },
+            el('label', { class: 'field-label', style: 'margin:0 0 2px' },
+              noteFromClient ? el('span', {}, 'Note ', el('span', { style: 'color:var(--brand);font-weight:600' }, '· from client')) : 'Note'),
+            memoIn) : null),
         el('div', { class: 'revside' },
           el('div', { class: 'revside-top' }, chip, amtEl),
           editable ? el('div', { class: 'revside-actions' }, ...actions) : null)));
@@ -568,7 +592,9 @@ function drawBody(body, editable) {
     value: reviewFilter[key] ? (reviewFilter[key] / 100).toFixed(2) : '',
     onchange: (e) => { const c = parseMoney(e.target.value); reviewFilter[key] = (c != null && c > 0) ? c : ''; drawBody(body, editable); } });
   if (reviewDateCtl) reviewDateCtl.setRange({ from: reviewFilter.from || null, to: reviewFilter.to || null });
-  const filtersOn = reviewFilter.dir !== 'all' || reviewFilter.status !== 'all' || reviewFilter.source !== 'all' || reviewFilter.bank !== 'all' || reviewFilter.sort !== 'date-desc' || reviewFilter.amountMin !== '' || reviewFilter.amountMax !== '' || reviewFilter.from !== '' || reviewFilter.to !== '' || reviewFilter.q !== '';
+  const nActiveFilters = activeFilterCount(reviewFilter);
+  const filtersOn = nActiveFilters > 0 || reviewFilter.q !== '';
+  if (reviewFiltersBadge) { reviewFiltersBadge.hidden = nActiveFilters === 0; reviewFiltersBadge.textContent = nActiveFilters ? String(nActiveFilters) : ''; }
   // Fixed two-row filter bar: row 1 = what to show / order; row 2 = amount, date, clear.
   const rowStyle = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap';
   const filterBar = el('div', { style: 'margin-bottom:12px' },

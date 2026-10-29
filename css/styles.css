@@ -79,12 +79,13 @@ h2{font-size:19px;margin:0 0 2px}
    (chip/amount + action buttons) below the fields so nothing is squeezed. */
 @container (max-width:520px){
   .revbody{flex-direction:column;gap:10px}
+  .revmain{width:100%}
   .revside{align-items:stretch;width:100%}
   .revside-top{justify-content:space-between}
   .revside-actions{justify-content:flex-start;flex-wrap:wrap}
 }
 /* Very narrow: force the fields to a single column (full-width stack). */
-@container (max-width:400px){ .revfields{grid-template-columns:1fr} }
+@container (max-width:300px){ .revfields{grid-template-columns:1fr} }
 .kpi-card{transition:border-color .12s,box-shadow .12s,transform .12s}
 .kpi-card:hover{border-color:var(--brand);box-shadow:0 2px 10px rgba(36,86,166,.12);transform:translateY(-1px)}
 .kpi-more{font-size:11px;font-weight:700;color:var(--brand);margin-top:8px;opacity:0;transition:opacity .12s}
@@ -413,6 +414,26 @@ table.data.cmp th,table.data.cmp td{padding-left:12px;padding-right:12px}
 /* Review — sticky header (title, search, filters, action buttons pin to the top) */
 .review-head{position:sticky;top:53px;z-index:7;background:var(--bg);padding:8px 0;margin-bottom:8px;border-bottom:1px solid var(--line)}
 .review-head .review-bulkbar{position:static;top:auto;z-index:auto;margin-bottom:0}
+/* Compact Review header: one top line (search + ⓘ + Filters); blurb + filter bar tuck away when the window is narrow */
+.review-head{container-type:inline-size}
+.review-topline{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.review-topline input[type=search]{flex:1 1 auto;min-width:120px;max-width:none}
+.review-blurb{display:block}
+.rf-info{border:none;background:transparent;color:var(--mut);cursor:pointer;padding:6px;border-radius:7px;display:none;flex:none}
+.rf-info:hover{background:var(--fill);color:var(--brand)}
+.rf-toggle{display:none;flex:none}
+.rf-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:5px;border-radius:999px;background:var(--brand);color:#fff;font-size:10.5px;font-weight:800}
+.rf-badge[hidden]{display:none}
+@container (max-width:620px){
+  .review-head .rf-info{display:inline-flex}
+  .review-head .rf-toggle{display:inline-flex}
+  .review-head .review-blurb{display:none}
+  .review-head.info-open .review-blurb{display:block}
+  .review-head .review-filters{display:none}
+  .review-head.filters-open .review-filters{display:block}
+}
+/* Owner Review note on its own full-width row, auto-grown; scoped to Review so the client Suggest note keeps its native scrollbar */
+.review-scroll .revnote textarea.field-input{min-height:36px;line-height:1.4;overflow-y:auto;resize:none}
 
 /* Combobox: floated above everything (position:fixed, portaled to body), sized to the
    widest account so names sit on ONE line — JS sets min-width to the field width and

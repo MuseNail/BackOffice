@@ -6,6 +6,9 @@ import { APP_VERSION } from './config.js';
 
 // Newest first. Add an entry each release.
 const CHANGELOG = [
+  { v: '0.71.24', items: [
+    { icon: 'splitscreen', t: 'Review works in a narrow or split-screen window', d: 'If you shrink the Review window to work it side-by-side with another app, it no longer disappears under its own header. The big “Review” heading inside the window is gone (the window’s title bar already says Review), and when the window is narrow the description and the row of filters tuck away behind a small ⓘ and a “Filters” button — so you see transactions instead of a screenful of controls, with a little number on the Filters button when any filter is on. On a wide window nothing changes: the description and filters stay fully visible. The Vendor / Account / Invoice boxes also sit two-across and use the full width when the window is thin, and the note is now a box that wraps and grows so a long note shows in full instead of being cut off — so each transaction takes fewer rows in a narrow window.' },
+  ] },
   { v: '0.71.23', items: [
     { icon: 'tune', t: 'Small polish on the new per-line splits', d: 'Two tidy-ups to the splits added in the last update: the per-line vendor and invoice pickers in the client app now use the same wording as the rest of the app, and when a client proposes a brand-new vendor on a split line, your “Review split” now flags it (“Your client proposed new vendor: … — it’ll be created when you post”), matching the existing new-account hint. Nothing changed about how anything posts.' },
   ] },
